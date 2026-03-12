@@ -23,8 +23,9 @@ import tempfile
 import time
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR))
+# Add project root to path for imports
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from tts_edgetts import EdgeTTSEngine     # noqa: E402
 from speed_rate import SpeedRate          # noqa: E402
@@ -34,51 +35,9 @@ logger = get_logger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────
-# SRT PARSER (tái sử dụng từ translator.py)
+# SRT PARSER (import từ utils/srt_parser)
 # ─────────────────────────────────────────────────────────────────────
-import re
-
-def parse_srt(content: str):
-    blocks = re.split(r'\n\s*\n', content.strip())
-    result = []
-    for block in blocks:
-        lines = block.strip().splitlines()
-        if len(lines) < 3:
-            continue
-        try:
-            index = int(lines[0].strip())
-        except ValueError:
-            continue
-        if '-->' not in lines[1]:
-            continue
-
-        # Parse timestamp → ms
-        def ts_to_ms(ts: str) -> int:
-            ts = ts.strip().replace(',', '.')
-            parts = ts.split(':')
-            h, m, s = int(parts[0]), int(parts[1]), float(parts[2])
-            return int((h * 3600 + m * 60 + s) * 1000)
-
-        t_parts = lines[1].split('-->')
-        start_ms = ts_to_ms(t_parts[0])
-        end_ms   = ts_to_ms(t_parts[1])
-        text     = "\n".join(lines[2:]).strip()
-        # Loại bỏ HTML tags
-        text = re.sub(r'</?[a-zA-Z]+>', '', text, flags=re.I)
-        text = re.sub(r'\n{2,}', '\n', text).strip()
-
-        if end_ms <= start_ms or not text:
-            continue
-        result.append({
-            "line":       index,
-            "start_time": start_ms,
-            "end_time":   end_ms,
-            "startraw":   lines[1].split('-->')[0].strip(),
-            "endraw":     lines[1].split('-->')[1].strip(),
-            "time":       lines[1].strip(),
-            "text":       text,
-        })
-    return result
+from utils.srt_parser import parse_srt, parse_srt_file  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────────────

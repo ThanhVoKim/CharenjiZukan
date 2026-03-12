@@ -16,12 +16,17 @@ dependencies = [
 ]
 
 [project.scripts]
-translate-srt = "translate_srt:main"
-tts-srt = "tts_srt:main"
+translate-srt = "cli.translate_srt:main"
+tts-srt = "cli.tts_srt:main"
+mute-srt = "cli.mute_srt:main"
 
 [tool.uv]
-dev-dependencies = []
+dev-dependencies = [
+    "pytest>=7.0.0",
+]
 
 [tool.uv.scripts]
-translate = "python translate_srt.py"
-tts = "python tts_srt.py"
+translate = "python cli/translate_srt.py"
+tts = "python cli/tts_srt.py"
+mute = "python cli/mute_srt.py"
+test = "pytest tests/ -v"

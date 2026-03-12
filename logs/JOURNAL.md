@@ -1,5 +1,134 @@
 # Project Journal
 
+## 2026-03-12: Tổ chức lại cấu trúc project
+
+### Yêu cầu
+
+Người dùng muốn tổ chức lại cấu trúc project để rõ ràng hơn, bao gồm:
+
+1. Tạo thư mục `cli/` cho các CLI modules
+2. Tạo thư mục `prompts/` cho prompt templates
+3. Tạo thư mục `tests/` cho unit tests
+4. Tạo file `README.md`
+
+### Thay đổi cấu trúc
+
+**Cấu trúc mới:**
+
+```
+CharenjiZukan/
+├── cli/                    # CLI modules (MỚI)
+│   ├── __init__.py
+│   ├── mute_srt.py
+│   ├── speed_rate.py
+│   ├── translate_srt.py
+│   └── tts_srt.py
+├── prompts/                # Prompt templates (MỚI)
+│   └── gemini.txt
+├── tests/                  # Unit tests (MỚI)
+│   ├── __init__.py
+│   └── test_srt_parser.py
+├── utils/
+│   ├── __init__.py
+│   ├── logger.py
+│   └── srt_parser.py
+├── docs/
+├── logs/
+├── plans/
+├── translator.py           # Core module (giữ nguyên)
+├── tts_edgetts.py          # Engine module (giữ nguyên)
+├── pyproject.toml          # Cập nhật
+└── README.md               # MỚI
+```
+
+### Các file đã di chuyển
+
+| File cũ            | File mới               |
+| ------------------ | ---------------------- |
+| `mute_srt.py`      | `cli/mute_srt.py`      |
+| `translate_srt.py` | `cli/translate_srt.py` |
+| `tts_srt.py`       | `cli/tts_srt.py`       |
+| `speed_rate.py`    | `cli/speed_rate.py`    |
+| `gemini.txt`       | `prompts/gemini.txt`   |
+
+### Cập nhật imports
+
+Các file CLI đã cập nhật `PROJECT_ROOT` để import đúng từ project root:
+
+```python
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+```
+
+### Cập nhật pyproject.toml
+
+- Thêm `pytest` vào dev-dependencies
+- Cập nhật script paths: `cli.translate_srt:main`, `cli.tts_srt:main`, `cli.mute_srt:main`
+- Thêm script `mute` và `test`
+
+### Trạng thái
+
+- ✅ Hoàn thành
+
+---
+
+## 2026-03-12: Tạo module mute_srt.py - Mute audio từ file mute.srt
+
+### Yêu cầu
+
+Người dùng có audio chứa 2 ngôn ngữ (bình luận + video gốc trích dẫn), khiến WhisperAI không chính xác. Cần tool để:
+
+1. Đánh dấu thủ công các đoạn cần mute trong file `mute.srt`
+2. Tự động thay thế bằng silence (giữ nguyên độ dài audio)
+3. Output audio mới tối ưu cho WhisperX (WAV 16kHz mono)
+
+### Thay đổi
+
+1. **Tạo [`utils/srt_parser.py`](../utils/srt_parser.py)** - SRT parser module chung:
+   - `parse_srt(content)` - Parse SRT từ string
+   - `parse_srt_file(file_path)` - Parse SRT từ file
+   - `ts_to_ms(ts)` - Chuyển timestamp sang milliseconds
+   - `segments_to_srt(segments)` - Chuyển segments thành SRT format
+
+2. **Cập nhật [`tts_srt.py`](../tts_srt.py)** - Refactor để import `parse_srt` từ `utils/srt_parser`
+
+3. **Cập nhật [`utils/__init__.py`](../utils/__init__.py)** - Export các hàm từ srt_parser
+
+4. **Tạo [`mute_srt.py`](../mute_srt.py)** - Module chính:
+   - CLI: `uv run mute_srt.py --input video.mp4 --mute mute.srt`
+   - Output mặc định: `<input>_muted.wav` (WAV 16kHz mono)
+   - Thay thế các đoạn được đánh dấu bằng silence
+   - Giữ nguyên độ dài audio
+
+5. **Tạo [`plans/mute-audio-feature.md`](../plans/mute-audio-feature.md)** - Plan chi tiết
+
+### Quy ước file mute.srt
+
+```
+<video_name>mute.srt
+```
+
+Format:
+
+```srt
+1
+00:01:24,233 --> 00:01:27,566
+[MUTE] Đoạn video gốc được trích dẫn
+```
+
+### Workflow tích hợp
+
+```
+Video gốc → Tạo mute.srt thủ công → mute_srt.py → Audio WAV muted → WhisperX → Subtitle chính xác
+```
+
+### Trạng thái
+
+- ✅ Hoàn thành code
+- ⏳ Cần test với file audio/video thực
+
+---
+
 ## 2026-03-12: Tạo module logging chung (utils/logger.py)
 
 ### Yêu cầu
