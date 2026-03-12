@@ -1,7 +1,7 @@
 [project]
 name = "videocolab"
-version = "0.1.0"
-description = "Video translation and dubbing tools for Google Colab"
+version = "0.2.0"
+description = "Video translation, dubbing and subtitle extraction tools for Google Colab"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,11 +13,17 @@ dependencies = [
     "soundfile>=0.12.0",
     "aiohttp>=3.8.0",
     "numpy>=1.20.0",
+    # Video Subtitle Extractor dependencies
+    "opencv-python>=4.8.0",
+    "pyyaml>=6.0",
+    # DeepSeek-OCR-2 (uncomment when available)
+    # "deepseek-ocr>=1.0.0",
 ]
 
 [project.scripts]
 translate-srt = "translate_srt:main"
 tts-srt = "tts_srt:main"
+extract-subtitles = "main_extract:main"
 
 [tool.uv]
 dev-dependencies = []
@@ -25,3 +31,4 @@ dev-dependencies = []
 [tool.uv.scripts]
 translate = "python translate_srt.py"
 tts = "python tts_srt.py"
+extract = "python main_extract.py"
