@@ -56,8 +56,7 @@ flowchart LR
 
 ## Tài liệu liên quan
 
-- [Hướng dẫn sử dụng trên Colab](colab-usage.md) - Cài đặt và sử dụng cơ bản
-- [Quy trình chi tiết trên Colab](colab-workflow.md) - Hướng dẫn từng bước
+- [Hướng dẫn sử dụng trên Google Colab](colab-guide.md) - Cài đặt, cấu hình Secrets và quy trình hoàn chỉnh
 
 ## Changelog
 

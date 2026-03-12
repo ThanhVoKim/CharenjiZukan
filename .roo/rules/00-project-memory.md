@@ -1,10 +1,10 @@
-# Quy tắc ghi nhớ dự án (Project Memory Rule)
+# Project Memory Rule
 
-Để đảm bảo các Agent khác có thể tiếp nối công việc, Agent hiện tại PHẢI tuân thủ:
+To ensure other Agents can seamlessly continue the work, the current Agent MUST adhere to the following:
 
-1. **Duy trì file `JOURNAL.md`**: Mọi thay đổi lớn về kiến trúc, các quyết định quan trọng hoặc thay đổi trong luồng (flow) phải được ghi lại vào file `JOURNAL.md` ở thư mục `logs`.
-2. **Cung cấp ngữ cảnh hiện tại**: Trước khi kết thúc nhiệm vụ, Agent phải tóm tắt trạng thái hiện tại của dự án bao gồm:
-   - Những gì đã hoàn thành.
-   - Những vấn đề còn tồn đọng.
-   - Các bước tiếp theo được đề xuất.
-3. **Luồng dữ liệu (Flow)**: Luôn tham chiếu đến sơ đồ hoặc tài liệu flow trong thư mục `docs/` để đảm bảo code mới không phá vỡ logic chung.
+1. **Maintain `JOURNAL.md`**: All major architectural changes, key decisions, or workflow modifications must be logged in the `JOURNAL.md` file located in the `logs` directory.
+2. **Provide Current Context**: Before concluding a task, the Agent must summarize the current state of the project, including:
+   - What has been completed.
+   - Outstanding issues (Pending tasks).
+   - Proposed next steps.
+3. **Data Flow**: Always refer to the diagrams or flow documentation in the `docs/` directory to ensure new code does not break the overall system logic.
