@@ -1,5 +1,86 @@
 # Project Journal
 
+## 2026-03-12: Tạo module logging chung (utils/logger.py)
+
+### Yêu cầu
+
+Người dùng muốn có một module logging chung để:
+
+1. Tất cả file code sử dụng cùng một cấu hình logging
+2. Dễ dàng quản lý và thay đổi logging level
+3. Hỗ trợ Google Colab với `setup_colab_logging()`
+
+### Thay đổi
+
+1. **Tạo [`utils/logger.py`](../utils/logger.py)** - Module logging chung:
+   - `setup_logging(level, log_file, format_string)` - Cấu hình logging
+   - `get_logger(name)` - Lấy logger với tên module
+   - `setup_colab_logging(verbose)` - Cấu hình cho Google Colab
+
+2. **Tạo [`utils/__init__.py`](../utils/__init__.py)** - Package init
+
+3. **Cập nhật các file sử dụng logging**:
+   - [`speed_rate.py`](../speed_rate.py) - Import từ `utils.logger`
+   - [`translate_srt.py`](../translate_srt.py) - Thêm `setup_logging()` tại entry point
+   - [`tts_srt.py`](../tts_srt.py) - Thêm `setup_logging()` tại entry point
+
+4. **Tạo [`docs/logging-guide.md`](../docs/logging-guide.md)** - Hướng dẫn chi tiết:
+   - Giới thiệu logging vs print
+   - Khi nào dùng print, khi nào dùng logging
+   - Ví dụ cho từng module
+   - Best practices
+   - Troubleshooting
+
+5. **Tạo [`plans/logging-guide.md`](../plans/logging-guide.md)** - Plan thiết kế
+
+### Khuyến nghị sử dụng
+
+| Loại thông báo              | Nên dùng  | Lý do                          |
+| --------------------------- | --------- | ------------------------------ |
+| Khởi tạo module (load-time) | `print()` | Luôn hiện, không cần cấu hình  |
+| Progress trong Colab        | `print()` | Đơn giản, dễ thấy              |
+| Thông tin xử lý             | `logging` | Có thể tắt/bật theo level      |
+| Cảnh báo (warning)          | `logging` | Format chuẩn, có thể filter    |
+| Lỗi (error)                 | `logging` | Cần timestamp, có thể ghi file |
+| Debug chi tiết              | `logging` | Tắt được khi production        |
+
+### Trạng thái
+
+- ✅ Hoàn thành
+- ⏳ Cần test trên Colab
+
+---
+
+## 2026-03-11: Fix logging rubberband/pyrubberband detection ở module-level
+
+### Vấn đề
+
+Khi chạy `tts_srt.py`, không thấy log thông báo về rubberband/pyrubberband detection như mong đợi:
+
+```
+[SpeedRate] ⚠️ rubberband binary có, nhưng pyrubberband lib chưa cài → fallback FFmpeg atempo
+[SpeedRate] 💡 Cài đặt: pip install pyrubberband
+```
+
+### Nguyên nhân
+
+- Code logging ở module-level trong [`speed_rate.py`](../speed_rate.py:70-74) và [`speed_rate.py`](../speed_rate.py:196-206) chạy **TRƯỚC** khi `logging.basicConfig()` được gọi trong `tts_srt.py`
+- Khi import `speed_rate` module, logger `"srt_translator"` chưa có handler → messages bị mất
+
+### Giải pháp
+
+Thay thế `_safe_log()` bằng `print()` ở module-level code:
+
+- [`speed_rate.py:71-74`](../speed_rate.py:71) - Log rubberband binary detection
+- [`speed_rate.py:200-206`](../speed_rate.py:200) - Log pyrubberband library detection
+
+### Trạng thái
+
+- ✅ Đã fix
+- ⏳ Cần test lại trên Colab
+
+---
+
 ## 2026-03-11: Fix lỗi output không có extension trong tts_srt.py
 
 ### Vấn đề

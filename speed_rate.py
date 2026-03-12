@@ -27,7 +27,25 @@ from typing import List, Dict, Any, Optional
 
 from pydub import AudioSegment
 
-logger = logging.getLogger("srt_translator")
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+def _safe_log(level: str, msg: str):
+    """Helper để log an toàn, tránh NameError nếu logger không khả dụng."""
+    try:
+        if level == "debug":
+            logger.debug(msg)
+        elif level == "info":
+            logger.info(msg)
+        elif level == "warning":
+            logger.warning(msg)
+        elif level == "error":
+            logger.error(msg)
+    except NameError:
+        pass  # Logger không khả dụng, bỏ qua
+
 
 AUDIO_SAMPLE_RATE = 48000
 AUDIO_CHANNELS    = 2
@@ -53,9 +71,9 @@ MIN_CLIP_MS       = 40   # ms ngắn nhất chấp nhận
 # Detect một lần duy nhất lúc import — tránh thử→fail hàng chục lần
 _RUBBERBAND_BIN: str = shutil.which("rubberband") or ""
 if _RUBBERBAND_BIN:
-    logger.info(f"[SpeedRate] rubberband binary: {_RUBBERBAND_BIN} → pyrubberband ON")
+    print(f"[SpeedRate] rubberband binary: {_RUBBERBAND_BIN} → pyrubberband ON")
 else:
-    logger.info("[SpeedRate] Không tìm thấy rubberband binary → FFmpeg atempo")
+    print("[SpeedRate] Không tìm thấy rubberband binary → FFmpeg atempo")
 
 
 def _build_atempo_filter(speed_factor: float) -> str:
@@ -101,7 +119,7 @@ def _speedup_with_atempo(wav_path: str, target_ms: int) -> bool:
             "-c:a", "pcm_s16le",
             tmp_path,
         ]
-        logger.debug(
+        _safe_log("debug",
             f"[atempo] {Path(wav_path).name} "
             f"{current_ms}ms → {target_ms}ms  filter={filter_str}"
         )
@@ -113,11 +131,11 @@ def _speedup_with_atempo(wav_path: str, target_ms: int) -> bool:
 
     except subprocess.CalledProcessError as e:
         stderr = e.stderr.decode(errors="ignore")[-300:]
-        logger.error(f"[atempo] FFmpeg lỗi {Path(wav_path).name}:\n{stderr}")
+        _safe_log("error", f"[atempo] FFmpeg lỗi {Path(wav_path).name}:\n{stderr}")
         Path(tmp_path).unlink(missing_ok=True)
         return False
     except Exception as e:
-        logger.error(f"[atempo] thất bại {Path(wav_path).name}: {e}")
+        _safe_log("error", f"[atempo] thất bại {Path(wav_path).name}: {e}")
         Path(tmp_path).unlink(missing_ok=True)
         return False
 
@@ -153,7 +171,7 @@ def _speedup_rubberband(wav_path: str, target_ms: int) -> bool:
         stretch_rate = current_ms / target_ms
         stretch_rate = max(0.2, min(stretch_rate, 50.0))
 
-        logger.debug(
+        _safe_log("debug",
             f"[rubberband] {Path(wav_path).name} "
             f"{current_ms}ms → {target_ms}ms (rate={stretch_rate:.3f})"
         )
@@ -164,7 +182,7 @@ def _speedup_rubberband(wav_path: str, target_ms: int) -> bool:
         return True
 
     except Exception as e:
-        logger.warning(f"[rubberband] lỗi {Path(wav_path).name}: {e} → fallback atempo")
+        _safe_log("warning", f"[rubberband] lỗi {Path(wav_path).name}: {e} → fallback atempo")
         return _speedup_with_atempo(wav_path, target_ms)
 
 
@@ -173,13 +191,21 @@ def _speedup_ffmpeg(wav_path: str, target_ms: int) -> bool:
     return _speedup_with_atempo(wav_path, target_ms)
 
 
-# Cache kiểm tra binary một lần duy nhất khi module load
+# Cache kiểm tra binary và library một lần duy nhất khi module load
 _RUBBERBAND_AVAILABLE = _has_rubberband_binary()
+_PYRUBBERBAND_INSTALLED = False
+
 if _RUBBERBAND_AVAILABLE:
-    logger.info("[SpeedRate] rubberband binary found → dùng pyrubberband (pitch-preserving)")
+    try:
+        import pyrubberband  # noqa: F401
+        _PYRUBBERBAND_INSTALLED = True
+        print("[SpeedRate] ✅ rubberband binary + pyrubberband → dùng pyrubberband (pitch-preserving)")
+    except ImportError:
+        print("[SpeedRate] ⚠️ rubberband binary có, nhưng pyrubberband lib chưa cài → fallback FFmpeg atempo")
+        print("[SpeedRate] 💡 Cài đặt: pip install pyrubberband")
 else:
-    logger.info("[SpeedRate] rubberband binary NOT found → dùng FFmpeg atempo")
-    logger.info("[SpeedRate] Tip: cài bằng `apt-get install -y rubberband-cli` để chất lượng tốt hơn")
+    print("[SpeedRate] ℹ️ rubberband binary NOT found → dùng FFmpeg atempo")
+    print("[SpeedRate] 💡 Cài đặt: apt-get install -y rubberband-cli && pip install pyrubberband")
 
 
 def _speedup_audio(wav_path: str, target_ms: int) -> bool:
@@ -188,12 +214,8 @@ def _speedup_audio(wav_path: str, target_ms: int) -> bool:
     - Có rubberband binary + pyrubberband lib → dùng rubberband (pitch-preserving)
     - Còn lại → FFmpeg atempo chain (luôn available)
     """
-    if _RUBBERBAND_AVAILABLE:
-        try:
-            import pyrubberband  # noqa: F401
-            return _speedup_rubberband(wav_path, target_ms)
-        except ImportError:
-            logger.debug("[SpeedRate] pyrubberband lib chưa cài → fallback atempo")
+    if _RUBBERBAND_AVAILABLE and _PYRUBBERBAND_INSTALLED:
+        return _speedup_rubberband(wav_path, target_ms)
     return _speedup_with_atempo(wav_path, target_ms)
 
 
@@ -221,7 +243,7 @@ def _concat_wav_files(file_list: List[str], output_path: str) -> bool:
     # Lọc file hợp lệ
     valid = [f for f in file_list if Path(f).exists() and Path(f).stat().st_size > 0]
     if not valid:
-        logger.error("[Concat] Không có file nào hợp lệ")
+        _safe_log("error", "[Concat] Không có file nào hợp lệ")
         return False
 
     # Ghi file danh sách (dùng tên file tương đối để tránh vấn đề path trên Windows)
@@ -249,7 +271,7 @@ def _concat_wav_files(file_list: List[str], output_path: str) -> bool:
             Path(concat_txt).unlink(missing_ok=True)
             return True
     except Exception as e:
-        logger.error(f"[Concat] FFmpeg thất bại: {e}")
+        _safe_log("error", f"[Concat] FFmpeg thất bại: {e}")
     finally:
         Path(concat_txt).unlink(missing_ok=True)
         Path(tmp_out).unlink(missing_ok=True)
@@ -292,13 +314,13 @@ class SpeedRate:
         Trả về queue_tts đã được cập nhật start/end_time.
         """
         if self.voice_autorate:
-            logger.info("[SpeedRate] Chế độ: voice_autorate=ON")
+            _safe_log("info", "[SpeedRate] Chế độ: voice_autorate=ON")
             self._prepare_data()
             self._calculate()
             self._speedup_all()
             self._concat_aligned()
         else:
-            logger.info("[SpeedRate] Chế độ: voice_autorate=OFF → ghép thẳng theo SRT timeline")
+            _safe_log("info", "[SpeedRate] Chế độ: voice_autorate=OFF → ghép thẳng theo SRT timeline")
             self._run_no_rate_mode()
 
         return self.queue_tts
@@ -404,7 +426,7 @@ class SpeedRate:
                 it["filename"]  = sil
                 it["dubb_time"] = it["source_duration"]
 
-            logger.debug(
+            _safe_log("debug",
                 f"[Prepare] sub {it.get('line', i)}: "
                 f"slot={it['start_time_source']}→{it['end_time_source']} "
                 f"({it['source_duration']}ms)  dubb={it['dubb_time']}ms"
@@ -435,13 +457,13 @@ class SpeedRate:
                     "dubb_time":   dubb_dur,
                     "target_time": audio_target,
                 })
-                logger.debug(
+                _safe_log("debug",
                     f"[Calc] sub {it.get('line','?')}: "
                     f"dubb={dubb_dur}ms > slot={source_dur}ms "
                     f"→ nén về {audio_target}ms"
                 )
             else:
-                logger.debug(
+                _safe_log("debug",
                     f"[Calc] sub {it.get('line','?')}: "
                     f"dubb={dubb_dur}ms ≤ slot={source_dur}ms → không cần nén"
                 )
@@ -449,13 +471,13 @@ class SpeedRate:
     def _speedup_all(self):
         """Nén tất cả audio cần xử lý."""
         if not self._to_speedup:
-            logger.info("[SpeedRate] Không có audio nào cần time-stretch")
+            _safe_log("info", "[SpeedRate] Không có audio nào cần time-stretch")
             return
-        logger.info(f"[SpeedRate] Time-stretch {len(self._to_speedup)} audio segments...")
+        _safe_log("info", f"[SpeedRate] Time-stretch {len(self._to_speedup)} audio segments...")
         for d in self._to_speedup:
             ok = _speedup_audio(d["filename"], d["target_time"])
             if not ok:
-                logger.warning(f"[SpeedRate] Bỏ qua speedup: {d['filename']}")
+                _safe_log("warning", f"[SpeedRate] Bỏ qua speedup: {d['filename']}")
 
     def _concat_aligned(self):
         """
@@ -496,7 +518,7 @@ class SpeedRate:
                     slot_parts.append(wav)
                     slot_len += len(seg)
                 except Exception as e:
-                    logger.error(f"[Concat-Align] Đọc audio lỗi {wav}: {e}")
+                    _safe_log("error", f"[Concat-Align] Đọc audio lỗi {wav}: {e}")
 
             # 3. Điều chỉnh khớp với slot_dur
             if slot_len > slot_dur:
@@ -508,7 +530,7 @@ class SpeedRate:
                 cut = combined[:slot_dur]
                 cut.export(merged, format="wav")
                 audio_list.append(merged)
-                logger.debug(f"[Align] sub {it.get('line','?')} cắt {slot_len}→{slot_dur}ms")
+                _safe_log("debug", f"[Align] sub {it.get('line','?')} cắt {slot_len}→{slot_dur}ms")
 
             elif slot_len < slot_dur:
                 # Thiếu → thêm silence đuôi
@@ -516,7 +538,7 @@ class SpeedRate:
                 tail = _make_silence(self.cache_folder, f"stail_{i}", diff)
                 audio_list.extend(slot_parts)
                 audio_list.append(tail)
-                logger.debug(f"[Align] sub {it.get('line','?')} thêm {diff}ms silence đuôi")
+                _safe_log("debug", f"[Align] sub {it.get('line','?')} thêm {diff}ms silence đuôi")
             else:
                 audio_list.extend(slot_parts)
 

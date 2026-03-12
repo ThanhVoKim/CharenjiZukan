@@ -25,6 +25,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from translator import translate_srt_file  # noqa: E402
+from utils.logger import setup_logging, get_logger  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────
@@ -134,11 +135,8 @@ def main():
 
     # Logging
     log_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    setup_logging(level=log_level)
+    logger = get_logger(__name__)
 
     # Validate input file
     input_path = Path(args.input)

@@ -28,6 +28,9 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 from tts_edgetts import EdgeTTSEngine     # noqa: E402
 from speed_rate import SpeedRate          # noqa: E402
+from utils.logger import setup_logging, get_logger  # noqa: E402
+
+logger = get_logger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -308,11 +311,8 @@ def main():
     args = parser.parse_args()
 
     # Logging
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    setup_logging(level=log_level)
 
     # ── Chế độ liệt kê giọng ─────────────────────────────────────────
     if args.list_voices is not None:
