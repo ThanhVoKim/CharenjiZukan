@@ -1,5 +1,131 @@
 # Project Journal
 
+## 2026-03-13: Tạo module Demucs Audio - Tách voice/background từ audio
+
+### Yêu cầu
+
+Tạo CLI module [`cli/demucs_audio.py`](../cli/demucs_audio.py) để tách voice khỏi background music sử dụng Demucs AI model.
+
+### Thay đổi
+
+1. **Tạo [`cli/demucs_audio.py`](../cli/demucs_audio.py)** - CLI module:
+   - `check_hardware_requirements()` - Kiểm tra GPU/CPU requirements
+   - `check_demucs_installed()` - Kiểm tra demucs đã cài đặt
+   - `get_device()` - Auto-detect device (cuda/cpu)
+   - `separate_audio()` - Tách audio thành sources
+   - CLI arguments: `--input`, `--output`, `--model`, `--stems`, `--keep`, `--device`, `--verbose`
+
+2. **Cập nhật [`pyproject.toml`](../pyproject.toml)**:
+   - Thêm dependencies: `demucs>=4.0.0`, `torch>=2.0.0`, `torchaudio>=2.0.0`
+   - Thêm script entry point: `demucs-audio`
+
+3. **Tạo [`tests/test_demucs_audio.py`](../tests/test_demucs_audio.py)** - Unit tests:
+   - Test hardware check
+   - Test CLI arguments
+   - Skip test nếu hardware yếu (không GPU, CPU < 4 cores)
+
+4. **Cập nhật [`docs/workflow.md`](../docs/workflow.md)**:
+   - Đánh dấu Demucs là ✅ Hoàn thành
+   - Thêm chi tiết options và ví dụ sử dụng
+
+### CLI Arguments
+
+| Argument  | Default  | Mô tả                                                          |
+| --------- | -------- | -------------------------------------------------------------- |
+| `--stems` | 2        | Số nguồn tách: 2 (vocals+bgm) hoặc 4 (drums/bass/other/vocals) |
+| `--keep`  | bgm      | Giữ lại: `bgm` hoặc `vocals`                                   |
+| `--model` | htdemucs | Model: htdemucs, htdemucs_ft, mdx, mdx_extra                   |
+
+### Ví dụ sử dụng
+
+```bash
+# Mặc định: 2-stems, output bgm (remove vocals)
+uv run cli/demucs_audio.py --input audio_muted.wav
+
+# 2-stems, output vocals (remove bgm)
+uv run cli/demucs_audio.py --input audio_muted.wav --keep vocals
+
+# 4-stems, output bgm
+uv run cli/demucs_audio.py --input audio_muted.wav --stems 4
+```
+
+### Hardware Requirements
+
+- **GPU**: Khuyến nghị CUDA GPU
+- **CPU**: Tối thiểu 4 cores nếu không có GPU
+- **RAM**: Tối thiểu 8GB, khuyến nghị 16GB
+- **Disk**: ~1GB cho model weights
+
+### Trạng thái
+
+- ✅ Hoàn thành code
+- ✅ Hoàn thành unit tests
+- ✅ Cập nhật documentation
+
+---
+
+## 2026-03-13: Tạo module Merge SRT - Merge 2 file SRT theo timestamp
+
+### Yêu cầu
+
+Module merge 2 file SRT (`subtitle_commentary.srt` + `subtitle_quoted.srt`) thành 1 file hoàn chỉnh (`subtitle_merged.srt`), sắp xếp theo timestamp.
+
+### Thay đổi
+
+1. **Tạo [`cli/merge_srt.py`](../cli/merge_srt.py)** - CLI module:
+   - `check_overlap(segments)` - Kiểm tra overlapping segments
+   - `merge_srt_segments(commentary_segments, quoted_segments, check_overlaps)` - Merge logic
+   - `merge_srt_files(commentary_path, quoted_path, output_path, check_overlaps)` - File operations
+   - CLI arguments: `--commentary`, `--quoted`, `--output`, `--no-check-overlap`, `--verbose`
+
+2. **Cập nhật [`docs/workflow.md`](../docs/workflow.md)**:
+   - Đánh dấu Merge SRT là ✅ Hoàn thành
+
+### Logic Merge
+
+```
+1. Parse subtitle_commentary.srt → list segments
+2. Parse subtitle_quoted.srt → list segments
+3. Merge 2 lists thành 1 list
+4. Sort merged list theo start_time
+5. Check overlaps (nếu bật) → log error với icon ❌
+6. Đánh số lại line (1, 2, 3, ...)
+7. Export thành subtitle_merged.srt
+```
+
+### Ví dụ sử dụng
+
+```bash
+# Cơ bản - output mặc định là subtitle_merged.srt
+uv run cli/merge_srt.py --commentary subtitle_commentary.srt --quoted subtitle_quoted.srt
+
+# Với output tùy chỉnh
+uv run cli/merge_srt.py -c commentary.srt -q quoted.srt -o merged.srt
+
+# Bỏ qua check overlap
+uv run cli/merge_srt.py -c commentary.srt -q quoted.srt --no-check-overlap
+```
+
+### Dependencies
+
+- `utils/srt_parser.py` - Parse SRT file (`parse_srt_file`, `segments_to_srt`)
+- `utils/logger.py` - Logging
+
+### Unit Tests
+
+Tạo [`tests/test_merge_srt.py`](../tests/test_merge_srt.py) với 15 test cases:
+
+- `TestCheckOverlap`: 5 tests (no overlap, with overlap, multiple overlaps, empty, single)
+- `TestMergeSrtSegments`: 7 tests (basic, empty commentary, empty quoted, both empty, same timestamp, gap, overlap detection)
+- `TestMergeSrtFiles`: 3 tests (basic merge, empty commentary, file not found)
+
+### Trạng thái
+
+- ✅ Hoàn thành code
+- ✅ Hoàn thành unit tests (15/15 passed)
+
+---
+
 ## 2026-03-13: Tạo module SRT to ASS - Chuyển đổi subtitle sang ASS format
 
 ### Yêu cầu

@@ -132,10 +132,10 @@ flowchart TB
 | ------------------- | ---------------------- | ----------------------------------- | ------------- |
 | **Mute Audio**      | `cli/mute_srt.py`      | Mute audio từ file mute.srt         | ✅ Hoàn thành |
 | **Extract Audio**   | `cli/extract_srt.py`   | Extract audio theo mute.srt         | ✅ Hoàn thành |
-| **Merge SRT**       | `cli/merge_srt.py`     | Merge 2 file SRT theo timestamp     | ❌ Cần tạo    |
+| **Merge SRT**       | `cli/merge_srt.py`     | Merge 2 file SRT theo timestamp     | ✅ Hoàn thành |
 | **Translate**       | `cli/translate_srt.py` | Dịch file .srt bằng Gemini API      | ✅ Hoàn thành |
-| **SRT to ASS**      | `cli/srt_to_ass.py`    | Chuyển SRT → ASS với template       | ❌ Cần tạo    |
-| **Demucs**          | `cli/demucs_audio.py`  | Remove voice từ audio               | ❌ Cần tạo    |
+| **SRT to ASS**      | `cli/srt_to_ass.py`    | Chuyển SRT → ASS với template       | ✅ Hoàn thành |
+| **Demucs**          | `cli/demucs_audio.py`  | Remove voice từ audio               | ✅ Hoàn thành |
 | **Slow Down**       | `cli/slow_media.py`    | Slow down video/audio/subtitle/ass  | ❌ Cần tạo    |
 | **TTS**             | `cli/tts_srt.py`       | Chuyển .srt thành audio với EdgeTTS | ✅ Hoàn thành |
 | **Merge Video**     | `cli/merge_video.py`   | Ghép video + audio + subtitle + ass | ❌ Cần tạo    |
@@ -145,7 +145,7 @@ flowchart TB
 | **Translator Core** | `translator.py`        | Logic dịch SRT                      | ✅ Hoàn thành |
 | **SRT Parser**      | `utils/srt_parser.py`  | Parse file .srt (dùng chung)        | ✅ Hoàn thành |
 | **Audio Utils**     | `utils/audio_utils.py` | Load/export audio, tạo silence      | ✅ Hoàn thành |
-| **ASS Utils**       | `utils/ass_utils.py`   | Xử lý ASS format                    | ❌ Cần tạo    |
+| **ASS Utils**       | `utils/ass_utils.py`   | Xử lý ASS format                    | ✅ Hoàn thành |
 
 ## Chi tiết các bước xử lý
 
@@ -295,12 +295,32 @@ uv run cli/translate_srt.py --input subtitle_merged.srt --lang "Japanese" --keys
 ### Bước 6: Demucs Voice Removal
 
 **Input:** `audio_muted.wav`
-**Output:** `audio_bgm.wav`
+**Output:** `audio_bgm.wav` hoặc `audio_vocals.wav`
 
 Sử dụng Demucs để tách voice khỏi background music.
 
+#### Options
+
+| Option    | Default  | Mô tả                                                          |
+| --------- | -------- | -------------------------------------------------------------- |
+| `--stems` | 2        | Số nguồn tách: 2 (vocals+bgm) hoặc 4 (drums/bass/other/vocals) |
+| `--keep`  | bgm      | Giữ lại: `bgm` (background) hoặc `vocals`                      |
+| `--model` | htdemucs | Model: htdemucs, htdemucs_ft, mdx, mdx_extra                   |
+
+#### Ví dụ
+
 ```bash
-uv run cli/demucs_audio.py --input audio_muted.wav --output audio_bgm.wav
+# Mặc định: 2-stems, output bgm (remove vocals)
+uv run cli/demucs_audio.py --input audio_muted.wav
+
+# 2-stems, output vocals (remove bgm)
+uv run cli/demucs_audio.py --input audio_muted.wav --keep vocals
+
+# 4-stems, output bgm
+uv run cli/demucs_audio.py --input audio_muted.wav --stems 4
+
+# Với model chất lượng cao
+uv run cli/demucs_audio.py --input audio_muted.wav --model htdemucs_ft
 ```
 
 ### Bước 7: Slow Down 0.65x
@@ -372,9 +392,9 @@ uv run cli/speed_video.py --input video_slow_final.mp4 --speed 1.2 --output vide
 | 1a   | Mute audio      | ✅ [`cli/mute_srt.py`](cli/mute_srt.py)           |
 | 1b   | Extract audio   | ✅ [`cli/extract_srt.py`](cli/extract_srt.py)     |
 | 2    | WhisperX STT    | ✅ Trên Colab                                     |
-| 3    | Merge SRT       | ❌ Cần tạo                                        |
+| 3    | Merge SRT       | ✅ [`cli/merge_srt.py`](cli/merge_srt.py)         |
 | 4a   | Translate Note  | ✅ [`cli/translate_srt.py`](cli/translate_srt.py) |
-| 4b   | SRT to ASS      | ❌ Cần tạo                                        |
+| 4b   | SRT to ASS      | ✅ [`cli/srt_to_ass.py`](cli/srt_to_ass.py)       |
 | 5    | Translate SRT   | ✅ [`cli/translate_srt.py`](cli/translate_srt.py) |
 | 6    | Demucs          | ❌ Cần tạo                                        |
 | 7    | Slow down 0.65x | ❌ Cần tạo                                        |

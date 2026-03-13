@@ -13,12 +13,16 @@ dependencies = [
     "soundfile>=0.12.0",
     "aiohttp>=3.8.0",
     "numpy>=1.20.0",
+    "demucs>=4.0.0",
+    "torch>=2.0.0",
+    "torchaudio>=2.0.0",
 ]
 
 [project.scripts]
 translate-srt = "cli.translate_srt:main"
 tts-srt = "cli.tts_srt:main"
 mute-srt = "cli.mute_srt:main"
+demucs-audio = "cli.demucs_audio:main"
 
 [tool.uv]
 dev-dependencies = [
@@ -29,4 +33,5 @@ dev-dependencies = [
 translate = "python cli/translate_srt.py"
 tts = "python cli/tts_srt.py"
 mute = "python cli/mute_srt.py"
+demucs = "python cli/demucs_audio.py"
 test = "pytest tests/ -v"
