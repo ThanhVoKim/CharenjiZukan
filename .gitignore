@@ -208,3 +208,7 @@ __marimo__/
 
 # plans
 plans/
+
+# Test data files (input/output for testing)
+tests/test_data/*
+!tests/test_data/.gitkeep

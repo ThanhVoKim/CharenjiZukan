@@ -22,8 +22,12 @@ Dự án được phát triển để tự động hóa quy trình lồng tiến
 | `subtitle_quoted.srt`     | Subtitle cho phần video trích dẫn (tạo thủ công)       |
 | `subtitle_merged.srt`     | Subtitle merge từ commentary + quoted                  |
 | `subtitle_translated.srt` | Subtitle đã dịch                                       |
+| `note_source.srt`         | File note gốc (chưa dịch)                              |
+| `note_translated.srt`     | File note đã dịch                                      |
+| `note_overlay.ass`        | File ASS để overlay note lên video                     |
 | `audio_bgm.wav`           | Audio background (Demucs remove voice)                 |
 | `video_slow.mp4`          | Video slow 0.65x                                       |
+| `note_overlay_slow.ass`   | File ASS đã slow down 0.65x                            |
 | `video_slow_final.mp4`    | Video slow đã ghép audio                               |
 | `video_final.mp4`         | Video hoàn chỉnh cuối cùng                             |
 
@@ -49,6 +53,7 @@ flowchart TB
         V[video.mp4<br>Video gốc]
         MS[mute.srt<br>Timestamp mute]
         SQ[subtitle_quoted.srt<br>Transcript đoạn trích dẫn]
+        NS[note_source.srt<br>Note gốc]
     end
 
     subgraph "B1: Audio Processing"
@@ -67,34 +72,42 @@ flowchart TB
         SQ --> |Sort by time| SMT
     end
 
-    subgraph "B4: Translate"
+    subgraph "B4: Note Processing"
+        NS --> |translate_srt.py| NT[note_translated.srt]
+        NT --> |srt_to_ass.py| NO[note_overlay.ass]
+        TMP[sample.ass<br>Template] --> NO
+    end
+
+    subgraph "B5: Translate"
         SMT --> |translate_srt.py| ST[subtitle_translated.srt]
     end
 
-    subgraph "B5: Demucs Voice Removal"
+    subgraph "B6: Demucs Voice Removal"
         AM --> |Demucs| AB[audio_bgm.wav<br>Background music]
     end
 
-    subgraph "B6: Slow Down 0.65x"
+    subgraph "B7: Slow Down 0.65x"
         V --> VS[video_slow.mp4<br>Video 0.65x]
         AE --> AES[audio_slow_extracted.wav]
         AB --> ABS[audio_slow_bgm.wav]
         ST --> STS[subtitle_slow_translated.srt]
+        NO --> NOS[note_overlay_slow.ass]
     end
 
-    subgraph "B7: TTS"
+    subgraph "B8: TTS"
         STS --> |tts_srt.py| AT[audio_slow_tts.wav]
     end
 
-    subgraph "B8: Merge Video"
+    subgraph "B9: Merge Video"
         VS --> VSF[video_slow_final.mp4]
         AES --> VSF
         ABS --> VSF
         AT --> VSF
         STS --> VSF
+        NOS --> VSF
     end
 
-    subgraph "B9: Speed Up 1.2x"
+    subgraph "B10: Speed Up 1.2x"
         VSF --> VF[video_final.mp4<br>Video hoàn chỉnh]
     end
 
@@ -102,9 +115,12 @@ flowchart TB
     style AE fill:#FFB6C1
     style SC fill:#87CEEB
     style SMT fill:#DDA0DD
+    style NT fill:#FFB6C1
+    style NO fill:#DDA0DD
     style ST fill:#F0E68C
     style AB fill:#98FB98
     style VS fill:#FFA07A
+    style NOS fill:#DDA0DD
     style AT fill:#20B2AA
     style VSF fill:#778899
     style VF fill:#FFD700
@@ -118,16 +134,18 @@ flowchart TB
 | **Extract Audio**   | `cli/extract_srt.py`   | Extract audio theo mute.srt         | ✅ Hoàn thành |
 | **Merge SRT**       | `cli/merge_srt.py`     | Merge 2 file SRT theo timestamp     | ❌ Cần tạo    |
 | **Translate**       | `cli/translate_srt.py` | Dịch file .srt bằng Gemini API      | ✅ Hoàn thành |
+| **SRT to ASS**      | `cli/srt_to_ass.py`    | Chuyển SRT → ASS với template       | ❌ Cần tạo    |
 | **Demucs**          | `cli/demucs_audio.py`  | Remove voice từ audio               | ❌ Cần tạo    |
-| **Slow Down**       | `cli/slow_media.py`    | Slow down video/audio/subtitle      | ❌ Cần tạo    |
+| **Slow Down**       | `cli/slow_media.py`    | Slow down video/audio/subtitle/ass  | ❌ Cần tạo    |
 | **TTS**             | `cli/tts_srt.py`       | Chuyển .srt thành audio với EdgeTTS | ✅ Hoàn thành |
-| **Merge Video**     | `cli/merge_video.py`   | Ghép video + audio + subtitle       | ❌ Cần tạo    |
+| **Merge Video**     | `cli/merge_video.py`   | Ghép video + audio + subtitle + ass | ❌ Cần tạo    |
 | **Speed Up**        | `cli/speed_video.py`   | Tăng tốc độ video                   | ❌ Cần tạo    |
 | **Speed Rate**      | `speed_rate.py`        | Time-stretch audio để khớp timeline | ✅ Hoàn thành |
 | **EdgeTTS Engine**  | `tts_edgetts.py`       | Engine xử lý EdgeTTS                | ✅ Hoàn thành |
 | **Translator Core** | `translator.py`        | Logic dịch SRT                      | ✅ Hoàn thành |
 | **SRT Parser**      | `utils/srt_parser.py`  | Parse file .srt (dùng chung)        | ✅ Hoàn thành |
 | **Audio Utils**     | `utils/audio_utils.py` | Load/export audio, tạo silence      | ✅ Hoàn thành |
+| **ASS Utils**       | `utils/ass_utils.py`   | Xử lý ASS format                    | ❌ Cần tạo    |
 
 ## Chi tiết các bước xử lý
 
@@ -234,7 +252,36 @@ flowchart LR
 uv run cli/merge_srt.py --commentary subtitle_commentary.srt --quoted subtitle_quoted.srt --output subtitle_merged.srt
 ```
 
-### Bước 4: Translate
+### Bước 4: Note Processing
+
+**Input:** `note_source.srt`, `assets/sample.ass`
+**Output:** `note_translated.srt`, `note_overlay.ass`
+
+Xử lý file note để tạo overlay hiển thị trên video.
+
+#### 4a. Translate Note
+
+Dịch file note sang ngôn ngữ đích bằng Gemini API.
+
+```bash
+uv run cli/translate_srt.py --input note_source.srt --lang "Japanese" --keys "AIza..." --output note_translated.srt
+```
+
+#### 4b. Convert SRT to ASS
+
+Chuyển file SRT đã dịch thành file ASS để overlay lên video.
+
+```bash
+uv run cli/srt_to_ass.py --input note_translated.srt --template assets/sample.ass --output note_overlay.ass
+```
+
+**Lưu ý:**
+
+- File ASS sử dụng template từ `assets/sample.ass`
+- Text tự động ngắt dòng nếu quá 14 ký tự Nhật
+- Các xuống dòng trong SRT được giữ nguyên với `\N` trong ASS
+
+### Bước 5: Translate
 
 **Input:** `subtitle_merged.srt`
 **Output:** `subtitle_translated.srt`
@@ -245,7 +292,7 @@ Dịch subtitle sang ngôn ngữ đích bằng Gemini API.
 uv run cli/translate_srt.py --input subtitle_merged.srt --lang "Japanese" --keys "AIza..."
 ```
 
-### Bước 5: Demucs Voice Removal
+### Bước 6: Demucs Voice Removal
 
 **Input:** `audio_muted.wav`
 **Output:** `audio_bgm.wav`
@@ -256,10 +303,10 @@ Sử dụng Demucs để tách voice khỏi background music.
 uv run cli/demucs_audio.py --input audio_muted.wav --output audio_bgm.wav
 ```
 
-### Bước 6: Slow Down 0.65x
+### Bước 7: Slow Down 0.65x
 
-**Input:** `video.mp4`, `audio_extracted.wav`, `audio_bgm.wav`, `subtitle_translated.srt`
-**Output:** `video_slow.mp4`, `audio_slow_extracted.wav`, `audio_slow_bgm.wav`, `subtitle_slow_translated.srt`
+**Input:** `video.mp4`, `audio_extracted.wav`, `audio_bgm.wav`, `subtitle_translated.srt`, `note_overlay.ass`
+**Output:** `video_slow.mp4`, `audio_slow_extracted.wav`, `audio_slow_bgm.wav`, `subtitle_slow_translated.srt`, `note_overlay_slow.ass`
 
 Tất cả media files đều được làm chậm 0.65x speed.
 
@@ -273,9 +320,12 @@ uv run cli/slow_media.py --input audio_bgm.wav --speed 0.65 --output audio_slow_
 
 # Subtitle (adjust timestamps)
 uv run cli/slow_media.py --input subtitle_translated.srt --speed 0.65 --output subtitle_slow_translated.srt
+
+# ASS Note (adjust timestamps)
+uv run cli/slow_media.py --input note_overlay.ass --speed 0.65 --output note_overlay_slow.ass
 ```
 
-### Bước 7: TTS
+### Bước 8: TTS
 
 **Input:** `subtitle_slow_translated.srt`
 **Output:** `audio_slow_tts.wav`
@@ -286,9 +336,9 @@ Tạo audio từ subtitle đã dịch bằng EdgeTTS.
 uv run cli/tts_srt.py --input subtitle_slow_translated.srt --voice ja-JP-KeitaNeural --output audio_slow_tts.wav
 ```
 
-### Bước 8: Merge Video
+### Bước 9: Merge Video
 
-**Input:** `video_slow.mp4`, `audio_slow_extracted.wav`, `audio_slow_bgm.wav`, `audio_slow_tts.wav`, `subtitle_slow_translated.srt`
+**Input:** `video_slow.mp4`, `audio_slow_extracted.wav`, `audio_slow_bgm.wav`, `audio_slow_tts.wav`, `subtitle_slow_translated.srt`, `note_overlay_slow.ass`
 **Output:** `video_slow_final.mp4`
 
 Ghép tất cả thành video hoàn chỉnh.
@@ -300,10 +350,11 @@ uv run cli/merge_video.py \
     --audio-bgm audio_slow_bgm.wav \
     --audio-tts audio_slow_tts.wav \
     --subtitle subtitle_slow_translated.srt \
+    --note-ass note_overlay_slow.ass \
     --output video_slow_final.mp4
 ```
 
-### Bước 9: Speed Up 1.2x
+### Bước 10: Speed Up 1.2x
 
 **Input:** `video_slow_final.mp4`
 **Output:** `video_final.mp4`
@@ -322,12 +373,14 @@ uv run cli/speed_video.py --input video_slow_final.mp4 --speed 1.2 --output vide
 | 1b   | Extract audio   | ✅ [`cli/extract_srt.py`](cli/extract_srt.py)     |
 | 2    | WhisperX STT    | ✅ Trên Colab                                     |
 | 3    | Merge SRT       | ❌ Cần tạo                                        |
-| 4    | Translate SRT   | ✅ [`cli/translate_srt.py`](cli/translate_srt.py) |
-| 5    | Demucs          | ❌ Cần tạo                                        |
-| 6    | Slow down 0.65x | ❌ Cần tạo                                        |
-| 7    | TTS             | ✅ [`cli/tts_srt.py`](cli/tts_srt.py)             |
-| 8    | Merge video     | ❌ Cần tạo                                        |
-| 9    | Speed up 1.2x   | ❌ Cần tạo                                        |
+| 4a   | Translate Note  | ✅ [`cli/translate_srt.py`](cli/translate_srt.py) |
+| 4b   | SRT to ASS      | ❌ Cần tạo                                        |
+| 5    | Translate SRT   | ✅ [`cli/translate_srt.py`](cli/translate_srt.py) |
+| 6    | Demucs          | ❌ Cần tạo                                        |
+| 7    | Slow down 0.65x | ❌ Cần tạo                                        |
+| 8    | TTS             | ✅ [`cli/tts_srt.py`](cli/tts_srt.py)             |
+| 9    | Merge video     | ❌ Cần tạo                                        |
+| 10   | Speed up 1.2x   | ❌ Cần tạo                                        |
 
 ## Điểm kiểm tra (Checkpoints)
 
