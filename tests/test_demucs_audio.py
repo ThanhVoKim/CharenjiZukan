@@ -2,25 +2,15 @@
 # -*- coding: utf-8 -*-
 """
 test_demucs_audio.py — Unit tests cho cli/demucs_audio.py
+
+Note: Sử dụng fixtures từ tests/conftest.py:
+- skip_if_weak_hardware: Skip tests nếu hardware yếu
+- check_ffmpeg_available: Kiểm tra FFmpeg
 """
 
 import pytest
 import multiprocessing
 from pathlib import Path
-
-
-# ─────────────────────────────────────────────────────────────────────
-# FIXTURES
-# ─────────────────────────────────────────────────────────────────────
-
-@pytest.fixture(scope="module")
-def skip_if_weak_hardware():
-    """Skip tất cả tests trong module nếu hardware yếu."""
-    from cli.demucs_audio import check_hardware_requirements
-    can_run, reason = check_hardware_requirements()
-    if not can_run:
-        pytest.skip(f"Skipped: {reason}")
-    return True
 
 
 # ─────────────────────────────────────────────────────────────────────

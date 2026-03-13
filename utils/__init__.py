@@ -12,6 +12,20 @@ from utils.ass_utils import (
     write_ass_file,
     convert_srt_segments_to_ass_dialogues,
 )
+from utils.media_utils import (
+    detect_media_type,
+    scale_time_ms,
+    check_rubberband_available,
+    stretch_audio_rubberband,
+    stretch_audio_atempo,
+    stretch_audio,
+    change_video_speed,
+    scale_srt_timestamps,
+    scale_ass_timestamps,
+    parse_ass_timestamp_to_ms,
+    ms_to_ass_timestamp,
+    get_default_output_path,
+)
 
 __all__ = [
     # SRT Parser
@@ -32,4 +46,17 @@ __all__ = [
     'parse_ass_file',
     'write_ass_file',
     'convert_srt_segments_to_ass_dialogues',
+    # Media Utils
+    'detect_media_type',
+    'scale_time_ms',
+    'check_rubberband_available',
+    'stretch_audio_rubberband',
+    'stretch_audio_atempo',
+    'stretch_audio',
+    'change_video_speed',
+    'scale_srt_timestamps',
+    'scale_ass_timestamps',
+    'parse_ass_timestamp_to_ms',
+    'ms_to_ass_timestamp',
+    'get_default_output_path',
 ]

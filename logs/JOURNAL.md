@@ -1,5 +1,104 @@
 # Project Journal
 
+## 2026-03-13: Tạo module Media Speed - Thay đổi tốc độ media (Bước 7)
+
+### Yêu cầu
+
+Tạo module để thay đổi tốc độ media (video, audio, SRT, ASS) cho Bước 7 trong workflow. Module cần hỗ trợ cả slow down (`speed < 1.0`) và speed up (`speed > 1.0`).
+
+### Thay đổi
+
+1. **Tạo [`utils/media_utils.py`](../utils/media_utils.py)** - Module tái sử dụng:
+   - `detect_media_type(path)` - Nhận dạng loại file
+   - `scale_time_ms(ms, speed)` - Scale milliseconds
+   - `check_rubberband_available()` - Kiểm tra rubberband binary
+   - `stretch_audio_rubberband(input_path, output_path, speed)` - Time-stretch audio bằng rubberband
+   - `stretch_audio_atempo(input_path, output_path, speed)` - Fallback FFmpeg atempo
+   - `stretch_audio(input_path, output_path, speed)` - Auto-select method
+   - `change_video_speed(input_path, output_path, speed, keep_audio=True)` - Thay đổi tốc độ video
+   - `scale_srt_timestamps(input_path, output_path, speed)` - Scale SRT timestamps
+   - `scale_ass_timestamps(input_path, output_path, speed)` - Scale ASS timestamps
+   - `parse_ass_timestamp_to_ms(ts)`, `ms_to_ass_timestamp(ms)` - ASS timestamp helpers
+   - `get_default_output_path(input_path, speed)` - Tạo tên output mặc định
+
+2. **Tạo [`cli/media_speed.py`](../cli/media_speed.py)** - CLI wrapper:
+   - Hỗ trợ 4 loại media: video, audio, srt, ass
+   - Auto-detect loại file từ extension
+   - Output naming tự động: `*_slow.*` hoặc `*_fast.*`
+   - CLI arguments: `--input`, `--output`, `--speed`, `--type`, `--no-keep-audio`, `--verbose`
+
+3. **Tạo [`tests/conftest.py`](../tests/conftest.py)** - Pytest fixtures dùng chung:
+   - `skip_if_weak_hardware` - Skip tests nếu hardware yếu
+   - `check_ffmpeg_available` - Kiểm tra FFmpeg
+   - `check_rubberband_available` - Kiểm tra rubberband
+   - `check_audio_stretch_dependencies` - Combined check
+
+4. **Tạo [`tests/test_media_utils.py`](../tests/test_media_utils.py)** - Unit tests:
+   - Test type detection
+   - Test time scaling
+   - Test ASS timestamp conversion
+   - Test SRT/ASS scaling
+   - Test output naming
+
+5. **Tạo [`tests/test_media_speed.py`](../tests/test_media_speed.py)** - CLI tests:
+   - Test parser
+   - Test main function
+   - Integration tests với hardware check
+
+6. **Cập nhật [`utils/__init__.py`](../utils/__init__.py)** - Export media_utils functions
+
+7. **Cập nhật [`pyproject.toml`](../pyproject.toml)** - Thêm script entry: `media-speed`
+
+8. **Cập nhật [`docs/workflow.md`](../docs/workflow.md)** - Đánh dấu Bước 7 hoàn thành
+
+### Tính năng chính
+
+| Loại  | Xử lý            | Method                                           |
+| ----- | ---------------- | ------------------------------------------------ |
+| Video | Video + Audio    | FFmpeg setpts + rubberband/atempo                |
+| Audio | Time-stretch     | rubberband (pitch-preserving) hoặc FFmpeg atempo |
+| SRT   | Scale timestamps | Python (giữ nguyên text)                         |
+| ASS   | Scale timestamps | Python (chỉ Dialogue lines)                      |
+
+### Output naming mặc định
+
+| Speed         | Output pattern |
+| ------------- | -------------- |
+| `speed < 1.0` | `*_slow.*`     |
+| `speed > 1.0` | `*_fast.*`     |
+| `speed = 1.0` | `*_copy.*`     |
+
+### Ví dụ sử dụng
+
+```bash
+# Slow down video 0.65x
+uv run cli/media_speed.py --input video.mp4 --speed 0.65
+
+# Speed up audio 1.5x
+uv run cli/media_speed.py -i audio.wav -s 1.5
+
+# Scale SRT timestamps
+uv run cli/media_speed.py -i subtitle.srt -s 0.65
+
+# Video without audio
+uv run cli/media_speed.py -i video.mp4 -s 0.65 --no-keep-audio
+```
+
+### Dependencies
+
+- **FFmpeg** - Bắt buộc cho video/audio processing
+- **rubberband-cli** - Tùy chọn, cho audio stretching chất lượng cao (giữ pitch)
+- **pyrubberband** - Python wrapper cho rubberband
+- **soundfile** - Đọc/ghi audio files
+
+### Trạng thái
+
+- ✅ Hoàn thành code
+- ✅ Hoàn thành unit tests
+- ✅ Cập nhật documentation
+
+---
+
 ## 2026-03-13: Tạo module Demucs Audio - Tách voice/background từ audio
 
 ### Yêu cầu
