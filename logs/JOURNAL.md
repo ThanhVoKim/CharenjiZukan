@@ -288,3 +288,137 @@ import os; os.environ['PATH'] += ':/root/.local/bin'
 
 - ✅ Hoàn thành
 - ⏳ Cần test trên Colab
+
+---
+
+## 2026-03-13: Cập nhật Workflow 9 bước xử lý Video 2 ngôn ngữ
+
+### Yêu cầu
+
+Người dùng muốn xây dựng workflow hoàn chỉnh để xử lý video có 2 ngôn ngữ (bình luận + video gốc trích dẫn), bao gồm:
+
+1. Input: video.mp4, mute.srt, onlyEng.srt
+2. Xử lý audio: mute và extract các đoạn
+3. Speech-to-Text với WhisperX
+4. Merge subtitle từ 2 nguồn
+5. Dịch subtitle
+6. Demucs remove voice
+7. Slow down 0.65x
+8. TTS
+9. Merge video
+10. Speed up 1.2x
+
+### Thay đổi
+
+1. **Cập nhật [`docs/workflow.md`](../docs/workflow.md)** với workflow đầy đủ:
+   - Naming convention cho các file output
+   - Diagram Mermaid mô tả luồng xử lý
+   - Chi tiết từng bước với input/output
+   - Logic merge subtitle (Bước 3)
+   - Bảng trạng thái các module
+
+2. **Naming Convention mới:**
+
+   | Tên file                  | Mô tả                                        |
+   | ------------------------- | -------------------------------------------- |
+   | `audio_muted.wav`         | Audio đã mute các đoạn trong mute.srt        |
+   | `audio_extracted.wav`     | Audio chỉ chứa các đoạn được extract         |
+   | `subtitle_commentary.srt` | Subtitle cho phần bình luận (từ WhisperX)    |
+   | `subtitle_quoted.srt`     | Subtitle cho phần video trích dẫn (thủ công) |
+   | `subtitle_merged.srt`     | Subtitle merge từ commentary + quoted        |
+   | `subtitle_translated.srt` | Subtitle đã dịch                             |
+   | `audio_bgm.wav`           | Audio background (Demucs remove voice)       |
+   | `video_slow.mp4`          | Video slow 0.65x                             |
+   | `video_slow_final.mp4`    | Video slow đã ghép audio                     |
+   | `video_final.mp4`         | Video hoàn chỉnh cuối cùng                   |
+
+3. **Thay đổi naming (2026-03-13):**
+   - `subtitle_muted.srt` → `subtitle_commentary.srt` (rõ nghĩa hơn: subtitle cho phần bình luận)
+   - `onlyEng.srt` → `subtitle_quoted.srt` (rõ nghĩa hơn: subtitle cho phần video trích dẫn)
+
+4. **Module cần tạo:**
+
+   | Module        | File                  | Trạng thái |
+   | ------------- | --------------------- | ---------- |
+   | Extract Audio | `cli/extract_srt.py`  | ❌ Cần tạo |
+   | Merge SRT     | `cli/merge_srt.py`    | ❌ Cần tạo |
+   | Demucs        | `cli/demucs_audio.py` | ❌ Cần tạo |
+   | Slow Down     | `cli/slow_media.py`   | ❌ Cần tạo |
+   | Merge Video   | `cli/merge_video.py`  | ❌ Cần tạo |
+   | Speed Up      | `cli/speed_video.py`  | ❌ Cần tạo |
+
+### Trạng thái
+
+- ✅ Cập nhật docs/workflow.md
+- ⏳ Cần implement các module còn thiếu
+
+---
+
+## 2026-03-13: Tạo module extract_srt.py và audio_utils.py
+
+### Yêu cầu
+
+Triển khai Bước 1b của workflow: Extract audio - giữ lại CHỈ các đoạn được đánh dấu trong mute.srt, các đoạn khác thành silence.
+
+### Thay đổi
+
+1. **Tạo [`utils/audio_utils.py`](../utils/audio_utils.py)** - Module xử lý audio dùng chung:
+   - `load_audio()` - Load audio từ file audio/video
+   - `export_audio()` - Export audio ra file WAV (mặc định 16kHz mono cho WhisperX)
+   - `create_silence()` - Tạo silence segment
+
+2. **Cập nhật [`utils/__init__.py`](../utils/__init__.py)** - Export các hàm từ audio_utils
+
+3. **Tạo [`cli/extract_srt.py`](../cli/extract_srt.py)** - Module extract audio:
+   - `apply_extract()` - Giữ lại CHỈ các đoạn trong mute.srt
+   - CLI interface tương tự mute_srt.py
+   - Output mặc định: `<input>_extracted.wav`
+
+4. **Refactor [`cli/mute_srt.py`](../cli/mute_srt.py)** - Sử dụng `utils/audio_utils.py` thay vì code riêng
+
+5. **Cập nhật [`docs/workflow.md`](../docs/workflow.md)**:
+   - Đánh dấu Extract Audio là ✅ Hoàn thành
+   - Thêm module Audio Utils vào bảng module
+
+### So sánh mute_srt.py vs extract_srt.py
+
+| Module    | mute_srt.py                    | extract_srt.py                             |
+| --------- | ------------------------------ | ------------------------------------------ |
+| Chức năng | Mute các đoạn TRONG mute.srt   | Giữ lại CHỈ các đoạn TRONG mute.srt        |
+| Output    | Audio có silence tại đoạn mute | Audio chỉ có đoạn được extract             |
+| Use case  | Phần bình luận (WhisperX STT)  | Phần video trích dẫn (ghép vào video cuối) |
+
+### Ví dụ
+
+**mute.srt:**
+
+```srt
+1
+00:00:10,000 --> 00:00:20,000
+[MUTE] Video trích dẫn
+```
+
+**Audio gốc (60s):**
+
+```
+[00:00-00:10] Bình luận → [00:10-00:20] Trích dẫn → [00:20-00:60] Bình luận
+```
+
+**audio_muted.wav (mute_srt.py):**
+
+```
+[00:00-00:10] Bình luận → [00:10-00:20] SILENCE → [00:20-00:60] Bình luận
+```
+
+**audio_extracted.wav (extract_srt.py):**
+
+```
+[00:00-00:10] SILENCE → [00:10-00:20] Trích dẫn → [00:20-00:60] SILENCE
+```
+
+### Trạng thái
+
+- ✅ Hoàn thành extract_srt.py
+- ✅ Hoàn thành audio_utils.py
+- ✅ Refactor mute_srt.py
+- ✅ Cập nhật docs/workflow.md

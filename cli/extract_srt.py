@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-mute_srt.py — CLI: Mute audio segments từ file mute.srt
+extract_srt.py — CLI: Extract audio segments từ file mute.srt
 
-Thay thế các đoạn audio được đánh dấu trong file mute.srt bằng silence.
+Giữ lại CHỈ các đoạn audio được đánh dấu trong file mute.srt.
+Các đoạn KHÔNG được đánh dấu sẽ được thay thế bằng silence.
 Giữ nguyên độ dài audio - KHÔNG cắt bỏ đoạn audio.
 Output mặc định là WAV 16kHz mono, tối ưu cho WhisperX.
 
 Ví dụ nhanh:
-    uv run mute_srt.py --input video.mp4 --mute mute.srt
-    uv run mute_srt.py --input audio.mp3 --mute mute.srt --output muted.wav
+    uv run cli/extract_srt.py --input video.mp4 --mute mute.srt
+    uv run cli/extract_srt.py --input audio.mp3 --mute mute.srt --output extracted.wav
+
+Lưu ý: Module này là NGƯỢC với mute_srt.py:
+    - mute_srt.py: Mute các đoạn TRONG mute.srt → silence
+    - extract_srt.py: Giữ lại CHỈ các đoạn TRONG mute.srt, các đoạn khác → silence
 """
 
 import sys
@@ -31,9 +36,10 @@ logger = get_logger(__name__)
 # AUDIO PROCESSING
 # ─────────────────────────────────────────────────────────────────────
 
-def apply_mute(audio, segments):
+def apply_extract(audio, segments):
     """
-    Thay thế các đoạn được đánh dấu bằng silence.
+    Giữ lại CHỈ các đoạn được đánh dấu trong segments.
+    Các đoạn KHÔNG được đánh dấu sẽ được thay thế bằng silence.
     Giữ nguyên độ dài audio.
     
     Args:
@@ -41,19 +47,22 @@ def apply_mute(audio, segments):
         segments: List of dict với keys 'start_time', 'end_time' (milliseconds)
     
     Returns:
-        AudioSegment với các đoạn đã được mute
+        AudioSegment với chỉ các đoạn được extract
     """
     if not segments:
-        logger.warning("Không có segment nào để mute")
-        return audio
+        logger.warning("Không có segment nào để extract")
+        # Trả về silence có độ dài bằng audio gốc
+        return create_silence(len(audio))
     
-    logger.info(f"Applying mute to {len(segments)} segments")
+    logger.info(f"Extracting {len(segments)} segments")
     
-    # Sort segments theo start_time descending để không bị lệch index khi mute
-    sorted_segments = sorted(segments, key=lambda x: x['start_time'], reverse=True)
+    # Tạo silence có độ dài bằng audio gốc
+    result = create_silence(len(audio))
     
-    result = audio
-    total_muted = 0
+    # Sort segments theo start_time để xử lý đúng thứ tự
+    sorted_segments = sorted(segments, key=lambda x: x['start_time'])
+    
+    total_extracted = 0
     
     for seg in sorted_segments:
         start = seg['start_time']
@@ -64,16 +73,14 @@ def apply_mute(audio, segments):
             logger.warning(f"Segment {seg.get('line', '?')} ngoài phạm vi audio: {start}-{end}ms (audio length: {len(audio)}ms)")
             continue
         
-        # Tạo silence có cùng duration
-        silence = create_silence(duration)
+        # Copy đoạn audio gốc vào vị trí tương ứng trong kết quả
+        # Sử dụng overlay để ghi đè silence bằng audio gốc tại vị trí segment
+        result = result.overlay(audio[start:end], position=start)
+        total_extracted += duration
         
-        # Thay thế đoạn audio bằng silence
-        result = result[:start] + silence + result[end:]
-        total_muted += duration
-        
-        logger.debug(f"Muted segment {seg.get('line', '?')}: {start}ms - {end}ms ({duration}ms)")
+        logger.debug(f"Extracted segment {seg.get('line', '?')}: {start}ms - {end}ms ({duration}ms)")
     
-    logger.info(f"Total muted: {total_muted}ms ({total_muted/1000:.2f}s)")
+    logger.info(f"Total extracted: {total_extracted}ms ({total_extracted/1000:.2f}s)")
     return result
 
 
@@ -83,21 +90,22 @@ def apply_mute(audio, segments):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="mute_srt",
-        description="Mute audio segments từ file mute.srt. "
-                    "Thay thế các đoạn được đánh dấu bằng silence, giữ nguyên độ dài audio. "
+        prog="extract_srt",
+        description="Extract audio segments từ file mute.srt. "
+                    "Giữ lại CHỈ các đoạn được đánh dấu, các đoạn khác thành silence. "
+                    "Giữ nguyên độ dài audio. "
                     "Output mặc định là WAV 16kHz mono cho WhisperX.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ví dụ:
-  # Cơ bản - output mặc định là <input>_muted.wav
-  python mute_srt.py --input video.mp4 --mute mute.srt
+  # Cơ bản - output mặc định là <input>_extracted.wav
+  python extract_srt.py --input video.mp4 --mute mute.srt
   
   # Với output tùy chỉnh
-  python mute_srt.py --input audio.mp3 --mute mute.srt --output muted_audio.wav
+  python extract_srt.py --input audio.mp3 --mute mute.srt --output extracted_audio.wav
   
   # Với sample rate tùy chỉnh
-  python mute_srt.py --input video.mp4 --mute mute.srt --sample-rate 48000
+  python extract_srt.py --input video.mp4 --mute mute.srt --sample-rate 48000
 
 File mute.srt format:
   1
@@ -123,7 +131,7 @@ Lưu ý: Text trong file mute.srt không quan trọng, chỉ cần timestamp.
         "--mute", "-m",
         required=True,
         metavar="FILE",
-        help="File mute.srt chứa các đoạn cần mute",
+        help="File mute.srt chứa các đoạn cần extract (giữ lại)",
     )
     
     # Optional arguments
@@ -131,7 +139,7 @@ Lưu ý: Text trong file mute.srt không quan trọng, chỉ cần timestamp.
         "--output", "-o",
         default=None,
         metavar="FILE",
-        help="File audio đầu ra (mặc định: <input>_muted.wav)",
+        help="File audio đầu ra (mặc định: <input>_extracted.wav)",
     )
     parser.add_argument(
         "--sample-rate",
@@ -173,8 +181,8 @@ def main():
     if args.output:
         output_path = Path(args.output)
     else:
-        # Default: <input_name>_muted.wav
-        output_path = input_path.parent / f"{input_path.stem}_muted.wav"
+        # Default: <input_name>_extracted.wav
+        output_path = input_path.parent / f"{input_path.stem}_extracted.wav"
     
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -189,9 +197,9 @@ def main():
     
     if not segments:
         logger.warning("Không có segment nào trong file mute.srt")
-        logger.info("Tạo output file với audio gốc (không có thay đổi)")
+        logger.info("Tạo output file với toàn bộ silence")
     
-    logger.info(f"Found {len(segments)} segments to mute")
+    logger.info(f"Found {len(segments)} segments to extract")
     
     # Load audio
     try:
@@ -200,12 +208,12 @@ def main():
         logger.error(f"Lỗi load audio: {e}")
         sys.exit(1)
     
-    # Apply mute
-    muted_audio = apply_mute(audio, segments)
+    # Apply extract
+    extracted_audio = apply_extract(audio, segments)
     
     # Export
     try:
-        export_audio(muted_audio, str(output_path), sample_rate=args.sample_rate)
+        export_audio(extracted_audio, str(output_path), sample_rate=args.sample_rate)
     except Exception as e:
         logger.error(f"Lỗi export audio: {e}")
         sys.exit(1)
@@ -215,8 +223,8 @@ def main():
     print(f"   Input:  {args.input}")
     print(f"   Mute:   {args.mute}")
     print(f"   Output: {output_path}")
-    print(f"   Segments muted: {len(segments)}")
-    print(f"   Audio length: {len(muted_audio)/1000:.2f}s (unchanged)")
+    print(f"   Segments extracted: {len(segments)}")
+    print(f"   Audio length: {len(extracted_audio)/1000:.2f}s (unchanged)")
 
 
 if __name__ == "__main__":

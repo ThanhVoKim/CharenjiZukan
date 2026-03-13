@@ -45,6 +45,9 @@ token = userdata.get('github_token')
 !git clone https://{token}@github.com/ThanhVoKim/CharenjiZukan.git /content/CharenjiZukan
 %cd /content/CharenjiZukan
 
+# Cài đặt project ở chế độ editable (để sử dụng CLI commands)
+!uv pip install -e .
+
 # Cài đặt rubberband-cli (cần cho time-stretch)
 !apt-get install -y rubberband-cli
 ```
@@ -75,14 +78,65 @@ Nếu cần chuyển video thành subtitle, cài đặt thêm WhisperX:
 
 ## 2. Các script chính
 
-### 2.1. Dịch SRT (translate_srt.py)
+### 2.1. Mute Audio (mute-srt)
+
+Dùng khi audio có 2 ngôn ngữ (ví dụ: bình luận + video gốc trích dẫn). Thay thế các đoạn được đánh dấu bằng silence, giữ nguyên độ dài audio.
+
+#### Mute audio nhanh
+
+```colab
+!uv run mute-srt \
+    --input /content/video.mp4 \
+    --mute /content/mute.srt
+```
+
+#### Đầy đủ tham số
+
+```colab
+!uv run mute-srt \
+    --input       /content/video.mp4 \
+    --mute        /content/mute.srt \
+    --output      /content/video_muted.wav \
+    --sample-rate 16000 \
+    --verbose
+```
+
+#### Tham số
+
+| Tham số         | Mô tả                                | Mặc định               |
+| --------------- | ------------------------------------ | ---------------------- |
+| `--input`       | File audio/video đầu vào             | (bắt buộc)             |
+| `--mute`        | File mute.srt chứa các đoạn cần mute | (bắt buộc)             |
+| `--output`      | File audio đầu ra                    | `<input>_muted.wav`    |
+| `--sample-rate` | Sample rate output                   | `16000` (cho WhisperX) |
+| `--verbose`     | Hiển thị log chi tiết                | (tắt)                  |
+
+#### File mute.srt format
+
+Tạo file `mute.srt` đánh dấu các đoạn cần mute:
+
+```srt
+1
+00:01:24,233 --> 00:01:27,566
+[MUTE] Đoạn video gốc được trích dẫn
+
+2
+00:05:30,000 --> 00:05:45,500
+[MUTE] Đoạn ngôn ngữ thứ hai
+```
+
+> **Lưu ý:** Text trong file mute.srt không quan trọng, chỉ cần timestamp đúng format SRT.
+
+---
+
+### 2.2. Dịch SRT (translate-srt)
 
 #### Dịch nhanh (với Secrets)
 
 ```colab
 from google.colab import userdata
 gemini_key = userdata.get('gemini_token')
-!uv run translate_srt.py \
+!uv run translate-srt \
     --input /content/video.srt \
     --output /content/video_vi.srt \
     --keys "{gemini_key}"
@@ -93,7 +147,7 @@ gemini_key = userdata.get('gemini_token')
 ```colab
 from google.colab import userdata
 gemini_key = userdata.get('gemini_token')
-!uv run translate_srt.py \
+!uv run translate-srt \
     --input   /content/video.srt         \
     --output  /content/video_vi.srt      \
     --lang    "Vietnamese"               \
@@ -119,22 +173,22 @@ gemini_key = userdata.get('gemini_token')
 
 ---
 
-### 2.2. Text-to-Speech (tts_srt.py)
+### 2.3. Text-to-Speech (tts-srt)
 
 #### Xem danh sách giọng
 
 ```colab
 # Giọng tiếng Việt
-!uv run tts_srt.py --list-voices vi
+!uv run tts-srt --list-voices vi
 
 # Giọng tiếng Nhật
-!uv run tts_srt.py --list-voices ja
+!uv run tts-srt --list-voices ja
 ```
 
 #### TTS nhanh
 
 ```colab
-!uv run tts_srt.py \
+!uv run tts-srt \
     --input /content/video_vi.srt \
     --voice vi-VN-HoaiMyNeural
 ```
@@ -142,7 +196,7 @@ gemini_key = userdata.get('gemini_token')
 #### TTS với autorate (tự động nén giọng)
 
 ```colab
-!uv run tts_srt.py \
+!uv run tts-srt \
     --input   /content/video_vi.srt \
     --output  /content/video_vi.mp3 \
     --voice   vi-VN-HoaiMyNeural    \
@@ -153,7 +207,7 @@ gemini_key = userdata.get('gemini_token')
 #### Đầy đủ tham số
 
 ```colab
-!uv run tts_srt.py \
+!uv run tts-srt \
     --input   /content/video_vi.srt \
     --output  /content/video_vi.wav \
     --voice   vi-VN-HoaiMyNeural    \
@@ -186,62 +240,7 @@ gemini_key = userdata.get('gemini_token')
 
 ### 3.1. Tải video từ Google Drive
 
-Đồng bộ video từ Google Drive sang local storage của Colab:
-
-```colab
-from google.colab import drive
-import os
-import subprocess
-import glob
-
-# --- CẤU HÌNH ---
-FOLDER_NAME = "Survival"
-DRIVE_ROOT_PATH = "/content/drive/MyDrive/CharenjiZukan/2603"
-
-SOURCE_PARENT_PATH = os.path.join(DRIVE_ROOT_PATH)
-LOCAL_PARENT_PATH = os.path.join("/content", FOLDER_NAME)
-
-# Mount Drive
-drive.mount('/content/drive', force_remount=True)
-
-# Làm sạch thư mục local cũ
-subprocess.run(["rm", "-rf", LOCAL_PARENT_PATH], check=False)
-os.makedirs(LOCAL_PARENT_PATH, exist_ok=True)
-
-# Duyệt và copy video
-if os.path.exists(SOURCE_PARENT_PATH):
-    print(f"🚀 Bắt đầu đồng bộ từ: {SOURCE_PARENT_PATH}")
-    subfolders = sorted([f for f in os.listdir(SOURCE_PARENT_PATH)
-                         if os.path.isdir(os.path.join(SOURCE_PARENT_PATH, f))])
-
-    for item_name in subfolders:
-        source_item_path = os.path.join(SOURCE_PARENT_PATH, item_name)
-        local_item_path = os.path.join(LOCAL_PARENT_PATH, item_name)
-        drive_assets_folder = os.path.join(source_item_path, "assets")
-
-        # Bỏ qua nếu đã có folder assets (đã xử lý)
-        if os.path.exists(drive_assets_folder) and os.path.isdir(drive_assets_folder):
-            print(f"⏩ [BỎ QUA] Đã có folder 'assets': {item_name}")
-            continue
-
-        print(f"📥 [COPY] Đang tải dữ liệu nguồn: {item_name}")
-        subprocess.run(["mkdir", "-p", local_item_path], check=True)
-
-        # Copy file mp4
-        mp4_files = glob.glob(os.path.join(source_item_path, "*.mp4"))
-        if mp4_files:
-            source_mp4_path = mp4_files[0]
-            subprocess.run(["cp", source_mp4_path, local_item_path], check=True)
-            print(f"  ✅ Đã copy: {os.path.basename(source_mp4_path)}")
-        else:
-            print(f"  ⚠️ Không tìm thấy file video (.mp4)")
-
-    print("\n✅ Hoàn tất quá trình copy!")
-else:
-    print(f"❌ Không tìm thấy thư mục gốc: {SOURCE_PARENT_PATH}")
-```
-
----
+Đồng bộ video từ Google Drive sang local storage của Colab
 
 ### 3.2. Speech-to-Text với WhisperX
 
@@ -283,7 +282,7 @@ Dịch file subtitle sang ngôn ngữ đích:
 ```colab
 from google.colab import userdata
 gemini_key = userdata.get('gemini_token')
-!uv run translate_srt.py \
+!uv run translate-srt \
     --input /content/output/video.srt \
     --output /content/output/video_ja.srt \
     --lang "Japanese" \
@@ -297,7 +296,7 @@ gemini_key = userdata.get('gemini_token')
 Chuyển subtitle đã dịch thành file audio:
 
 ```colab
-!uv run tts_srt.py \
+!uv run tts-srt \
     --input   /content/output/video_ja.srt \
     --output  /content/output/video_ja.wav \
     --voice   ja-JP-KeitaNeural \
@@ -309,68 +308,9 @@ Chuyển subtitle đã dịch thành file audio:
 
 ### 3.5. Ghép Audio vào Video
 
-#### Ghép audio mới vào video (thay thế audio gốc)
-
-```colab
-!ffmpeg -i /content/video.mp4 -i /content/output/video_ja.wav \
-    -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 \
-    /content/output/video_final.mp4
-```
-
-#### Giữ cả audio gốc (2 track)
-
-```colab
-!ffmpeg -i /content/video.mp4 -i /content/output/video_ja.wav \
-    -c:v copy -c:a aac \
-    -map 0:v:0 -map 1:a:0 -map 0:a:0 \
-    /content/output/video_dual.mp4
-```
-
 ---
 
-## 4. Ví dụ Workflow hoàn chỉnh
-
-### Ví dụ: Dịch video Trung → Nhật
-
-```colab
-# 1. Cài đặt
-!curl -LsSf https://astral.sh/uv/install.sh | sh
-import os; os.environ['PATH'] += ':/root/.local/bin'
-!apt-get install -y rubberband-cli
-
-# 2. Clone project
-from google.colab import userdata
-token = userdata.get('github_token')
-!git clone https://{token}@github.com/ThanhVoKim/CharenjiZukan.git /content/CharenjiZukan
-%cd /content/CharenjiZukan
-
-# 3. Upload file .srt gốc
-from google.colab import files
-uploaded = files.upload()  # Upload video.srt
-
-# 4. Dịch sang tiếng Nhật (sử dụng Secrets)
-gemini_key = userdata.get('gemini_token')
-!uv run translate_srt.py \
-    --input /content/video.srt \
-    --output /content/video_ja.srt \
-    --lang "Japanese" \
-    --keys "{gemini_key}"
-
-# 5. Tạo audio với giọng Nhật
-!uv run tts_srt.py \
-    --input /content/video_ja.srt \
-    --output /content/video_ja.wav \
-    --voice ja-JP-KeitaNeural \
-    --autorate
-
-# 6. Download kết quả
-from google.colab import files
-files.download('/content/video_ja.wav')
-```
-
----
-
-## 5. Cách dùng truyền thống (không có uv)
+## 4. Cách dùng truyền thống (không có uv)
 
 Nếu không muốn dùng uv, bạn có thể cài đặt thủ công:
 
@@ -382,14 +322,14 @@ Nếu không muốn dùng uv, bạn có thể cài đặt thủ công:
 from google.colab import userdata
 gemini_key = userdata.get('gemini_token')
 
-# Chạy trực tiếp với python
-!python translate_srt.py --input video.srt --keys "{gemini_key}"
-!python tts_srt.py --input video_vi.srt --voice vi-VN-HoaiMyNeural
+# Chạy trực tiếp với python (đường dẫn từ thư mục project)
+!python cli/translate_srt.py --input video.srt --keys "{gemini_key}"
+!python cli/tts_srt.py --input video_vi.srt --voice vi-VN-HoaiMyNeural
 ```
 
 ---
 
-## 6. Xử lý sự cố
+## 5. Xử lý sự cố
 
 ### WhisperX lỗi CUDA
 
@@ -405,7 +345,7 @@ gemini_key = userdata.get('gemini_token')
 
 ```colab
 # Thử với proxy (nếu cần)
-!uv run tts_srt.py --input video.srt --voice ja-JP-KeitaNeural \
+!uv run tts-srt --input video.srt --voice ja-JP-KeitaNeural \
     --proxy http://127.0.0.1:7890
 ```
 
@@ -415,12 +355,14 @@ Script sẽ tự động thêm `.wav` nếu output không có extension.
 
 ---
 
-## 7. Lưu ý quan trọng
+## 6. Lưu ý quan trọng
 
-1. **rubberband-cli**: Cần cài đặt bằng `apt-get` vì đây là binary hệ thống, không phải Python package. Dùng cho time-stretch audio chất lượng cao.
+1. **Cài đặt project**: Sau khi clone, cần chạy `!uv pip install -e .` để cài đặt project ở chế độ editable, cho phép sử dụng các CLI commands (`mute-srt`, `translate-srt`, `tts-srt`).
 
-2. **API Keys**: Sử dụng Google Colab Secrets để bảo mật API keys. Không hardcode token vào code.
+2. **rubberband-cli**: Cần cài đặt bằng `apt-get` vì đây là binary hệ thống, không phải Python package. Dùng cho time-stretch audio chất lượng cao.
 
-3. **Output không có extension**: Nếu `--output` không có extension, script sẽ tự động thêm `.wav`.
+3. **API Keys**: Sử dụng Google Colab Secrets để bảo mật API keys. Không hardcode token vào code.
 
-4. **Autorate**: Khi bật `--autorate`, audio sẽ được nén/giãn để khớp với thời lượng slot trong file SRT.
+4. **Output không có extension**: Nếu `--output` không có extension, script sẽ tự động thêm `.wav`.
+
+5. **Autorate**: Khi bật `--autorate`, audio sẽ được nén/giãn để khớp với thời lượng slot trong file SRT.
