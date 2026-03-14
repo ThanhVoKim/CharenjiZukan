@@ -85,9 +85,7 @@ Dùng khi audio có 2 ngôn ngữ (ví dụ: bình luận + video gốc trích d
 #### Mute audio nhanh
 
 ```colab
-!uv run mute-srt \
-    --input /content/video.mp4 \
-    --mute /content/mute.srt
+!uv run mute-srt --input /content/video.mp4 --mute /content/mute.srt
 ```
 
 #### Đầy đủ tham số
@@ -96,20 +94,20 @@ Dùng khi audio có 2 ngôn ngữ (ví dụ: bình luận + video gốc trích d
 !uv run mute-srt \
     --input       /content/video.mp4 \
     --mute        /content/mute.srt \
-    --output      /content/video_muted.wav \
+    --output      /content/audio_muted.wav \
     --sample-rate 16000 \
     --verbose
 ```
 
 #### Tham số
 
-| Tham số         | Mô tả                                | Mặc định               |
-| --------------- | ------------------------------------ | ---------------------- |
-| `--input`       | File audio/video đầu vào             | (bắt buộc)             |
-| `--mute`        | File mute.srt chứa các đoạn cần mute | (bắt buộc)             |
-| `--output`      | File audio đầu ra                    | `<input>_muted.wav`    |
-| `--sample-rate` | Sample rate output                   | `16000` (cho WhisperX) |
-| `--verbose`     | Hiển thị log chi tiết                | (tắt)                  |
+| Tham số           | Mô tả                                | Mặc định               |
+| ----------------- | ------------------------------------ | ---------------------- |
+| `--input`, `-i`   | File audio/video đầu vào             | (bắt buộc)             |
+| `--mute`, `-m`    | File mute.srt chứa các đoạn cần mute | (bắt buộc)             |
+| `--output`, `-o`  | File audio đầu ra                    | `<input>_muted.wav`    |
+| `--sample-rate`   | Sample rate output                   | `16000` (cho WhisperX) |
+| `--verbose`, `-v` | Hiển thị log chi tiết                | (tắt)                  |
 
 #### File mute.srt format
 
@@ -129,51 +127,161 @@ Tạo file `mute.srt` đánh dấu các đoạn cần mute:
 
 ---
 
-### 2.2. Dịch SRT (translate-srt)
+### 2.2. Extract Audio (extract-srt)
+
+Ngược với mute-srt: Giữ lại CHỈ các đoạn được đánh dấu trong mute.srt, các đoạn khác thành silence.
+
+#### Extract audio nhanh
+
+```colab
+!uv run extract-srt --input /content/video.mp4 --mute /content/mute.srt
+```
+
+#### Đầy đủ tham số
+
+```colab
+!uv run extract-srt \
+    --input       /content/video.mp4 \
+    --mute        /content/mute.srt \
+    --output      /content/audio_extracted.wav \
+    --sample-rate 16000 \
+    --verbose
+```
+
+#### Tham số
+
+| Tham số           | Mô tả                                   | Mặc định                |
+| ----------------- | --------------------------------------- | ----------------------- |
+| `--input`, `-i`   | File audio/video đầu vào                | (bắt buộc)              |
+| `--mute`, `-m`    | File mute.srt chứa các đoạn cần extract | (bắt buộc)              |
+| `--output`, `-o`  | File audio đầu ra                       | `<input>_extracted.wav` |
+| `--sample-rate`   | Sample rate output                      | `16000` (cho WhisperX)  |
+| `--verbose`, `-v` | Hiển thị log chi tiết                   | (tắt)                   |
+
+---
+
+### 2.3. Merge SRT (merge-srt)
+
+Merge 2 file SRT thành 1 file hoàn chỉnh, sắp xếp theo timestamp.
+
+#### Merge nhanh
+
+```colab
+!uv run merge-srt \
+    --commentary /content/subtitle_commentary.srt \
+    --quoted     /content/subtitle_quoted.srt
+```
+
+#### Đầy đủ tham số
+
+```colab
+!uv run merge-srt \
+    --commentary       /content/subtitle_commentary.srt \
+    --quoted           /content/subtitle_quoted.srt \
+    --output           /content/subtitle_merged.srt \
+    --no-check-overlap \
+    --verbose
+```
+
+#### Tham số
+
+| Tham số              | Mô tả                                       | Mặc định              |
+| -------------------- | ------------------------------------------- | --------------------- |
+| `--commentary`, `-c` | File SRT chứa subtitle phần bình luận       | (bắt buộc)            |
+| `--quoted`, `-q`     | File SRT chứa subtitle phần video trích dẫn | (bắt buộc)            |
+| `--output`, `-o`     | File SRT output                             | `subtitle_merged.srt` |
+| `--no-check-overlap` | Bỏ qua kiểm tra overlapping segments        | (mặc định check)      |
+| `--verbose`, `-v`    | Hiển thị log chi tiết                       | (tắt)                 |
+
+---
+
+### 2.4. Dịch SRT (translate-srt)
 
 #### Dịch nhanh (với Secrets)
 
 ```colab
 from google.colab import userdata
-gemini_key = userdata.get('gemini_token')
+gemini_key = userdata.get('gemini_key')
+
 !uv run translate-srt \
     --input /content/video.srt \
-    --output /content/video_vi.srt \
-    --keys "{gemini_key}"
+    --keys  "{gemini_key}"
 ```
 
 #### Đầy đủ tham số
 
 ```colab
 from google.colab import userdata
-gemini_key = userdata.get('gemini_token')
+gemini_key = userdata.get('gemini_key')
+
 !uv run translate-srt \
-    --input   /content/video.srt         \
-    --output  /content/video_vi.srt      \
-    --lang    "Vietnamese"               \
-    --keys    "{gemini_key}"             \
-    --model   "gemini-2.5-flash"         \
-    --batch   30                         \
-    --budget  8192                       \
-    --no-context
+    --input     /content/video.srt \
+    --output    /content/video_ja.srt \
+    --lang      "Japanese" \
+    --keys      "{gemini_key}" \
+    --model     "gemini-2.5-flash" \
+    --prompt    /content/prompts/gemini.txt \
+    --batch     30 \
+    --budget    24576 \
+    --wait      0.5 \
+    --no-context \
+    --verbose
 ```
 
 #### Tham số
 
-| Tham số        | Mô tả                                      | Mặc định                      |
-| -------------- | ------------------------------------------ | ----------------------------- |
-| `--input`      | File .srt đầu vào                          | (bắt buộc)                    |
-| `--output`     | File .srt đầu ra                           | `<input_stem>_translated.srt` |
-| `--lang`       | Ngôn ngữ đích                              | `Vietnamese`                  |
-| `--keys`       | Gemini API key(s), phân cách bằng dấu phẩy | (bắt buộc)                    |
-| `--model`      | Model Gemini                               | `gemini-2.5-flash`            |
-| `--batch`      | Số dòng dịch mỗi lần                       | `30`                          |
-| `--budget`     | Token budget                               | `8192`                        |
-| `--no-context` | Tắt global context                         | (mặc định bật)                |
+| Tham số           | Mô tả                                      | Mặc định             |
+| ----------------- | ------------------------------------------ | -------------------- |
+| `--input`, `-i`   | File .srt đầu vào                          | (bắt buộc)           |
+| `--keys`, `-k`    | Gemini API key(s), phân cách bằng dấu phẩy | (bắt buộc)           |
+| `--output`, `-o`  | File .srt đầu ra                           | `<input>_<lang>.srt` |
+| `--lang`, `-l`    | Ngôn ngữ đích (tên tiếng Anh đầy đủ)       | `Vietnamese`         |
+| `--model`, `-m`   | Model Gemini                               | `gemini-2.5-flash`   |
+| `--prompt`        | Đường dẫn tới file prompt gemini.txt       | `prompts/gemini.txt` |
+| `--batch`, `-b`   | Số dòng dịch mỗi lần                       | `30`                 |
+| `--budget`        | Thinking budget tokens (0 để tắt)          | `24576`              |
+| `--wait`          | Giây chờ giữa mỗi batch                    | `0`                  |
+| `--no-context`    | Tắt global context                         | (mặc định bật)       |
+| `--verbose`, `-v` | Hiển thị log chi tiết                      | (tắt)                |
 
 ---
 
-### 2.3. Text-to-Speech (tts-srt)
+### 2.5. SRT to ASS (srt-to-ass)
+
+Chuyển file SRT thành file ASS để overlay lên video.
+
+#### Chuyển đổi nhanh
+
+```colab
+!uv run srt-to-ass --input /content/note_translated.srt
+```
+
+#### Đầy đủ tham số
+
+```colab
+!uv run srt-to-ass \
+    --input     /content/note_translated.srt \
+    --output    /content/note_overlay.ass \
+    --template  /content/CharenjiZukan/assets/sample.ass \
+    --max-chars 14 \
+    --style     NoteStyle \
+    --verbose
+```
+
+#### Tham số
+
+| Tham số            | Mô tả                                   | Mặc định            |
+| ------------------ | --------------------------------------- | ------------------- |
+| `--input`, `-i`    | File SRT đầu vào                        | (bắt buộc)          |
+| `--output`, `-o`   | File ASS đầu ra                         | `<input>.ass`       |
+| `--template`, `-t` | File ASS template                       | `assets/sample.ass` |
+| `--max-chars`      | Số ký tự tối đa mỗi dòng (tự động ngắt) | `14`                |
+| `--style`          | Tên style trong ASS                     | `NoteStyle`         |
+| `--verbose`, `-v`  | Hiển thị log chi tiết                   | (tắt)               |
+
+---
+
+### 2.6. Text-to-Speech (tts-srt)
 
 #### Xem danh sách giọng
 
@@ -189,18 +297,18 @@ gemini_key = userdata.get('gemini_token')
 
 ```colab
 !uv run tts-srt \
-    --input /content/video_vi.srt \
-    --voice vi-VN-HoaiMyNeural
+    --input /content/video_ja.srt \
+    --voice ja-JP-KeitaNeural
 ```
 
 #### TTS với autorate (tự động nén giọng)
 
 ```colab
 !uv run tts-srt \
-    --input   /content/video_vi.srt \
-    --output  /content/video_vi.mp3 \
-    --voice   vi-VN-HoaiMyNeural    \
-    --rate    +5%                    \
+    --input    /content/video_ja.srt \
+    --output   /content/video_ja.wav \
+    --voice    ja-JP-KeitaNeural \
+    --rate     +5% \
     --autorate
 ```
 
@@ -208,54 +316,163 @@ gemini_key = userdata.get('gemini_token')
 
 ```colab
 !uv run tts-srt \
-    --input   /content/video_vi.srt \
-    --output  /content/video_vi.wav \
-    --voice   vi-VN-HoaiMyNeural    \
-    --rate    +10%                   \
-    --volume  +0%                    \
-    --pitch   +0Hz                   \
-    --autorate                       \
-    --cache   /content/cache_tts
+    --input      /content/video_ja.srt \
+    --output     /content/video_ja.wav \
+    --voice      ja-JP-KeitaNeural \
+    --rate       +10% \
+    --volume     +0% \
+    --pitch      +0Hz \
+    --autorate \
+    --max-speed  100.0 \
+    --concurrent 10 \
+    --cache      /content/cache_tts \
+    --proxy      http://127.0.0.1:7890 \
+    --verbose
 ```
 
 #### Tham số
 
-| Tham số        | Mô tả                           | Mặc định                  |
-| -------------- | ------------------------------- | ------------------------- |
-| `--input`      | File .srt đầu vào               | (bắt buộc)                |
-| `--output`     | File audio đầu ra (.wav/.mp3)   | `output/<input_stem>.wav` |
-| `--voice`      | Tên giọng EdgeTTS               | (bắt buộc)                |
-| `--rate`       | Tốc độ giọng (vd: +10%, -5%)    | `+0%`                     |
-| `--volume`     | Âm lượng (vd: +20%)             | `+0%`                     |
-| `--pitch`      | Cao độ (vd: +50Hz)              | `+0Hz`                    |
-| `--autorate`   | Tự động nén audio khớp slot SRT | (tắt)                     |
-| `--max-speed`  | Giới hạn tốc độ nén tối đa      | `100.0`                   |
-| `--concurrent` | Số request EdgeTTS song song    | `10`                      |
-| `--cache`      | Thư mục cache audio tạm         | `tmp/<stem>_<ts>/`        |
-| `--verbose`    | Bật logging debug               | (tắt)                     |
+| Tham số          | Mô tả                           | Mặc định                  |
+| ---------------- | ------------------------------- | ------------------------- |
+| `--input`, `-i`  | File .srt đầu vào               | (bắt buộc)                |
+| `--voice`, `-v`  | Tên giọng EdgeTTS               | (bắt buộc)                |
+| `--output`, `-o` | File audio đầu ra (.wav/.mp3)   | `output/<input_stem>.wav` |
+| `--rate`         | Tốc độ giọng (vd: +10%, -5%)    | `+0%`                     |
+| `--volume`       | Âm lượng (vd: +20%)             | `+0%`                     |
+| `--pitch`        | Cao độ (vd: +50Hz)              | `+0Hz`                    |
+| `--autorate`     | Tự động nén audio khớp slot SRT | (tắt)                     |
+| `--max-speed`    | Giới hạn tốc độ nén tối đa      | `100.0`                   |
+| `--concurrent`   | Số request EdgeTTS song song    | `10`                      |
+| `--cache`        | Thư mục cache audio tạm         | `tmp/<stem>_<ts>/`        |
+| `--proxy`        | Proxy URL                       | (không dùng)              |
+| `--list-voices`  | Liệt kê giọng EdgeTTS           | (không dùng)              |
+| `--verbose`      | Bật logging debug               | (tắt)                     |
 
 ---
 
-## 3. Quy trình hoàn chỉnh
+### 2.7. Demucs Audio Separation (demucs-audio)
 
-### 3.1. Tải video từ Google Drive
+Tách voice/background từ audio sử dụng AI model Demucs.
 
-Đồng bộ video từ Google Drive sang local storage của Colab
-
-### 3.2. Speech-to-Text với WhisperX
-
-Chuyển audio thành file subtitle .srt:
+#### Tách background music (mặc định)
 
 ```colab
-!uv run whisperx "/content/video.mp4" \
-  --model large-v2 \
-  --language zh \
-  --align_model jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn \
-  --device cuda \
-  --compute_type float16 \
-  --batch_size 16 \
-  --output_dir "/content/output"
+!uv run demucs-audio --input /content/audio_muted.wav
 ```
+
+#### Tách vocals (giữ lại giọng nói)
+
+```colab
+!uv run demucs-audio --input /content/audio.wav --keep vocals
+```
+
+#### Đầy đủ tham số
+
+```colab
+!uv run demucs-audio \
+    --input  /content/audio_muted.wav \
+    --output /content/audio_bgm.wav \
+    --model  htdemucs \
+    --stems  2 \
+    --keep   bgm \
+    --device cuda \
+    --verbose
+```
+
+#### Tham số
+
+| Tham số           | Mô tả                                                          | Mặc định          |
+| ----------------- | -------------------------------------------------------------- | ----------------- |
+| `--input`, `-i`   | File audio đầu vào                                             | (bắt buộc)        |
+| `--output`, `-o`  | File audio đầu ra                                              | `<input>_bgm.wav` |
+| `--model`, `-m`   | Model Demucs: htdemucs, htdemucs_ft, mdx, mdx_extra            | `htdemucs`        |
+| `--stems`, `-s`   | Số nguồn tách: 2 (vocals+bgm) hoặc 4 (drums/bass/other/vocals) | `2`               |
+| `--keep`, `-k`    | Giữ lại: `bgm` hoặc `vocals`                                   | `bgm`             |
+| `--device`, `-d`  | Device: cuda, cuda:0, cpu                                      | auto-detect       |
+| `--verbose`, `-v` | Hiển thị log chi tiết                                          | (tắt)             |
+
+---
+
+### 2.8. Media Speed (media-speed)
+
+Thay đổi tốc độ media (video, audio, SRT, ASS). Hỗ trợ cả slow down và speed up.
+
+#### Slow down video 0.65x
+
+```colab
+!uv run media-speed --input /content/video.mp4 --speed 0.65
+```
+
+#### Slow down audio
+
+```colab
+!uv run media-speed --input /content/audio.wav --speed 0.65
+```
+
+#### Scale SRT timestamps
+
+```colab
+!uv run media-speed --input /content/subtitle.srt --speed 0.65
+```
+
+#### Scale ASS timestamps
+
+```colab
+!uv run media-speed --input /content/note_overlay.ass --speed 0.65
+```
+
+#### Đầy đủ tham số
+
+```colab
+!uv run media-speed \
+    --input          /content/video.mp4 \
+    --output         /content/video_slow.mp4 \
+    --speed          0.65 \
+    --type           auto \
+    --no-keep-audio \
+    --verbose
+```
+
+#### Tham số
+
+| Tham số           | Mô tả                                   | Mặc định                               |
+| ----------------- | --------------------------------------- | -------------------------------------- |
+| `--input`, `-i`   | File input (video, audio, SRT, ASS)     | (bắt buộc)                             |
+| `--output`, `-o`  | File output                             | `<input>_slow.*` hoặc `<input>_fast.*` |
+| `--speed`, `-s`   | Hệ số tốc độ (< 1.0: slow, > 1.0: fast) | `0.65`                                 |
+| `--type`, `-t`    | Loại file: auto, video, audio, srt, ass | `auto` (auto-detect)                   |
+| `--no-keep-audio` | Không giữ audio trong video output      | (mặc định giữ audio)                   |
+| `--verbose`, `-v` | Hiển thị log chi tiết                   | (tắt)                                  |
+
+---
+
+## 3. Workflow đầy đủ theo docs/workflow.md
+
+### Bước 1: Audio Processing
+
+#### 1a. Mute Audio
+
+```colab
+!uv run mute-srt \
+    --input       /content/video.mp4 \
+    --mute        /content/mute.srt \
+    --output      /content/audio_muted.wav \
+    --sample-rate 16000
+```
+
+#### 1b. Extract Audio
+
+```colab
+!uv run extract-srt \
+    --input       /content/video.mp4 \
+    --mute        /content/mute.srt \
+    --output      /content/audio_extracted.wav \
+    --sample-rate 16000
+```
+
+### Bước 2: Speech-to-Text với WhisperX
+
+Chuyển audio thành file subtitle .srt:
 
 #### Tham số WhisperX
 
@@ -273,40 +490,105 @@ Chuyển audio thành file subtitle .srt:
 - File `.srt` tại thư mục output
 - File `.json` với thông tin chi tiết
 
----
+```colab
+!uv run whisperx "/content/audio_muted.wav" \
+  --model large-v2 \
+  --language zh \
+  --align_model jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn \
+  --device cuda \
+  --compute_type float16 \
+  --batch_size 16 \
+  --output_dir "/content/output"
+```
 
-### 3.3. Dịch SRT
+### Bước 3: Merge Subtitle
 
-Dịch file subtitle sang ngôn ngữ đích:
+```colab
+!uv run merge-srt \
+    --commentary /content/subtitle_commentary.srt \
+    --quoted     /content/subtitle_quoted.srt \
+    --output     /content/subtitle_merged.srt
+```
+
+### Bước 4: Note Processing
+
+#### 4a. Translate Note
 
 ```colab
 from google.colab import userdata
-gemini_key = userdata.get('gemini_token')
+gemini_key = userdata.get('gemini_key')
+
 !uv run translate-srt \
-    --input /content/output/video.srt \
-    --output /content/output/video_ja.srt \
-    --lang "Japanese" \
-    --keys "{gemini_key}"
+    --input  /content/note_source.srt \
+    --output /content/note_translated.srt \
+    --lang   "Japanese" \
+    --keys   "{gemini_key}"
 ```
 
----
+#### 4b. Convert SRT to ASS
 
-### 3.4. Text-to-Speech
+```colab
+!uv run srt-to-ass \
+    --input     /content/note_translated.srt \
+    --output    /content/note_overlay.ass \
+    --template  /content/CharenjiZukan/assets/sample.ass \
+    --max-chars 14 \
+    --style     NoteStyle
+```
 
-Chuyển subtitle đã dịch thành file audio:
+### Bước 5: Translate Subtitle
+
+```colab
+from google.colab import userdata
+gemini_key = userdata.get('gemini_key')
+
+!uv run translate-srt \
+    --input  /content/subtitle_merged.srt \
+    --output /content/subtitle_translated.srt \
+    --lang   "Japanese" \
+    --keys   "{gemini_key}"
+```
+
+### Bước 6: Demucs Voice Removal
+
+```colab
+!uv run demucs-audio \
+    --input  /content/audio_muted.wav \
+    --output /content/audio_bgm.wav \
+    --model  htdemucs \
+    --stems  2 \
+    --keep   bgm
+```
+
+### Bước 7: Slow Down 0.65x
+
+```colab
+# Video
+!uv run media-speed --input /content/video.mp4 --speed 0.65
+
+# Audio extracted
+!uv run media-speed --input /content/audio_extracted.wav --speed 0.65
+
+# Audio BGM
+!uv run media-speed --input /content/audio_bgm.wav --speed 0.65
+
+# Subtitle
+!uv run media-speed --input /content/subtitle_translated.srt --speed 0.65
+
+# Note overlay
+!uv run media-speed --input /content/note_overlay.ass --speed 0.65
+```
+
+### Bước 8: TTS
 
 ```colab
 !uv run tts-srt \
-    --input   /content/output/video_ja.srt \
-    --output  /content/output/video_ja.wav \
-    --voice   ja-JP-KeitaNeural \
-    --rate    +5% \
+    --input    /content/subtitle_slow_translated.srt \
+    --output   /content/audio_slow_tts.wav \
+    --voice    ja-JP-KeitaNeural \
+    --rate     +5% \
     --autorate
 ```
-
----
-
-### 3.5. Ghép Audio vào Video
 
 ---
 
@@ -320,7 +602,7 @@ Nếu không muốn dùng uv, bạn có thể cài đặt thủ công:
 
 # Sử dụng Secrets cho API key
 from google.colab import userdata
-gemini_key = userdata.get('gemini_token')
+gemini_key = userdata.get('gemini_key')
 
 # Chạy trực tiếp với python (đường dẫn từ thư mục project)
 !python cli/translate_srt.py --input video.srt --keys "{gemini_key}"
@@ -353,9 +635,24 @@ gemini_key = userdata.get('gemini_token')
 
 Script sẽ tự động thêm `.wav` nếu output không có extension.
 
+### Lỗi "Failed to spawn: mute-srt"
+
+Chạy lệnh sau để cài đặt package:
+
+```colab
+%cd /content/CharenjiZukan
+!uv pip install -e .
+```
+
+Hoặc chạy trực tiếp file Python:
+
+```colab
+!uv run python cli/mute_srt.py --input video.mp4 --mute mute.srt
+```
+
 ---
 
-## 6. Lưu ý quan trọng
+## 7. Lưu ý quan trọng
 
 1. **Cài đặt project**: Sau khi clone, cần chạy `!uv pip install -e .` để cài đặt project ở chế độ editable, cho phép sử dụng các CLI commands (`mute-srt`, `translate-srt`, `tts-srt`).
 
@@ -366,3 +663,5 @@ Script sẽ tự động thêm `.wav` nếu output không có extension.
 4. **Output không có extension**: Nếu `--output` không có extension, script sẽ tự động thêm `.wav`.
 
 5. **Autorate**: Khi bật `--autorate`, audio sẽ được nén/giãn để khớp với thời lượng slot trong file SRT.
+
+6. **Gemini API Key**: Sử dụng cú pháp `--keys "{gemini_key}"` với biến từ `userdata.get('gemini_key')`.
