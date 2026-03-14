@@ -22,18 +22,16 @@ dependencies = [
 translate-srt = "cli.translate_srt:main"
 tts-srt = "cli.tts_srt:main"
 mute-srt = "cli.mute_srt:main"
-extract-srt = "cli.extract-srt:main"
-merge_srt = "cli/merge_srt.py:main"
+extract-srt = "cli.extract_srt:main"
+merge-srt = "cli.merge_srt:main"
+srt-to-ass = "cli.srt_to_ass:main"
 demucs-audio = "cli.demucs_audio:main"
 media-speed = "cli.media_speed:main"
 
 [tool.setuptools.packages.find]
 include = ["cli*", "utils*"]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=7.0.0",
 ]
-
-[tool.uv.scripts]
-test = "pytest tests/ -v"
