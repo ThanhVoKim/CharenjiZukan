@@ -300,28 +300,49 @@ uv run cli/translate_srt.py --input subtitle_merged.srt --lang "Japanese" --keys
 
 Sử dụng Demucs để tách voice khỏi background music.
 
+#### Source Indices
+
+Demucs tách audio thành 4 sources:
+
+| Index | Source | Mô tả     |
+| ----- | ------ | --------- |
+| 0     | drums  | Trống     |
+| 1     | bass   | Bass      |
+| 2     | other  | Nhạc khác |
+| 3     | vocals | Giọng hát |
+
 #### Options
 
-| Option    | Default  | Mô tả                                                          |
-| --------- | -------- | -------------------------------------------------------------- |
-| `--stems` | 2        | Số nguồn tách: 2 (vocals+bgm) hoặc 4 (drums/bass/other/vocals) |
-| `--keep`  | bgm      | Giữ lại: `bgm` (background) hoặc `vocals`                      |
-| `--model` | htdemucs | Model: htdemucs, htdemucs_ft, mdx, mdx_extra                   |
+| Tham số           | Mô tả                                               | Mặc định          |
+| ----------------- | --------------------------------------------------- | ----------------- |
+| `--input`, `-i`   | File audio đầu vào                                  | (bắt buộc)        |
+| `--output`, `-o`  | File audio đầu ra (.wav, .mp3, .m4a, .aac)          | `<input>_bgm.wav` |
+| `--model`, `-m`   | Model Demucs: htdemucs, htdemucs_ft, mdx, mdx_extra | `htdemucs`        |
+| `--keep`, `-k`    | Sources giữ lại (xem bảng dưới)                     | `bgm`             |
+| `--bitrate`, `-b` | Bitrate cho MP3/M4A output                          | `192k`            |
+| `--device`, `-d`  | Device: cuda, cuda:0, cpu                           | auto-detect       |
+| `--verbose`, `-v` | Hiển thị log chi tiết                               | (tắt)             |
 
 #### Ví dụ
 
 ```bash
-# Mặc định: 2-stems, output bgm (remove vocals)
-uv run cli/demucs_audio.py --input audio_muted.wav
+# Mặc định: BGM (drums + bass + other)
+uv run demucs-audio --input audio_muted.wav
 
-# 2-stems, output vocals (remove bgm)
-uv run cli/demucs_audio.py --input audio_muted.wav --keep vocals
+# Output MP3 với bitrate nhỏ
+uv run demucs-audio --input audio_muted.wav --output bgm.mp3 --bitrate 128k
 
-# 4-stems, output bgm
-uv run cli/demucs_audio.py --input audio_muted.wav --stems 4
+# Chỉ lấy vocals
+uv run demucs-audio --input audio_muted.wav --keep vocals
+
+# Chỉ lấy source "other" (index 2)
+uv run demucs-audio --input audio_muted.wav --keep 2 --output other.mp3
+
+# Lấy drums + bass (index 0,1)
+uv run demucs-audio --input audio_muted.wav --keep 0,1 --output drums_bass.m4a
 
 # Với model chất lượng cao
-uv run cli/demucs_audio.py --input audio_muted.wav --model htdemucs_ft
+uv run demucs-audio --input audio_muted.wav --model htdemucs_ft
 ```
 
 ### Bước 7: Slow Down 0.65x

@@ -370,26 +370,96 @@ Tách voice/background từ audio sử dụng AI model Demucs.
 
 ```colab
 !uv run demucs-audio \
-    --input  /content/audio_muted.wav \
-    --output /content/audio_bgm.wav \
-    --model  htdemucs \
-    --stems  2 \
-    --keep   bgm \
-    --device cuda \
+    --input   /content/audio_muted.wav \
+    --output  /content/audio_bgm.wav \
+    --model   htdemucs \
+    --keep    bgm \
+    --bitrate 128k \
+    --device  cuda \
     --verbose
+```
+
+#### Ví dụ nâng cao với `--keep`
+
+```colab
+# Chỉ lấy source "other" (index 2)
+!uv run demucs-audio --input audio.wav --keep 2 --output other.mp3
+
+# Lấy drums + bass (index 0,1)
+!uv run demucs-audio --input audio.wav --keep 0,1 --output drums_bass.m4a
+
+# Lấy drums + bass + other (index 0-2)
+!uv run demucs-audio --input audio.wav --keep 0-2 --output bgm.mp3
+
+# Lấy tất cả trừ vocals
+!uv run demucs-audio --input audio.wav --keep 0-2 --output no_vocals.mp3
 ```
 
 #### Tham số
 
-| Tham số           | Mô tả                                                          | Mặc định          |
-| ----------------- | -------------------------------------------------------------- | ----------------- |
-| `--input`, `-i`   | File audio đầu vào                                             | (bắt buộc)        |
-| `--output`, `-o`  | File audio đầu ra                                              | `<input>_bgm.wav` |
-| `--model`, `-m`   | Model Demucs: htdemucs, htdemucs_ft, mdx, mdx_extra            | `htdemucs`        |
-| `--stems`, `-s`   | Số nguồn tách: 2 (vocals+bgm) hoặc 4 (drums/bass/other/vocals) | `2`               |
-| `--keep`, `-k`    | Giữ lại: `bgm` hoặc `vocals`                                   | `bgm`             |
-| `--device`, `-d`  | Device: cuda, cuda:0, cpu                                      | auto-detect       |
-| `--verbose`, `-v` | Hiển thị log chi tiết                                          | (tắt)             |
+| Tham số           | Mô tả                                               | Mặc định          |
+| ----------------- | --------------------------------------------------- | ----------------- |
+| `--input`, `-i`   | File audio đầu vào                                  | (bắt buộc)        |
+| `--output`, `-o`  | File audio đầu ra (.wav, .mp3, .m4a, .aac)          | `<input>_bgm.wav` |
+| `--model`, `-m`   | Model Demucs: htdemucs, htdemucs_ft, mdx, mdx_extra | `htdemucs`        |
+| `--keep`, `-k`    | Sources giữ lại (xem bảng dưới)                     | `bgm`             |
+| `--bitrate`, `-b` | Bitrate cho MP3/M4A output                          | `192k`            |
+| `--device`, `-d`  | Device: cuda, cuda:0, cpu                           | auto-detect       |
+| `--verbose`, `-v` | Hiển thị log chi tiết                               | (tắt)             |
+
+#### Tham số `--keep` (chọn sources)
+
+Demucs tách audio thành 4 sources với index:
+
+| Index | Source | Mô tả     |
+| ----- | ------ | --------- |
+| 0     | drums  | Trống     |
+| 1     | bass   | Bass      |
+| 2     | other  | Nhạc khác |
+| 3     | vocals | Giọng hát |
+
+**Cách sử dụng `--keep`:**
+
+```colab
+# Presets
+--keep bgm      # drums + bass + other (mặc định)
+--keep vocals   # chỉ giọng hát
+--keep drums    # chỉ trống
+--keep bass     # chỉ bass
+--keep other    # chỉ nhạc khác
+
+# Index đơn lẻ
+--keep 2        # chỉ other
+--keep 3        # chỉ vocals
+
+# Nhiều index (phẩy)
+--keep 0,2      # drums + other
+--keep 1,2      # bass + other
+
+# Range index (gạch nối)
+--keep 0-2      # drums + bass + other (tương đương bgm)
+--keep 1-3      # bass + other + vocals
+```
+
+#### Output formats
+
+```colab
+# WAV (mặc định - chất lượng cao, file lớn)
+--output bgm.wav
+
+# MP3 (nén, file nhỏ hơn)
+--output bgm.mp3 --bitrate 128k
+
+# M4A/AAC (tốt cho video)
+--output bgm.m4a --bitrate 192k
+```
+
+#### Lưu ý quan trọng
+
+- Demucs yêu cầu audio **stereo (2 channels)** và **44.1kHz+** để có chất lượng tốt
+- Nếu input là mono, script sẽ tự động convert sang stereo
+- Nên dùng audio chất lượng cao thay vì audio 16kHz mono từ WhisperX
+- WAV có chất lượng cao nhất nhưng file lớn; MP3/M4A nhỏ hơn nhưng mất chất lượng
 
 ---
 

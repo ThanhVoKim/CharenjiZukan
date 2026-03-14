@@ -106,20 +106,27 @@ def get_device():
         return "cpu"
 
 
-def separate_audio(input_path, output_path, model="htdemucs", stems=2, keep="bgm", device=None):
+def separate_audio(input_path, output_path, model="htdemucs", keep="bgm", bitrate="192k", device=None):
     """
     Tách audio thành các sources sử dụng Demucs.
 
     Args:
         input_path: Đường dẫn file audio input
-        output_path: Đường dẫn file output
+        output_path: Đường dẫn file output (.wav, .mp3, .m4a, .aac)
         model: Tên model Demucs (htdemucs, htdemucs_ft, mdx, mdx_extra)
-        stems: Số nguồn tách (2 hoặc 4)
-        keep: Giữ lại 'bgm' hoặc 'vocals'
+        keep: Sources để giữ lại:
+            - Presets: "bgm", "vocals", "drums", "bass", "other", "all"
+            - Indices: "0,1,2" (drums+bass+other), "2" (other only), "0-2" (drums+bass+other)
+            - Index mapping: 0=drums, 1=bass, 2=other, 3=vocals
+        bitrate: Bitrate cho MP3/M4A output (mặc định: 192k)
         device: Device để chạy (cuda/cpu), None để auto-detect
 
     Returns:
         str: Đường dẫn file output
+        
+    Note:
+        Demucs luôn trả về 4 sources: drums, bass, other, vocals
+        Index: 0=drums, 1=bass, 2=other, 3=vocals
     """
     import torch
     import torchaudio
@@ -141,6 +148,12 @@ def separate_audio(input_path, output_path, model="htdemucs", stems=2, keep="bgm
     wav, sr = torchaudio.load(input_path)
     logger.info(f"Audio info: {wav.shape[1]} samples, {sr}Hz, {wav.shape[0]} channels")
 
+    # 2b. Convert mono to stereo if needed (Demucs requires 2 channels)
+    if wav.shape[0] == 1:
+        logger.info("Converting mono to stereo (Demucs requires 2 channels)...")
+        wav = wav.repeat(2, 1)  # Duplicate mono channel to create stereo
+        logger.info(f"Audio info after conversion: {wav.shape[1]} samples, {sr}Hz, {wav.shape[0]} channels")
+
     # 3. Prepare audio for model
     # Demucs expects: [batch, channels, time]
     if wav.dim() == 1:
@@ -151,44 +164,113 @@ def separate_audio(input_path, output_path, model="htdemucs", stems=2, keep="bgm
     wav = wav.to(device)
 
     # 4. Apply model
-    logger.info(f"Separating sources with {stems}-stems mode...")
+    logger.info("Separating sources...")
     with torch.no_grad():
         sources = apply_model(model_obj, wav, device=device)
 
     # 5. Extract desired output
     # sources shape: [batch, sources, channels, time]
-    # sources order for 4-stems: drums, bass, other, vocals
-    # sources order for 2-stems: no_vocals, vocals
-
-    if stems == 2:
-        # Two-stems mode
-        if keep == "vocals":
+    # Demucs models always return 4 sources: drums, bass, other, vocals
+    # Index: 0=drums, 1=bass, 2=other, 3=vocals
+    
+    num_sources = sources.shape[1]
+    logger.info(f"Model returned {num_sources} sources")
+    
+    # Parse keep indices (comma-separated: "0,2" means drums + other)
+    source_names = ["drums", "bass", "other", "vocals"]
+    
+    if num_sources == 4:
+        # Parse keep parameter
+        if keep.isdigit() or (keep.replace(",", "").replace("-", "").isdigit()):
+            # Numeric format: "0,2" or "0-2" or "0"
+            if "-" in keep:
+                # Range format: "0-2" means 0,1,2
+                start, end = map(int, keep.split("-"))
+                indices = list(range(start, end + 1))
+            else:
+                # Comma-separated: "0,2"
+                indices = [int(x.strip()) for x in keep.split(",")]
+            
+            # Validate indices
+            for idx in indices:
+                if idx < 0 or idx >= num_sources:
+                    raise ValueError(f"Invalid source index: {idx}. Valid range: 0-{num_sources-1}")
+            
+            # Sum selected sources
+            output_audio = sources[0, indices[0]]
+            selected_names = [source_names[indices[0]]]
+            for idx in indices[1:]:
+                output_audio = output_audio + sources[0, idx]
+                selected_names.append(source_names[idx])
+            
+            logger.info(f"Extracting sources: {', '.join(selected_names)} (indices: {indices})")
+        
+        else:
+            # Named presets for backward compatibility
+            keep_presets = {
+                "bgm": ([0, 1, 2], "background music (drums + bass + other)"),
+                "vocals": ([3], "vocals"),
+                "drums": ([0], "drums"),
+                "bass": ([1], "bass"),
+                "other": ([2], "other"),
+                "all": ([0, 1, 2, 3], "all sources"),
+            }
+            
+            if keep not in keep_presets:
+                raise ValueError(f"Invalid --keep option: {keep}. Use indices (0,1,2,3) or presets: {list(keep_presets.keys())}")
+            
+            indices, description = keep_presets[keep]
+            output_audio = sources[0, indices[0]]
+            for idx in indices[1:]:
+                output_audio = output_audio + sources[0, idx]
+            logger.info(f"Extracting {description}...")
+    
+    elif num_sources == 2:
+        # Two-stems output: no_vocals, vocals (rare case)
+        if keep in ["vocals", "3"]:
             output_audio = sources[0, 1]  # vocals
             logger.info("Extracting vocals...")
         else:
-            output_audio = sources[0, 0]  # no_vocals (bgm)
-            logger.info("Extracting background music (no vocals)...")
+            output_audio = sources[0, 0]  # no_vocals
+            logger.info("Extracting background music (no_vocals)...")
+    
     else:
-        # Four-stems mode: drums, bass, other, vocals
-        drums = sources[0, 0]
-        bass = sources[0, 1]
-        other = sources[0, 2]
-        vocals = sources[0, 3]
-
-        if keep == "vocals":
-            output_audio = vocals
-            logger.info("Extracting vocals...")
-        else:
-            # bgm = drums + bass + other
-            output_audio = drums + bass + other
-            logger.info("Extracting background music (drums + bass + other)...")
+        raise ValueError(f"Unexpected number of sources: {num_sources}")
 
     # 6. Move to CPU for saving
     output_audio = output_audio.cpu()
 
-    # 7. Export
+    # 7. Export with format detection
     logger.info(f"Exporting to: {output_path}")
-    torchaudio.save(output_path, output_audio, sr)
+    output_path_obj = Path(output_path)
+    suffix = output_path_obj.suffix.lower()
+    
+    if suffix in [".mp3", ".m4a", ".aac"]:
+        # Use pydub for compressed formats
+        from pydub import AudioSegment
+        import tempfile
+        
+        # First save to temp WAV
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_wav = tmp.name
+        torchaudio.save(tmp_wav, output_audio, sr)
+        
+        # Convert to target format
+        audio_seg = AudioSegment.from_wav(tmp_wav)
+        
+        if suffix == ".mp3":
+            audio_seg.export(output_path, format="mp3", bitrate=bitrate)
+        elif suffix == ".m4a":
+            audio_seg.export(output_path, format="ipod", bitrate=bitrate)
+        elif suffix == ".aac":
+            audio_seg.export(output_path, format="adts", bitrate=bitrate)
+        
+        # Cleanup temp file
+        Path(tmp_wav).unlink()
+        logger.info(f"Converted to {suffix.upper()} with bitrate: {bitrate}")
+    else:
+        # Default WAV format
+        torchaudio.save(output_path, output_audio, sr)
 
     logger.info(f"✅ Done! Output saved to: {output_path}")
     return output_path
@@ -202,25 +284,33 @@ def build_parser() -> argparse.ArgumentParser:
     """Tạo argument parser."""
     parser = argparse.ArgumentParser(
         prog="demucs_audio",
-        description="Tách voice/background từ audio sử dụng Demucs AI model. "
-                    "Mặc định: 2-stems mode, output background music (remove vocals).",
+        description="Tách voice/background từ audio sử dụng Demucs AI model.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ví dụ:
-  # Mặc định: 2-stems, output bgm (remove vocals)
-  python demucs_audio.py --input audio_muted.wav
+  # Mặc định: BGM (drums + bass + other)
+  python demucs_audio.py --input audio.wav
 
-  # 2-stems, output vocals (remove bgm)
-  python democs_audio.py --input audio.wav --keep vocals
+  # Chỉ lấy vocals
+  python demucs_audio.py --input audio.wav --keep vocals
 
-  # 4-stems, output bgm
-  python demucs_audio.py --input audio.wav --stems 4
+  # Chỉ lấy source "other" (index 2)
+  python demucs_audio.py --input audio.wav --keep 2
 
-  # Với model chất lượng cao
-  python demucs_audio.py --input audio.wav --model htdemucs_ft
+  # Lấy drums + other (index 0,2)
+  python demucs_audio.py --input audio.wav --keep 0,2
 
-  # Với GPU cụ thể
-  python demucs_audio.py --input audio.wav --device cuda:0
+  # Lấy drums + bass + other (index 0-2)
+  python demucs_audio.py --input audio.wav --keep 0-2
+
+  # Output MP3 với bitrate 128k
+  python demucs_audio.py --input audio.wav --output bgm.mp3 --bitrate 128k
+
+Source indices:
+  0 = drums
+  1 = bass
+  2 = other
+  3 = vocals
         """,
     )
 
@@ -233,7 +323,7 @@ Ví dụ:
     parser.add_argument(
         "--output", "-o",
         default=None,
-        help="Đường dẫn file output. Mặc định: <input>_bgm.wav hoặc <input>_vocals.wav",
+        help="Đường dẫn file output (.wav, .mp3, .m4a, .aac). Mặc định: <input>_bgm.wav",
     )
 
     parser.add_argument(
@@ -244,18 +334,17 @@ Ví dụ:
     )
 
     parser.add_argument(
-        "--stems", "-s",
-        type=int,
-        default=2,
-        choices=[2, 4],
-        help="Số nguồn tách: 2 (vocals+bgm) hoặc 4 (drums/bass/other/vocals). Mặc định: 2",
+        "--keep", "-k",
+        default="bgm",
+        help="Sources để giữ lại. Presets: bgm, vocals, drums, bass, other, all. "
+             "Hoặc indices: '0,2' (drums+other), '0-2' (drums+bass+other). "
+             "Index: 0=drums, 1=bass, 2=other, 3=vocals. Mặc định: bgm",
     )
 
     parser.add_argument(
-        "--keep", "-k",
-        default="bgm",
-        choices=["bgm", "vocals"],
-        help="Giữ lại: 'bgm' (background music) hoặc 'vocals'. Mặc định: bgm",
+        "--bitrate", "-b",
+        default="192k",
+        help="Bitrate cho MP3/M4A output (mặc định: 192k)",
     )
 
     parser.add_argument(
@@ -303,7 +392,13 @@ def main():
     if args.output:
         output_path = Path(args.output)
     else:
-        suffix = "_bgm.wav" if args.keep == "bgm" else "_vocals.wav"
+        # Default output based on keep parameter
+        if args.keep in ["bgm", "0,1,2", "0-2"]:
+            suffix = "_bgm.wav"
+        elif args.keep == "vocals" or args.keep == "3":
+            suffix = "_vocals.wav"
+        else:
+            suffix = f"_{args.keep}.wav"
         output_path = input_path.with_suffix(suffix)
 
     # Create output directory if needed
@@ -313,12 +408,12 @@ def main():
     print(f"\n{'=' * 55}")
     print(f"  🎵 Demucs Audio Separation")
     print(f"{'=' * 55}")
-    print(f"  Input  : {input_path}")
-    print(f"  Output : {output_path}")
-    print(f"  Model  : {args.model}")
-    print(f"  Stems  : {args.stems}")
-    print(f"  Keep   : {args.keep}")
-    print(f"  Device : {args.device or 'auto-detect'}")
+    print(f"  Input   : {input_path}")
+    print(f"  Output  : {output_path}")
+    print(f"  Model   : {args.model}")
+    print(f"  Keep    : {args.keep}")
+    print(f"  Bitrate : {args.bitrate}")
+    print(f"  Device  : {args.device or 'auto-detect'}")
     print(f"{'=' * 55}\n")
 
     # Run separation
@@ -327,8 +422,8 @@ def main():
             input_path=str(input_path),
             output_path=str(output_path),
             model=args.model,
-            stems=args.stems,
             keep=args.keep,
+            bitrate=args.bitrate,
             device=args.device,
         )
     except Exception as e:
