@@ -193,10 +193,13 @@ def stretch_audio_rubberband(input_path: str, output_path: str, speed: float) ->
     y, sr = sf.read(input_path, always_2d=True)
     current_duration_ms = int(len(y) / sr * 1000)
     
-    # Calculate stretch rate
-    # speed = 0.65 → stretch_rate = 1/0.65 = 1.538 (audio dài hơn)
-    # speed = 1.5 → stretch_rate = 1/1.5 = 0.667 (audio ngắn hơn)
-    stretch_rate = 1.0 / speed
+    # Calculate stretch rate for pyrubberband
+    # pyrubberband.time_stretch(y, sr, rate):
+    #   - rate < 1.0 → slow down (audio dài hơn)
+    #   - rate > 1.0 → speed up (audio ngắn hơn)
+    # speed = 0.65 → stretch_rate = 0.65 (audio dài hơn, chậm hơn)
+    # speed = 1.5 → stretch_rate = 1.5 (audio ngắn hơn, nhanh hơn)
+    stretch_rate = speed
     
     logger.debug(f"  Current duration: {current_duration_ms}ms, stretch_rate: {stretch_rate:.3f}")
     
@@ -273,6 +276,19 @@ def stretch_audio_atempo(input_path: str, output_path: str, speed: float) -> boo
     filter_str = _build_atempo_filter(speed)
     logger.debug(f"  atempo filter: {filter_str}")
     
+    # Determine output codec based on extension
+    output_ext = Path(output_path).suffix.lower()
+    codec_map = {
+        '.wav': 'pcm_s16le',
+        '.m4a': 'aac',
+        '.mp4': 'aac',
+        '.mp3': 'libmp3lame',
+        '.flac': 'flac',
+        '.ogg': 'libvorbis',
+        '.aac': 'aac',
+    }
+    audio_codec = codec_map.get(output_ext, 'aac')
+    
     # Build command
     cmd = [
         "ffmpeg", "-y",
@@ -280,7 +296,7 @@ def stretch_audio_atempo(input_path: str, output_path: str, speed: float) -> boo
         "-filter:a", filter_str,
         "-ar", str(AUDIO_SAMPLE_RATE),
         "-ac", str(AUDIO_CHANNELS),
-        "-c:a", "pcm_s16le",
+        "-c:a", audio_codec,
         output_path,
     ]
     

@@ -105,13 +105,13 @@ def run_tts(
     print(f"  Autorate: {'ON' if voice_autorate else 'OFF'}")
     print(f"  Subs    : {total} dòng  ({raw_total_time/1000:.1f}s)")
     print(f"{'='*55}\n")
-
+ 
     # 2. Tạo thư mục cache
     # Mặc định: PROJ/tmp/<stem>_<timestamp>/  (cùng thư mục script)
     _tmp_created = False
     if not cache_folder:
         stem = Path(input_file).stem
-        cache_folder = str(SCRIPT_DIR / "tmp" / f"{stem}_{int(time.time())}")
+        cache_folder = str(PROJECT_ROOT / "tmp" / f"{stem}_{int(time.time())}")
         _tmp_created = True
     Path(cache_folder).mkdir(parents=True, exist_ok=True)
 
@@ -294,7 +294,7 @@ def main():
     if args.output:
         output_file = args.output
     else:
-        out_dir = SCRIPT_DIR / "output"
+        out_dir = PROJECT_ROOT / "output"
         out_dir.mkdir(parents=True, exist_ok=True)
         output_file = str(out_dir / (input_path.stem + ".wav"))
 

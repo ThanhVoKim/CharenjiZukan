@@ -159,11 +159,12 @@ def main():
         if not Path(prompt_file).exists():
             parser.error(f"Prompt file không tồn tại: {prompt_file}")
     else:
-        prompt_file = str(SCRIPT_DIR / "gemini.txt")
+        # Mặc định: prompts/gemini.txt trong project root
+        prompt_file = str(PROJECT_ROOT / "prompts" / "gemini.txt")
         if not Path(prompt_file).exists():
             parser.error(
                 f"Không tìm thấy gemini.txt tại: {prompt_file}\n"
-                "Hãy đặt gemini.txt cùng thư mục với translate_srt.py "
+                "Hãy đặt gemini.txt trong thư mục prompts/ "
                 "hoặc dùng --prompt <đường_dẫn>"
             )
 
