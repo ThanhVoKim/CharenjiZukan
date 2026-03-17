@@ -1,0 +1,116 @@
+# Video Subtitle Extractor Configuration
+# Cấu hình cho việc trích xuất subtitle tiếng Trung từ video
+
+# Video processing settings
+video:
+  # Frame sampling: lấy mỗi N frame (1 = tất cả, 30 = mỗi giây với video 30fps)
+  frame_interval: 30
+
+  # Các định dạng video được hỗ trợ
+  supported_formats:
+    - mp4
+    - avi
+    - mkv
+    - mov
+    - wmv
+    - flv
+
+# Region of Interest (ROI) settings
+# Vùng cần OCR - thường là vùng subtitle ở dưới video
+roi:
+  enabled: true
+
+  # Vị trí bắt đầu và kết thúc ROI (tỷ lệ 0-1 từ trên xuống)
+  # 0.85 = bắt đầu từ 85% chiều cao (vùng subtitle)
+  y_start_ratio: 0.85
+  y_end_ratio: 1.0
+
+  # Tự động detect vùng subtitle (experimental)
+  auto_detect: false
+
+# Scene detection settings
+# Phát hiện chuyển cảnh để tối ưu OCR
+scene_detection:
+  enabled: true
+
+  # Ngưỡng phát hiện (0-255)
+  # Giá trị thấp = nhạy hơn, nhiều frame hơn
+  # Giá trị cao = ít nhạy, ít frame hơn
+  threshold: 30.0
+
+  # Số frame tối thiểu giữa 2 scene change
+  min_scene_frames: 10
+
+# OCR settings
+ocr:
+  # Model sử dụng
+  model: "deepseek-ocr-2"
+
+  # Thiết bị: "cuda" (GPU) hoặc "cpu"
+  device: "cuda"
+
+  # Batch size cho processing
+  batch_size: 8
+
+  # Confidence threshold (0-1)
+  confidence_threshold: 0.5
+
+# Chinese filter settings
+# Lọc chỉ giữ text tiếng Trung
+chinese_filter:
+  enabled: true
+
+  # Giữ dấu câu tiếng Trung
+  keep_punctuation: true
+
+  # Giữ số tiếng Trung (零一二三...)
+  keep_numbers: false
+
+  # Số ký tự tối thiểu để text hợp lệ
+  min_char_count: 2
+
+  # Tỷ lệ tối thiểu Chinese chars trong text (0-1)
+  # 0 = không filter theo tỷ lệ
+  min_chinese_ratio: 0.0
+
+# Output settings
+output:
+  # Format: "srt" hoặc "txt"
+  format: "srt"
+
+  # Có bao gồm timestamp không (cho txt format)
+  include_timestamp: true
+
+  # Loại bỏ text trùng lặp liên tiếp
+  deduplicate: true
+
+  # Thời lượng mặc định cho mỗi subtitle (seconds)
+  default_duration: 3.0
+
+  # Thời lượng tối thiểu (seconds)
+  min_duration: 1.0
+
+  # Thời lượng tối đa (seconds)
+  max_duration: 7.0
+
+# Logging settings
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR
+  level: "INFO"
+
+  # Có ghi log ra file không
+  file_logging: true
+
+  # Đường dẫn log file
+  log_file: "logs/extractor.log"
+
+# Performance settings
+performance:
+  # Số workers cho multiprocessing (0 = auto)
+  num_workers: 0
+
+  # Memory limit (GB) - 0 = không giới hạn
+  memory_limit: 0
+
+  # Cache frames trong memory
+  cache_frames: false
