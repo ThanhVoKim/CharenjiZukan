@@ -45,6 +45,18 @@ class DeepSeekOCR:
         """Load model và tokenizer từ Hugging Face."""
         try:
             import torch
+            
+            # Cố gắng ép backend Matplotlib thành Agg (non-interactive) để tránh lỗi module://matplotlib_inline...
+            # khi deepseek-ocr-2 import matplotlib.pyplot
+            try:
+                import matplotlib
+                matplotlib.use('Agg', force=True)
+                logger.debug(f"Forced Matplotlib backend to 'Agg' (version: {matplotlib.__version__})")
+            except ImportError:
+                logger.debug("matplotlib not installed, skipping backend override")
+            except Exception as e:
+                logger.warning(f"Could not force Matplotlib backend: {e}")
+                
             from transformers import AutoModel, AutoTokenizer
             
             logger.info(f"Loading tokenizer from {self.model_name}...")
@@ -110,11 +122,15 @@ class DeepSeekOCR:
             
         # Tạo file ảnh tạm vì model.infer yêu cầu đường dẫn file
         temp_file = None
+        temp_out_dir = None
         try:
             # Tạo file tạm với đuôi .jpg
             fd, temp_path = tempfile.mkstemp(suffix=".jpg")
             os.close(fd)
             temp_file = temp_path
+            
+            # Tạo thư mục tạm cho output_path vì infer() gọi os.makedirs(output_path/images)
+            temp_out_dir = tempfile.mkdtemp()
             
             # Lưu ảnh numpy array ra file tạm
             cv2.imwrite(temp_file, image)
@@ -125,7 +141,7 @@ class DeepSeekOCR:
                 self.tokenizer, 
                 prompt=self.prompt, 
                 image_file=temp_file, 
-                output_path="", 
+                output_path=temp_out_dir, 
                 base_size=1024, 
                 image_size=768, 
                 crop_mode=True, 
@@ -149,9 +165,16 @@ class DeepSeekOCR:
             return ""
             
         finally:
-            # Xóa file tạm
+            # Xóa file tạm và thư mục tạm
             if temp_file and os.path.exists(temp_file):
                 try:
                     os.remove(temp_file)
                 except Exception as e:
                     logger.warning(f"Failed to remove temporary file {temp_file}: {e}")
+                    
+            if temp_out_dir and os.path.exists(temp_out_dir):
+                import shutil
+                try:
+                    shutil.rmtree(temp_out_dir)
+                except Exception as e:
+                    logger.warning(f"Failed to remove temporary dir {temp_out_dir}: {e}")

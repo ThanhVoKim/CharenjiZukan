@@ -822,3 +822,11 @@ Hoặc chạy trực tiếp file Python:
 5. **Autorate**: Khi bật `--autorate`, audio sẽ được nén/giãn để khớp với thời lượng slot trong file SRT.
 
 6. **Gemini API Key**: Sử dụng cú pháp `--keys "{gemini_key}"` với biến từ `userdata.get('gemini_key')`.
+
+7. Trình tự chạy lại để xác thực fix:
+
+```colab
+!uv cache clean
+!uv sync --reinstall
+!uv pip install -e .
+```
