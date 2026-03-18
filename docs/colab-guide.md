@@ -84,12 +84,26 @@ Nếu cần chuyển video thành subtitle, cài đặt thêm WhisperX:
 
 DeepSeek-OCR-2 là mô hình AI trên Hugging Face, không phải là một package Python thông thường. Mã nguồn và weights của mô hình sẽ được tự động tải về thông qua thư viện `transformers` khi chạy script.
 
-Các thư viện nền (như `transformers`, `torch`, `einops`, `PyMuPDF`) đã được cấu hình trong `pyproject.toml` và sẽ tự động cài đặt khi chạy `!uv pip install -e .`. Tuy nhiên, bạn cần cài thêm `flash-attn` để tăng tốc xử lý:
+Để tránh lỗi tương thích `cannot import name 'LlamaFlashAttention2'`, project đã ghim `transformers==4.46.3` trong [`pyproject.toml`](../pyproject.toml). Khi setup Colab, dùng đúng thứ tự sau để môi trường đồng bộ theo lock của project:
 
 ```colab
-# Cài đặt Flash Attention (yêu cầu cho DeepSeek-OCR-2)
+# Đồng bộ dependencies theo pyproject.toml (bao gồm transformers==4.46.3)
+!uv sync
+
+# Cài project ở editable mode để dùng các CLI commands
+!uv pip install -e .
+
+# Tùy chọn tăng tốc attention cho DeepSeek-OCR-2
 !uv pip install -p .venv/bin/python flash-attn==2.7.3 --no-build-isolation
 ```
+
+Kiểm tra nhanh môi trường trước khi chạy OCR:
+
+```colab
+!uv run python -c "import transformers, torch, addict; from transformers.models.llama.modeling_llama import LlamaFlashAttention2; print('transformers=', transformers.__version__); print('torch=', torch.__version__); print('addict=ok; LlamaFlashAttention2=ok')"
+```
+
+> **Lưu ý:** Không chạy `!uv pip install -U transformers` trong cùng môi trường vì sẽ phá version ghim tương thích với remote code của DeepSeek-OCR-2.
 
 ---
 
@@ -805,6 +819,29 @@ Hoặc chạy trực tiếp file Python:
 
 ```colab
 !uv run python cli/mute_srt.py --input video.mp4 --mute mute.srt
+```
+
+### Lỗi "cannot import name 'LlamaFlashAttention2'"
+
+Nguyên nhân thường gặp: phiên bản `transformers` trong runtime đã bị nâng lên bản không tương thích với remote modeling code của DeepSeek-OCR-2.
+
+Khôi phục môi trường về phiên bản đã ghim của project:
+
+```colab
+%cd /content/CharenjiZukan
+
+# Dọn cache build cũ (khuyến nghị khi đã thử nhiều lần)
+!uv cache clean
+
+# Cài lại toàn bộ theo dependency đã ghim trong project
+!uv sync --reinstall
+!uv pip install -e .
+
+# Cài flash-attn (tùy chọn tăng tốc)
+!uv pip install -p .venv/bin/python flash-attn==2.7.3 --no-build-isolation
+
+# Xác thực runtime
+!uv run python -c "import transformers, addict; from transformers.models.llama.modeling_llama import LlamaFlashAttention2; print(transformers.__version__)"
 ```
 
 ---

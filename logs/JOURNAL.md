@@ -916,3 +916,45 @@ Người dùng muốn chạy `video_subtitle_extractor` bằng `uv`/`!uv` với 
 - ✅ Có thể chạy bằng `uv run extract-subtitles ...`
 - ✅ Có thể dùng `!uv` trên Colab với virtual environment
 - ⏳ DeepSeek-OCR-2 runtime thực tế vẫn phụ thuộc package upstream (hiện code vẫn có mock fallback)
+
+---
+
+## 2026-03-18: Khắc phục lỗi `LlamaFlashAttention2` khi chạy DeepSeek-OCR-2 trên Colab
+
+### Yêu cầu
+
+Người dùng gặp lỗi runtime:
+`cannot import name 'LlamaFlashAttention2' from transformers.models.llama.modeling_llama`
+khi chạy lệnh OCR bằng [`main_extract.py`](../main_extract.py).
+
+### Chẩn đoán
+
+Đã rà các nguồn lỗi chính (token HF, thiếu `flash-attn`, thiếu `addict`, lệch môi trường, lỗi CUDA, lệch phiên bản Transformers). Hai nguyên nhân khả dĩ nhất:
+
+1. **Lệch phiên bản `transformers`** với remote modeling code của DeepSeek-OCR-2.
+2. **Lệch môi trường cài/chạy** trong Colab khiến dependency bị nâng sai phiên bản.
+
+Xác thực nhanh cho thấy class `LlamaFlashAttention2` có ở nhánh tương thích cũ và không còn ổn định ở các bản mới hơn mà runtime đã kéo vào.
+
+### Thay đổi
+
+1. **Cập nhật [`pyproject.toml`](../pyproject.toml)**
+   - Ghim `transformers` từ `>=4.46.3` thành `==4.46.3` để khóa phiên bản tương thích DeepSeek-OCR-2.
+   - Giữ các dependency runtime đã thêm trước đó (`addict`, `psutil`) để tránh lỗi import trong quá trình nạp model/build.
+
+2. **Cập nhật [`docs/colab-guide.md`](../docs/colab-guide.md)**
+   - Bổ sung quy trình setup môi trường DeepSeek-OCR-2 với thứ tự chuẩn: `uv sync` → `uv pip install -e .` → (tùy chọn) `flash-attn`.
+   - Thêm lệnh verify runtime import `LlamaFlashAttention2` trước khi chạy OCR.
+   - Bổ sung troubleshooting mục lỗi `cannot import name 'LlamaFlashAttention2'` với quy trình khôi phục môi trường (`uv cache clean`, `uv sync --reinstall`).
+
+### Trạng thái hiện tại
+
+- ✅ Đã ghim `transformers==4.46.3` trong project.
+- ✅ Đã bổ sung tài liệu Colab cho cài đặt và recovery theo lỗi thực tế.
+- ⏳ Cần người dùng chạy lại các lệnh sync/reinstall trong Colab runtime để xác thực end-to-end.
+
+### Bước tiếp theo đề xuất
+
+1. Trên Colab: chạy tuần tự các lệnh ở [`docs/colab-guide.md`](../docs/colab-guide.md) phần setup DeepSeek và troubleshooting.
+2. Xác thực phiên bản bằng lệnh `uv run python -c ...` đã được thêm trong docs.
+3. Chạy lại lệnh OCR để kiểm tra pipeline xuất SRT hoàn chỉnh.
