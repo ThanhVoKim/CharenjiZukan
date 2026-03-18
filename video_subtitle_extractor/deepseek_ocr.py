@@ -66,6 +66,13 @@ class DeepSeekOCR:
                 token=self.hf_token
             )
             
+            # Chuẩn hóa special tokens để tránh cảnh báo và lỗi sinh text
+            if self.tokenizer.pad_token is None:
+                if self.tokenizer.eos_token is not None:
+                    self.tokenizer.pad_token = self.tokenizer.eos_token
+                else:
+                    self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+                    
             logger.info(f"Loading model from {self.model_name}...")
             
             # Cấu hình model
@@ -135,27 +142,51 @@ class DeepSeekOCR:
             # Lưu ảnh numpy array ra file tạm
             cv2.imwrite(temp_file, image)
             
-            # Gọi model infer
-            # Lưu ý: output_path='' để không lưu kết quả render ra file
-            res = self.model.infer(
-                self.tokenizer, 
-                prompt=self.prompt, 
-                image_file=temp_file, 
-                output_path=temp_out_dir, 
-                base_size=1024, 
-                image_size=768, 
-                crop_mode=True, 
-                save_results=False
-            )
+            # Gọi model infer, chặn stdout để ẩn log "BASE/PATCHES" rác
+            import sys
+            import io
+            old_stdout = sys.stdout
+            sys.stdout = io.StringIO()
+            try:
+                res = self.model.infer(
+                    self.tokenizer, 
+                    prompt=self.prompt, 
+                    image_file=temp_file, 
+                    output_path=temp_out_dir, 
+                    base_size=1024, 
+                    image_size=768, 
+                    crop_mode=True, 
+                    save_results=False,
+                    eval_mode=True
+                )
+            finally:
+                sys.stdout = old_stdout
             
             # Trích xuất text từ kết quả trả về
             # Tùy thuộc vào format trả về của model.infer, thường là string hoặc dict
-            if isinstance(res, str):
-                return res
+            text_result = ""
+            if res is None:
+                text_result = ""
+            elif isinstance(res, str):
+                text_result = res
             elif isinstance(res, dict) and "text" in res:
-                return res["text"]
+                text_result = res["text"]
             else:
-                return str(res)
+                text_result = str(res)
+                
+            # Tránh lỗi trả về chuỗi "None" (từ str(None))
+            if text_result.strip().lower() == "none":
+                text_result = ""
+                
+            # Cắt bớt phần text rác nếu model sinh ra <|ref|> hoặc <|det|>
+            # DeepSeek-OCR-2 thỉnh thoảng sinh ra markdown dư thừa
+            if "<|ref|>" in text_result:
+                import re
+                text_result = re.sub(r'<\|ref\|>.*?<\|/ref\|><\|det\|>.*?<\|/det\|>', '', text_result, flags=re.DOTALL)
+                text_result = text_result.strip()
+                
+            logger.debug(f"OCR Raw Output type: {type(res)}, Extracted: '{text_result[:50]}...'")
+            return text_result
                 
         except Exception as e:
             if "CUDA out of memory" in str(e):
