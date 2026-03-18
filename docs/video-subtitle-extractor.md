@@ -135,15 +135,16 @@ uv run python main_extract.py video.mp4
 
 ## Tham số
 
-| Tham số             | Mặc định | Mô tả                              |
-| ------------------- | -------- | ---------------------------------- |
-| `--frame-interval`  | 30       | Số frame bỏ qua giữa mỗi lần xử lý |
-| `--roi-start`       | 0.85     | Vị trí bắt đầu ROI (0-1)           |
-| `--roi-end`         | 1.0      | Vị trí kết thúc ROI (0-1)          |
-| `--scene-threshold` | 30.0     | Ngưỡng phát hiện chuyển cảnh       |
-| `--min-chars`       | 2        | Số ký tự Trung tối thiểu           |
-| `--device`          | cuda     | Thiết bị OCR (cuda/cpu)            |
-| `--format`          | srt      | Format output (srt/txt)            |
+| Tham số                   | Mặc định | Mô tả                                               |
+| ------------------------- | -------- | --------------------------------------------------- |
+| `--frame-interval`        | 30       | Số frame bỏ qua giữa mỗi lần xử lý                  |
+| `--roi-start`             | 0.85     | Vị trí bắt đầu ROI (0-1)                            |
+| `--roi-end`               | 1.0      | Vị trí kết thúc ROI (0-1)                           |
+| `--scene-threshold`       | 30.0     | Ngưỡng phát hiện chuyển cảnh                        |
+| `--min-chars`             | 2        | Số ký tự Trung tối thiểu                            |
+| `--device`                | cuda     | Thiết bị OCR (cuda/cpu)                             |
+| `--format`                | srt      | Format output (srt/txt)                             |
+| `--enable-chinese-filter` | (tắt)    | Bật lọc tiếng Trung (mặc định nhận tất cả ngôn ngữ) |
 
 ## Python API
 

@@ -38,7 +38,7 @@ Dự án được phát triển để tự động hóa quy trình lồng tiến
 ```mermaid
 flowchart LR
     A[Video gốc] --> B[Tách Audio]
-    B --> C[WhisperX STT]
+    A --> C[DeepSeek-OCR-2]
     C --> D[Gemini Translate]
     D --> E[EdgeTTS]
     E --> F[Ghép Audio]
@@ -63,8 +63,8 @@ flowchart TB
         MS --> AE
     end
 
-    subgraph "B2: Speech-to-Text"
-        AM --> |WhisperX| SC[subtitle_commentary.srt]
+    subgraph "B2: OCR Subtitle Extraction"
+        V --> |DeepSeek-OCR-2| SC[subtitle_commentary.srt]
     end
 
     subgraph "B3: Merge Subtitle"
@@ -132,6 +132,7 @@ flowchart TB
 | ------------------- | ---------------------- | ------------------------------------------------ | ------------- |
 | **Mute Audio**      | `cli/mute_srt.py`      | Mute audio từ file mute.srt                      | ✅ Hoàn thành |
 | **Extract Audio**   | `cli/extract_srt.py`   | Extract audio theo mute.srt                      | ✅ Hoàn thành |
+| **Extract Sub**     | `main_extract.py`      | Trích xuất subtitle từ video bằng OCR            | ✅ Hoàn thành |
 | **Merge SRT**       | `cli/merge_srt.py`     | Merge 2 file SRT theo timestamp                  | ✅ Hoàn thành |
 | **Translate**       | `cli/translate_srt.py` | Dịch file .srt bằng Gemini API                   | ✅ Hoàn thành |
 | **SRT to ASS**      | `cli/srt_to_ass.py`    | Chuyển SRT → ASS với template                    | ✅ Hoàn thành |
@@ -183,21 +184,23 @@ uv run cli/extract_srt.py --input video.mp4 --mute mute.srt --output audio_extra
 [MUTE] Đoạn ngôn ngữ thứ hai
 ```
 
-### Bước 2: Speech-to-Text
+### Bước 2: OCR Subtitle Extraction
 
-**Input:** `audio_muted.wav`
+**Input:** `video.mp4`
 **Output:** `subtitle_commentary.srt`
 
-Sử dụng WhisperX trên Google Colab để chuyển audio thành subtitle.
+Sử dụng `video_subtitle_extractor` (DeepSeek-OCR-2) để trích xuất subtitle trực tiếp từ video.
 
-```python
-# Trên Google Colab
-import whisperx
-model = whisperx.load_model("large-v2", device="cuda", compute_type="float16")
-result = model.transcribe("audio_muted.wav")
+```bash
+uv run extract-subtitles video.mp4 \
+  --output subtitle_commentary.srt \
+  --frame-interval 30 \
+  --roi-start 0.85 \
+  --device cuda \
+  --hf-token "{hf_token}"
 ```
 
-**Lưu ý:** `subtitle_commentary.srt` chỉ chứa subtitle cho phần bình luận (các đoạn KHÔNG bị mute).
+**Lưu ý:** `subtitle_commentary.srt` chứa subtitle được nhận diện từ video. Mặc định nhận diện tất cả ngôn ngữ, nếu muốn chỉ lọc tiếng Trung, hãy thêm tham số `--enable-chinese-filter`.
 
 ### Bước 3: Merge Subtitle
 
@@ -426,7 +429,7 @@ uv run cli/speed_video.py --input video_slow_final.mp4 --speed 1.2 --output vide
 | ---- | -------------- | ------------------------------------------------- |
 | 1a   | Mute audio     | ✅ [`cli/mute_srt.py`](cli/mute_srt.py)           |
 | 1b   | Extract audio  | ✅ [`cli/extract_srt.py`](cli/extract_srt.py)     |
-| 2    | WhisperX STT   | ✅ Trên Colab                                     |
+| 2    | Extract Sub    | ✅ [`main_extract.py`](main_extract.py)           |
 | 3    | Merge SRT      | ✅ [`cli/merge_srt.py`](cli/merge_srt.py)         |
 | 4a   | Translate Note | ✅ [`cli/translate_srt.py`](cli/translate_srt.py) |
 | 4b   | SRT to ASS     | ✅ [`cli/srt_to_ass.py`](cli/srt_to_ass.py)       |

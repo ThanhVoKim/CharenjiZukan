@@ -28,6 +28,7 @@ from utils.logger import get_logger
 from .frame_processor import FrameProcessor, FrameInfo
 from .chinese_filter import ChineseFilter
 from .subtitle_writer import SubtitleWriter, SubtitleEntry
+from .deepseek_ocr import DeepSeekOCR
 
 logger = get_logger(__name__)
 
@@ -80,11 +81,13 @@ class VideoSubtitleExtractor:
         keep_punctuation: bool = True,
         min_char_count: int = 2,
         keep_numbers: bool = False,
+        enable_chinese_filter: bool = False,
         
         # OCR settings
-        ocr_model: str = "deepseek-ocr-2",
+        ocr_model: str = "deepseek-ai/DeepSeek-OCR-2",
         device: str = "cuda",
         batch_size: int = 8,
+        hf_token: Optional[str] = None,
         
         # Output settings
         output_format: str = "srt",
@@ -102,9 +105,11 @@ class VideoSubtitleExtractor:
             keep_punctuation: Giữ dấu câu tiếng Trung (default: True)
             min_char_count: Số ký tự tối thiểu (default: 2)
             keep_numbers: Giữ số tiếng Trung (default: False)
-            ocr_model: Tên model OCR (default: "deepseek-ocr-2")
+            enable_chinese_filter: Bật tính năng lọc tiếng Trung (default: False)
+            ocr_model: Tên model OCR (default: "deepseek-ai/DeepSeek-OCR-2")
             device: Thiết bị chạy OCR - "cuda" hoặc "cpu" (default: "cuda")
             batch_size: Batch size cho OCR (default: 8)
+            hf_token: Hugging Face Token để tải model (nếu cần)
             output_format: Format output - "srt" hoặc "txt" (default: "srt")
             default_subtitle_duration: Thời lượng mặc định (seconds, default: 3.0)
         """
@@ -123,6 +128,8 @@ class VideoSubtitleExtractor:
             keep_numbers=keep_numbers
         )
         
+        self.enable_chinese_filter = enable_chinese_filter
+        
         self.subtitle_writer = SubtitleWriter(
             default_duration=default_subtitle_duration
         )
@@ -131,6 +138,7 @@ class VideoSubtitleExtractor:
         self.ocr_model_name = ocr_model
         self.device = device
         self.batch_size = batch_size
+        self.hf_token = hf_token
         self.output_format = output_format
         self.default_subtitle_duration = default_subtitle_duration
         
@@ -147,11 +155,7 @@ class VideoSubtitleExtractor:
     
     def load_ocr_model(self):
         """
-        Load DeepSeek-OCR-2 model
-        
-        Note: Cài đặt DeepSeek-OCR-2 trước khi sử dụng:
-        pip install deepseek-ocr
-        hoặc theo hướng dẫn từ GitHub
+        Load DeepSeek-OCR-2 model thông qua thư viện transformers
         """
         if self._model_loaded:
             return
@@ -159,25 +163,18 @@ class VideoSubtitleExtractor:
         logger.info(f"🔄 Loading {self.ocr_model_name} on {self.device}...")
         
         try:
-            # TODO: Implement actual model loading khi DeepSeek-OCR-2 available
-            # Example implementation:
-            # from deepseek_ocr import DeepSeekOCR
-            # self._ocr_model = DeepSeekOCR(
-            #     model_name=self.ocr_model_name,
-            #     device=self.device
-            # )
-            
-            # Placeholder - sử dụng mock cho testing
-            logger.warning("⚠️ DeepSeek-OCR-2 model not implemented yet!")
-            logger.warning("   Using mock OCR for testing purposes.")
-            self._ocr_model = MockOCR()
+            self._ocr_model = DeepSeekOCR(
+                model_name=self.ocr_model_name,
+                device=self.device,
+                hf_token=self.hf_token
+            )
             
             self._model_loaded = True
             logger.info(f"✅ Model loaded successfully")
             
         except ImportError as e:
-            logger.error(f"❌ Cannot import DeepSeek-OCR-2: {e}")
-            logger.error("   Please install: pip install deepseek-ocr")
+            logger.error(f"❌ Missing required libraries: {e}")
+            logger.error("   Please check your environment setup.")
             raise
         except Exception as e:
             logger.error(f"❌ Error loading model: {e}")
@@ -197,8 +194,6 @@ class VideoSubtitleExtractor:
             self.load_ocr_model()
         
         try:
-            # TODO: Implement actual OCR call
-            # text = self._ocr_model.recognize(image)
             text = self._ocr_model.recognize(image)
             return text
         except Exception as e:
@@ -305,7 +300,10 @@ class VideoSubtitleExtractor:
             ocr_count += 1
             
             # Filter Chinese only
-            chinese_text = self.chinese_filter.filter_text(text)
+            if self.enable_chinese_filter:
+                chinese_text = self.chinese_filter.filter_text(text)
+            else:
+                chinese_text = text.strip() if text else None
             
             if chinese_text:
                 # Calculate end time (next frame or default duration)
@@ -443,7 +441,7 @@ class MockOCR:
         Mock recognize - trả về text giả để test
         """
         # Trong thực tế, đây sẽ gọi DeepSeek-OCR-2
-        return ""
+        return "Mock OCR Text"
 
 
 # Convenience function

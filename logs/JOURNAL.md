@@ -1,5 +1,39 @@
 # Project Journal
 
+## 2026-03-17: Tích hợp Video Subtitle Extractor vào Workflow (Bước 2)
+
+### Yêu cầu
+
+Thay thế WhisperX STT bằng `video_subtitle_extractor` (DeepSeek-OCR-2) trong Bước 2 của workflow để trích xuất subtitle trực tiếp từ video. Đồng thời, đảo logic của tham số lọc tiếng Trung để mặc định nhận diện tất cả các ngôn ngữ.
+
+### Thay đổi
+
+1. **Cập nhật `main_extract.py` và `extractor.py`**:
+   - Xóa tham số `--disable-chinese-filter`.
+   - Thêm tham số `--enable-chinese-filter`.
+   - Đổi logic mặc định: `disable_chinese_filter=True` (nhận tất cả ngôn ngữ).
+
+2. **Cập nhật `docs/workflow.md`**:
+   - Thay đổi Bước 2 từ WhisperX STT sang OCR Subtitle Extraction.
+   - Cập nhật input từ `audio_muted.wav` thành `video.mp4`.
+   - Cập nhật diagram Mermaid và bảng trạng thái module.
+
+3. **Cập nhật `docs/colab-guide.md`**:
+   - Thay thế hướng dẫn cài đặt WhisperX bằng hướng dẫn cài đặt DeepSeek-OCR-2 và PyTorch CUDA.
+   - Cập nhật lệnh chạy Bước 2 sử dụng `extract-subtitles`.
+
+4. **Cập nhật `pyproject.toml`**:
+   - Kích hoạt dependency `deepseek-ocr>=1.0.0`.
+
+5. **Cập nhật `docs/video-subtitle-extractor.md`**:
+   - Thêm tham số `--enable-chinese-filter` vào bảng tài liệu.
+
+### Trạng thái
+
+- ✅ Hoàn thành cập nhật code và tài liệu.
+
+---
+
 ## 2026-03-13: Tạo module Media Speed - Thay đổi tốc độ media (Bước 7)
 
 ### Yêu cầu

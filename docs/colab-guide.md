@@ -17,6 +17,7 @@ Trước khi bắt đầu, cần cấu hình Secrets để bảo mật token và
 | -------------- | --------------------------------------- | ---------------------------- |
 | `github_token` | `ghp_xxxx...` hoặc `github_pat_xxxx...` | GitHub Personal Access Token |
 | `gemini_token` | `AIza...`                               | Gemini API Key               |
+| `hf_token`     | `hf_...`                                | Hugging Face Access Token    |
 
 **Cách tạo GitHub Personal Access Token:**
 
@@ -30,6 +31,13 @@ Trước khi bắt đầu, cần cấu hình Secrets để bảo mật token và
 1. Truy cập [Google AI Studio](https://aistudio.google.com/app/apikey)
 2. Click "Create API Key"
 3. Copy key và thêm vào Secrets
+
+**Cách tạo Hugging Face Token:**
+
+1. Truy cập [Hugging Face Settings - Tokens](https://huggingface.co/settings/tokens)
+2. Click "Create new token"
+3. Chọn quyền Read
+4. Copy token và thêm vào Secrets
 
 ### 1.2. Cài đặt uv và clone project
 
@@ -64,14 +72,23 @@ Nếu cần chuyển video thành subtitle, cài đặt thêm WhisperX:
 !uv pip install -p .venv/bin/python whisperx
 !uv pip install -p .venv/bin/python pyrubberband
 
-# Cài CUDA dependencies
 !apt install libcudnn8 libcudnn8-dev -y
-!pip install modelscope addict
 
 # Set environment variables
 %env MPLBACKEND=agg
 %env TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=true
 %env LD_LIBRARY_PATH=/usr/lib64-nvidia:/usr/local/lib/python3.12/dist-packages/nvidia/cudnn/lib/
+```
+
+### 1.4. Cài đặt môi trường cho DeepSeek-OCR-2 (tùy chọn - cho trích xuất phụ đề cứng)
+
+DeepSeek-OCR-2 là mô hình AI trên Hugging Face, không phải là một package Python thông thường. Mã nguồn và weights của mô hình sẽ được tự động tải về thông qua thư viện `transformers` khi chạy script.
+
+Các thư viện nền (như `transformers`, `torch`, `einops`, `PyMuPDF`) đã được cấu hình trong `pyproject.toml` và sẽ tự động cài đặt khi chạy `!uv pip install -e .`. Tuy nhiên, bạn cần cài thêm `flash-attn` để tăng tốc xử lý:
+
+```colab
+# Cài đặt Flash Attention (yêu cầu cho DeepSeek-OCR-2)
+!uv pip install -p .venv/bin/python flash-attn==2.7.3 --no-build-isolation
 ```
 
 ---
@@ -516,6 +533,56 @@ Thay đổi tốc độ media (video, audio, SRT, ASS). Hỗ trợ cả slow dow
 
 ---
 
+### 2.9. Trích xuất phụ đề cứng (extract-subtitles)
+
+Trích xuất phụ đề (hardsub) trực tiếp từ khung hình video sử dụng mô hình DeepSeek-OCR-2.
+
+#### Trích xuất nhanh (với Secrets)
+
+```colab
+from google.colab import userdata
+hf_token = userdata.get('hf_token')
+
+!uv run extract-subtitles /content/video.mp4 --hf-token "{hf_token}"
+```
+
+#### Đầy đủ tham số
+
+```colab
+from google.colab import userdata
+hf_token = userdata.get('hf_token')
+
+!uv run extract-subtitles /content/video.mp4 \
+    --output /content/video_chinese.srt \
+    --frame-interval 30 \
+    --roi-start 0.85 \
+    --roi-end 1.0 \
+    --scene-threshold 30.0 \
+    --min-chars 2 \
+    --device cuda \
+    --hf-token "{hf_token}" \
+    --format srt \
+    --enable-chinese-filter
+```
+
+#### Tham số
+
+| Tham số                   | Mô tả                              | Mặc định            |
+| ------------------------- | ---------------------------------- | ------------------- |
+| `input_video`             | File video đầu vào                 | (bắt buộc)          |
+| `--output`, `-o`          | File output (.srt hoặc .txt)       | `video_chinese.srt` |
+| `--frame-interval`        | Số frame bỏ qua giữa mỗi lần xử lý | `30`                |
+| `--roi-start`             | Vị trí bắt đầu vùng phụ đề (0-1)   | `0.85`              |
+| `--roi-end`               | Vị trí kết thúc vùng phụ đề (0-1)  | `1.0`               |
+| `--scene-threshold`       | Ngưỡng phát hiện chuyển cảnh       | `30.0`              |
+| `--min-chars`             | Số ký tự tối thiểu để ghi nhận     | `2`                 |
+| `--device`                | Thiết bị xử lý (cuda/cpu)          | `cuda`              |
+| `--hf-token`              | Hugging Face Token                 | (không dùng)        |
+| `--format`                | Định dạng output (srt/txt)         | `srt`               |
+| `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung | (tắt)               |
+
+---
+
 ## 3. Workflow đầy đủ theo docs/workflow.md
 
 ### Bước 1: Audio Processing
@@ -540,7 +607,11 @@ Thay đổi tốc độ media (video, audio, SRT, ASS). Hỗ trợ cả slow dow
     --sample-rate 16000
 ```
 
-### Bước 2: Speech-to-Text với WhisperX
+### Bước 2: Trích xuất phụ đề
+
+Tùy thuộc vào loại video, bạn có thể chọn một trong hai cách:
+
+#### Cách 2A: Speech-to-Text với WhisperX (cho video có giọng đọc rõ ràng)
 
 Chuyển audio thành file subtitle .srt:
 
@@ -569,6 +640,22 @@ Chuyển audio thành file subtitle .srt:
   --compute_type float16 \
   --batch_size 16 \
   --output_dir "/content/output"
+```
+
+#### Cách 2B: Trích xuất phụ đề cứng với DeepSeek-OCR-2 (cho video có hardsub)
+
+Nếu video có sẵn phụ đề cứng (hardsub) tiếng Trung trên màn hình:
+
+```colab
+from google.colab import userdata
+hf_token = userdata.get('hf_token')
+
+!uv run extract-subtitles /content/video.mp4 \
+    --output /content/subtitle_extracted.srt \
+    --frame-interval 30 \
+    --roi-start 0.85 \
+    --hf-token "{hf_token}" \
+    --enable-chinese-filter
 ```
 
 ### Bước 3: Merge Subtitle

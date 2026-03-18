@@ -128,8 +128,17 @@ Examples:
         action="store_true",
         help="Không giữ dấu câu tiếng Trung"
     )
+    parser.add_argument(
+        "--enable-chinese-filter",
+        action="store_true",
+        help="Bật tính năng lọc tiếng Trung (mặc định: nhận tất cả ngôn ngữ)"
+    )
     
     # OCR settings
+    parser.add_argument(
+        "--hf-token",
+        help="Hugging Face Token để tải model (nếu cần)"
+    )
     parser.add_argument(
         "--device",
         choices=["cuda", "cpu"],
@@ -219,10 +228,12 @@ def main():
         # Chinese filter
         keep_punctuation=not args.no_punctuation,
         min_char_count=args.min_chars,
+        enable_chinese_filter=args.enable_chinese_filter,
         
         # OCR
         device=args.device,
         batch_size=args.batch_size,
+        hf_token=args.hf_token,
         
         # Output
         output_format=args.format
