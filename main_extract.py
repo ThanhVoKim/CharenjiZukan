@@ -4,26 +4,23 @@
 Video Subtitle Extractor - Entry Point
 
 Trích xuất subtitle tiếng Trung từ video sử dụng DeepSeek-OCR-2
+Hỗ trợ xuất nhiều file subtitle cho từng vùng box.
 
 Sử dụng:
     python main_extract.py video.mp4
-    python main_extract.py video.mp4 --output subtitles.srt
-    python main_extract.py video.mp4 --frame-interval 60 --roi-start 0.9
-    python main_extract.py --input-dir ./videos --output-dir ./subtitles
-    python main_extract.py video.mp4 --config config/extractor_config.yaml
+    python main_extract.py video.mp4 --boxes-file assets/boxesOCR.txt
+    python main_extract.py video.mp4 --output-dir ./subtitles
+    python main_extract.py video.mp4 --frame-interval 60
 
 Examples:
-    # Cơ bản
+    # Cơ bản với cấu hình box mặc định
     python main_extract.py my_video.mp4
     
     # Với các tùy chọn
-    python main_extract.py my_video.mp4 --frame-interval 60 --roi-start 0.9 --output my_subs.srt
+    python main_extract.py my_video.mp4 --frame-interval 60 --boxes-file my_boxes.txt
     
     # Xử lý batch
     python main_extract.py --input-dir ./videos --output-dir ./subtitles
-    
-    # Sử dụng config file
-    python main_extract.py my_video.mp4 --config config/extractor_config.yaml
 """
 
 import argparse
@@ -35,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from utils.logger import setup_logging, get_logger
 from video_subtitle_extractor import VideoSubtitleExtractor
+from video_subtitle_extractor.box_manager import parse_boxes_file, OcrBox
 
 logger = get_logger(__name__)
 
@@ -47,19 +45,16 @@ def parse_args():
         epilog="""
 Examples:
   %(prog)s video.mp4
-      Trích xuất subtitle từ video.mp4, output mặc định: video_chinese.srt
+      Trích xuất subtitle từ video.mp4
 
-  %(prog)s video.mp4 -o subtitles.srt
-      Trích xuất với output file chỉ định
+  %(prog)s video.mp4 --output-dir subtitles
+      Trích xuất với output directory chỉ định
 
-  %(prog)s video.mp4 --frame-interval 60 --roi-start 0.9
-      Frame sampling mỗi 60 frames, ROI từ 90% chiều cao
+  %(prog)s video.mp4 --boxes-file assets/boxesOCR.txt
+      Sử dụng file cấu hình box tùy chỉnh
 
   %(prog)s --input-dir ./videos --output-dir ./subtitles
       Xử lý tất cả video trong thư mục
-
-  %(prog)s video.mp4 --device cpu
-      Sử dụng CPU thay vì GPU
         """
     )
     
@@ -77,12 +72,15 @@ Examples:
     
     # Output arguments
     parser.add_argument(
-        "-o", "--output",
-        help="Đường dẫn file output (mặc định: video_chinese.srt)"
-    )
-    parser.add_argument(
         "--output-dir",
-        help="Thư mục output cho batch mode"
+        help="Thư mục chứa các file output (mặc định: cùng thư mục video)"
+    )
+    
+    # Box configuration
+    parser.add_argument(
+        "--boxes-file",
+        default="assets/boxesOCR.txt",
+        help="Đường dẫn file txt cấu hình các vùng box (mặc định: assets/boxesOCR.txt)"
     )
     
     # Frame processing
@@ -91,18 +89,6 @@ Examples:
         type=int,
         default=30,
         help="Số frame bỏ qua giữa mỗi lần xử lý (mặc định: 30, tức là mỗi 1 giây với video 30fps)"
-    )
-    parser.add_argument(
-        "--roi-start",
-        type=float,
-        default=0.85,
-        help="Vị trí bắt đầu ROI (0-1, mặc định: 0.85 = 85%% từ trên xuống)"
-    )
-    parser.add_argument(
-        "--roi-end",
-        type=float,
-        default=1.0,
-        help="Vị trí kết thúc ROI (0-1, mặc định: 1.0 = 100%%)"
     )
     parser.add_argument(
         "--scene-threshold",
@@ -217,12 +203,18 @@ def main():
     if args.config:
         config = load_config(args.config)
     
+    # Lấy thông tin box
+    boxes = parse_boxes_file(args.boxes_file)
+    if not boxes:
+        logger.warning(f"Không tìm thấy cấu hình box hợp lệ trong {args.boxes_file}. Sử dụng box mặc định.")
+        boxes = [OcrBox(name="subtitle", x=0, y=800, w=1920, h=280)] # Fallback
+        
     # Create extractor
     extractor = VideoSubtitleExtractor(
+        boxes=boxes,
+        
         # Frame processing
         frame_interval=args.frame_interval,
-        roi_y_start=args.roi_start,
-        roi_y_end=args.roi_end,
         scene_threshold=args.scene_threshold if not args.no_scene_detection else 0,
         
         # Chinese filter
@@ -243,7 +235,7 @@ def main():
     def progress_callback(current, total, ocr_done):
         if total > 0:
             percent = (current / total) * 100
-            print(f"\r   Progress: {percent:.1f}% ({ocr_done} frames OCR'd)", end="", flush=True)
+            print(f"\r   Progress: {percent:.1f}% ({ocr_done} box OCR calls)", end="", flush=True)
     
     try:
         if args.input_dir:
@@ -257,7 +249,7 @@ def main():
             print(f"\n{'='*60}")
             print(f"✅ Batch processing complete!")
             print(f"   Processed: {len(results)} videos")
-            total_subs = sum(r.subtitles_count for r in results)
+            total_subs = sum(sum(counts.values()) for r in results for counts in [r.subtitles_count])
             print(f"   Total subtitles: {total_subs}")
             print(f"{'='*60}")
             
@@ -273,17 +265,19 @@ def main():
             
             result = extractor.extract(
                 args.video,
-                args.output,
+                args.output_dir,
                 progress_callback=progress_callback
             )
             
             print()  # New line after progress
             
-            if result.subtitles_count > 0:
-                print(f"\n🎉 Done! Extracted {result.subtitles_count} Chinese subtitles")
-                print(f"   Output: {result.output_path}")
+            total_extracted = sum(result.subtitles_count.values())
+            if total_extracted > 0:
+                print(f"\n🎉 Done! Extracted {total_extracted} subtitles across {len(result.subtitles_count)} boxes")
+                for box_name, count in result.subtitles_count.items():
+                    print(f"   - {box_name}: {count} entries -> {result.output_paths[box_name]}")
             else:
-                print(f"\n⚠️ No Chinese subtitles found in video")
+                print(f"\n⚠️ No subtitles found in video")
                 
     except KeyboardInterrupt:
         print("\n\n⚠️ Interrupted by user")

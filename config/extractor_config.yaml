@@ -15,18 +15,26 @@ video:
     - wmv
     - flv
 
-# Region of Interest (ROI) settings
-# Vùng cần OCR - thường là vùng subtitle ở dưới video
+# Multi-Box Region of Interest (ROI) settings
+# Các vùng cần OCR - hỗ trợ nhiều box độc lập
 roi:
   enabled: true
 
-  # Vị trí bắt đầu và kết thúc ROI (tỷ lệ 0-1 từ trên xuống)
-  # 0.85 = bắt đầu từ 85% chiều cao (vùng subtitle)
-  y_start_ratio: 0.85
-  y_end_ratio: 1.0
+  # Cách 1: Sử dụng file txt cấu hình (ưu tiên)
+  boxes_file: "assets/boxesOCR.txt"
 
-  # Tự động detect vùng subtitle (experimental)
-  auto_detect: false
+  # Cách 2: Cấu hình inline (sẽ được dùng nếu boxes_file không tồn tại)
+  boxes:
+    - name: "subtitle"
+      x: 100
+      y: 800
+      w: 500
+      h: 100
+    - name: "note"
+      x: 1300
+      y: 800
+      w: 500
+      h: 100
 
 # Scene detection settings
 # Phát hiện chuyển cảnh để tối ưu OCR

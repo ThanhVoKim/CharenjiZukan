@@ -1,5 +1,43 @@
 # Project Journal
 
+## 2026-03-18: Cải tiến Video Subtitle Extractor hỗ trợ Multi-box OCR
+
+### Yêu cầu
+
+Nâng cấp `VideoSubtitleExtractor` để theo dõi và trích xuất subtitle từ nhiều vùng ảnh (ROI boxes) độc lập trong cùng một video, thay vì chỉ 1 vùng duy nhất bằng tỷ lệ y-axis như trước.
+Yêu cầu hỗ trợ file cấu hình text cho các box và tối ưu hiệu năng OCR (chỉ gọi OCR khi vùng ảnh bị thay đổi).
+
+### Thay đổi
+
+1. **Tạo [`video_subtitle_extractor/box_manager.py`](../video_subtitle_extractor/box_manager.py)**
+   - Quản lý cấu trúc dữ liệu `OcrBox` (tọa độ x, y, w, h) và `BoxState`.
+   - Hàm `parse_boxes_file()` đọc cấu hình box từ file `boxesOCR.txt`.
+
+2. **Cập nhật [`video_subtitle_extractor/frame_processor.py`](../video_subtitle_extractor/frame_processor.py)**
+   - Hàm `crop_roi` sử dụng tọa độ tuyệt đối x, y, w, h từ `OcrBox`.
+   - Hàm `detect_scene_change_for_box` phát hiện thay đổi trên từng vùng ảnh cắt ra thay vì toàn bộ frame. Sử dụng Hash-based MD5 cho fast-check trước khi dùng pixel diff.
+
+3. **Cập nhật [`video_subtitle_extractor/extractor.py`](../video_subtitle_extractor/extractor.py)**
+   - `VideoSubtitleExtractor` giờ nhận `boxes: List[OcrBox]` thay vì `roi_y_start/end`.
+   - Vòng lặp `extract()` duyệt qua từng box trên mỗi frame, duy trì trạng thái độc lập (`state.prev_roi`, `state.entries`).
+   - Implement Selective OCR: Nhóm các box bị thay đổi hình ảnh vào 1 batch rồi gọi OCR 1 lần, bỏ qua box không đổi (kéo dài `end_time`).
+   - Khởi tạo nhiều `SubtitleWriter` để xuất ra các file SRT riêng rẽ cho từng box (`video_subtitle.srt`, `video_note.srt`).
+
+4. **Cập nhật [`main_extract.py`](../main_extract.py)**
+   - Thêm tham số `--boxes-file` (mặc định: `assets/boxesOCR.txt`).
+   - Hỗ trợ in log xuất kết quả nhiều file riêng rẽ.
+
+5. **Cập nhật [`config/extractor_config.yaml`](../config/extractor_config.yaml)**
+   - Đổi cấu trúc section `roi` thành dùng `boxes_file` hoặc `boxes` array (x, y, w, h).
+
+### Trạng thái
+
+- ✅ Hoàn thành code Multi-box extraction logic
+- ✅ Hoàn thành tích hợp CLI và config
+- ⏳ Cần test hiệu suất thực tế trên Colab
+
+---
+
 ## 2026-03-17: Tích hợp Video Subtitle Extractor vào Workflow (Bước 2)
 
 ### Yêu cầu

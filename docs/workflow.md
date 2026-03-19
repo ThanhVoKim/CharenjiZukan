@@ -14,22 +14,23 @@ Dự án được phát triển để tự động hóa quy trình lồng tiến
 
 ### File Naming
 
-| Tên file                  | Mô tả                                                  |
-| ------------------------- | ------------------------------------------------------ |
-| `audio_muted.wav`         | Audio đã mute các đoạn trong mute.srt                  |
-| `audio_extracted.wav`     | Audio chỉ chứa các đoạn được extract (ngược với muted) |
-| `subtitle_commentary.srt` | Subtitle cho phần bình luận (từ WhisperX)              |
-| `subtitle_quoted.srt`     | Subtitle cho phần video trích dẫn (tạo thủ công)       |
-| `subtitle_merged.srt`     | Subtitle merge từ commentary + quoted                  |
-| `subtitle_translated.srt` | Subtitle đã dịch                                       |
-| `note_source.srt`         | File note gốc (chưa dịch)                              |
-| `note_translated.srt`     | File note đã dịch                                      |
-| `note_overlay.ass`        | File ASS để overlay note lên video                     |
-| `audio_bgm.wav`           | Audio background (Demucs remove voice)                 |
-| `video_slow.mp4`          | Video slow 0.65x                                       |
-| `note_overlay_slow.ass`   | File ASS đã slow down 0.65x                            |
-| `video_slow_final.mp4`    | Video slow đã ghép audio                               |
-| `video_final.mp4`         | Video hoàn chỉnh cuối cùng                             |
+| Tên file                    | Mô tả                                                  |
+| --------------------------- | ------------------------------------------------------ |
+| `audio_muted.wav`           | Audio đã mute các đoạn trong mute.srt                  |
+| `audio_extracted.wav`       | Audio chỉ chứa các đoạn được extract (ngược với muted) |
+| `<video_stem>_subtitle.srt` | Subtitle box chính từ Multi-Box OCR                    |
+| `<video_stem>_note.srt`     | Subtitle box note từ Multi-Box OCR                     |
+| `subtitle_quoted.srt`       | Subtitle cho phần video trích dẫn (tạo thủ công)       |
+| `subtitle_merged.srt`       | Subtitle merge từ subtitle box chính + quoted          |
+| `subtitle_translated.srt`   | Subtitle đã dịch                                       |
+| `note_source.srt`           | File note gốc (chưa dịch)                              |
+| `note_translated.srt`       | File note đã dịch                                      |
+| `note_overlay.ass`          | File ASS để overlay note lên video                     |
+| `audio_bgm.wav`             | Audio background (Demucs remove voice)                 |
+| `video_slow.mp4`            | Video slow 0.65x                                       |
+| `note_overlay_slow.ass`     | File ASS đã slow down 0.65x                            |
+| `video_slow_final.mp4`      | Video slow đã ghép audio                               |
+| `video_final.mp4`           | Video hoàn chỉnh cuối cùng                             |
 
 ## Kiến trúc hệ thống
 
@@ -63,8 +64,9 @@ flowchart TB
         MS --> AE
     end
 
-    subgraph "B2: OCR Subtitle Extraction"
-        V --> |DeepSeek-OCR-2| SC[subtitle_commentary.srt]
+    subgraph "B2: OCR Subtitle Extraction Multi-Box"
+        V --> |DeepSeek-OCR-2| SC[video_subtitle.srt<br>Box subtitle]
+        V --> |DeepSeek-OCR-2| SN[video_note.srt<br>Box note]
     end
 
     subgraph "B3: Merge Subtitle"
@@ -114,6 +116,7 @@ flowchart TB
     style AM fill:#90EE90
     style AE fill:#FFB6C1
     style SC fill:#87CEEB
+    style SN fill:#B0E0E6
     style SMT fill:#DDA0DD
     style NT fill:#FFB6C1
     style NO fill:#DDA0DD
@@ -132,7 +135,7 @@ flowchart TB
 | ------------------- | ---------------------- | ------------------------------------------------ | ------------- |
 | **Mute Audio**      | `cli/mute_srt.py`      | Mute audio từ file mute.srt                      | ✅ Hoàn thành |
 | **Extract Audio**   | `cli/extract_srt.py`   | Extract audio theo mute.srt                      | ✅ Hoàn thành |
-| **Extract Sub**     | `main_extract.py`      | Trích xuất subtitle từ video bằng OCR            | ✅ Hoàn thành |
+| **Extract Sub**     | `main_extract.py`      | Trích xuất subtitle Multi-Box bằng OCR           | ✅ Hoàn thành |
 | **Merge SRT**       | `cli/merge_srt.py`     | Merge 2 file SRT theo timestamp                  | ✅ Hoàn thành |
 | **Translate**       | `cli/translate_srt.py` | Dịch file .srt bằng Gemini API                   | ✅ Hoàn thành |
 | **SRT to ASS**      | `cli/srt_to_ass.py`    | Chuyển SRT → ASS với template                    | ✅ Hoàn thành |
@@ -184,27 +187,39 @@ uv run cli/extract_srt.py --input video.mp4 --mute mute.srt --output audio_extra
 [MUTE] Đoạn ngôn ngữ thứ hai
 ```
 
-### Bước 2: OCR Subtitle Extraction
+### Bước 2: OCR Subtitle Extraction Multi-Box
 
-**Input:** `video.mp4`
-**Output:** `subtitle_commentary.srt`
+**Input:** `video.mp4`, `assets/boxesOCR.txt`
+**Output:** `<video_stem>_subtitle.srt`, `<video_stem>_note.srt` và các file theo từng box
 
-Sử dụng `video_subtitle_extractor` (DeepSeek-OCR-2) để trích xuất subtitle trực tiếp từ video.
+Sử dụng `video_subtitle_extractor` (DeepSeek-OCR-2) để trích xuất subtitle trực tiếp từ video theo nhiều vùng box.
 
 ```bash
 uv run extract-subtitles video.mp4 \
-  --output subtitle_commentary.srt \
+  --boxes-file assets/boxesOCR.txt \
+  --output-dir . \
   --frame-interval 30 \
-  --roi-start 0.85 \
+  --scene-threshold 30.0 \
   --device cuda \
-  --hf-token "{hf_token}"
+  --hf-token "{hf_token}" \
+  --enable-chinese-filter
 ```
 
-**Lưu ý:** `subtitle_commentary.srt` chứa subtitle được nhận diện từ video. Mặc định nhận diện tất cả ngôn ngữ, nếu muốn chỉ lọc tiếng Trung, hãy thêm tham số `--enable-chinese-filter`.
+**Format file box OCR:** mỗi dòng có cấu trúc `name x y w h`
+
+```text
+subtitle 370 930 1180 140
+```
+
+**Lưu ý:**
+
+- Tên file output theo mẫu `<video_stem>_<box_name>.srt` hoặc `.txt`
+- OCR chỉ chạy cho các box có thay đổi hình ảnh để tối ưu hiệu năng
+- Nếu muốn đưa vào bước merge, dùng file box chính như `<video_stem>_subtitle.srt`
 
 ### Bước 3: Merge Subtitle
 
-**Input:** `subtitle_commentary.srt`, `subtitle_quoted.srt`
+**Input:** `<video_stem>_subtitle.srt`, `subtitle_quoted.srt`
 **Output:** `subtitle_merged.srt`
 
 Merge 2 file SRT thành 1 file hoàn chỉnh, sắp xếp theo timestamp.
@@ -220,7 +235,7 @@ flowchart LR
         M2 --> A3[Đoạn 5<br>Bình luận]
     end
 
-    subgraph "subtitle_commentary.srt"
+    subgraph "video_subtitle.srt"
         S1[Sub 1: 00:00-00:10]
         S2[Sub 2: 00:20-00:30]
         S3[Sub 3: 00:40-00:50]
@@ -253,7 +268,7 @@ flowchart LR
 ```
 
 ```bash
-uv run cli/merge_srt.py --commentary subtitle_commentary.srt --quoted subtitle_quoted.srt --output subtitle_merged.srt
+uv run cli/merge_srt.py --commentary video_subtitle.srt --quoted subtitle_quoted.srt --output subtitle_merged.srt
 ```
 
 ### Bước 4: Note Processing
@@ -442,7 +457,7 @@ uv run cli/speed_video.py --input video_slow_final.mp4 --speed 1.2 --output vide
 
 ## Điểm kiểm tra (Checkpoints)
 
-- **Sau Bước 2**: Kiểm tra và chỉnh sửa `subtitle_commentary.srt` (lỗi nhận dạng)
+- **Sau Bước 2**: Kiểm tra và chỉnh sửa các file OCR theo box, đặc biệt `video_subtitle.srt` và `video_note.srt`
 - **Sau Bước 3**: Kiểm tra `subtitle_merged.srt` đã merge đúng chưa
 - **Sau Bước 4**: Kiểm tra bản dịch, chỉnh thuật ngữ
 - **Sau Bước 7**: Kiểm tra chất lượng audio TTS
@@ -461,6 +476,7 @@ uv run cli/speed_video.py --input video_slow_final.mp4 --speed 1.2 --output vide
 
 ## Changelog
 
+- **2026-03-18**: Cập nhật bước OCR sang Multi-Box với `boxesOCR.txt`, Selective OCR và output theo từng box
 - **2026-03-13**: Cập nhật workflow đầy đủ 9 bước với naming convention mới
 - **2026-03-11**: Thêm hỗ trợ uv cho Google Colab
 - **2026-03-11**: Fix lỗi output không có extension trong tts_srt.py
