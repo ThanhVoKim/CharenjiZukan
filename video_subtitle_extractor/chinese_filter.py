@@ -8,7 +8,7 @@ Loại bỏ các ký tự không phải tiếng Trung, chỉ giữ lại:
 """
 
 import re
-from typing import List, Optional, Set
+from typing import List, Optional
 from dataclasses import dataclass
 import sys
 from pathlib import Path
@@ -44,7 +44,6 @@ class ChineseFilter:
     Attributes:
         keep_punctuation: Có giữ dấu câu tiếng Trung không (default: True)
         min_char_count: Số ký tự tối thiểu để text hợp lệ (default: 2)
-        keep_numbers: Có giữ số không (default: False)
     """
     
     # Regex pattern cho Chinese characters (CJK Unified Ideographs)
@@ -57,23 +56,18 @@ class ChineseFilter:
         r'[\u3000-\u303f\uff00-\uffef，。！？、；：""''（）【】《》…—]'
     )
     
-    # Pattern cho Chinese numbers
-    CHINESE_NUMBER_PATTERN = re.compile(
-        r'[零一二三四五六七八九十百千万亿]'
-    )
-    
     def __init__(
         self,
         keep_punctuation: bool = True,
-        min_char_count: int = 2,
-        keep_numbers: bool = False
+        min_char_count: int = 2
     ):
         self.keep_punctuation = keep_punctuation
         self.min_char_count = min_char_count
-        self.keep_numbers = keep_numbers
         
-        logger.info(f"ChineseFilter initialized: punctuation={keep_punctuation}, "
-                   f"min_chars={min_char_count}, numbers={keep_numbers}")
+        logger.info(
+            f"ChineseFilter initialized: punctuation={keep_punctuation}, "
+            f"min_chars={min_char_count}"
+        )
     
     def extract_chinese(self, text: str) -> ChineseText:
         """
@@ -99,11 +93,6 @@ class ChineseFilter:
         # Tìm tất cả Chinese characters
         chinese_matches = self.CHINESE_CHAR_PATTERN.findall(text)
         chinese_only = ''.join(chinese_matches)
-        
-        # Thêm Chinese numbers nếu cần
-        if self.keep_numbers:
-            number_matches = self.CHINESE_NUMBER_PATTERN.findall(text)
-            chinese_only = chinese_only + ''.join(number_matches)
         
         # Thêm punctuation nếu cần
         if self.keep_punctuation and chinese_only:

@@ -87,54 +87,69 @@ Examples:
     parser.add_argument(
         "--frame-interval",
         type=int,
-        default=30,
+        default=argparse.SUPPRESS,
         help="Số frame bỏ qua giữa mỗi lần xử lý (mặc định: 30, tức là mỗi 1 giây với video 30fps)"
     )
     parser.add_argument(
         "--scene-threshold",
         type=float,
-        default=30.0,
+        default=argparse.SUPPRESS,
         help="Ngưỡng phát hiện chuyển cảnh (mặc định: 30.0)"
+    )
+    parser.add_argument(
+        "--min-scene-frames",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Số frame tối thiểu giữa 2 lần chuyển cảnh (mặc định: 10)"
     )
     parser.add_argument(
         "--no-scene-detection",
         action="store_true",
-        help="Tắt scene detection"
+        default=argparse.SUPPRESS,
+        help="Tắt scene detection (set threshold=0)"
     )
     
     # Chinese filter
     parser.add_argument(
         "--min-chars",
         type=int,
-        default=2,
-        help="Số ký tự Trung tối thiểu (mặc định: 2)"
+        default=argparse.SUPPRESS,
+        help="Số ký tự tối thiểu để ghi nhận (mặc định: 2)"
     )
     parser.add_argument(
         "--no-punctuation",
         action="store_true",
-        help="Không giữ dấu câu tiếng Trung"
+        default=argparse.SUPPRESS,
+        help="Không giữ dấu câu (nếu dùng chinese filter)"
     )
     parser.add_argument(
         "--enable-chinese-filter",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Bật tính năng lọc tiếng Trung (mặc định: nhận tất cả ngôn ngữ)"
     )
     
     # OCR settings
     parser.add_argument(
+        "--ocr-model",
+        default=argparse.SUPPRESS,
+        help="Model Hugging Face OCR (mặc định: deepseek-ai/DeepSeek-OCR-2)"
+    )
+    parser.add_argument(
         "--hf-token",
+        default=argparse.SUPPRESS,
         help="Hugging Face Token để tải model (nếu cần)"
     )
     parser.add_argument(
         "--device",
         choices=["cuda", "cpu"],
-        default="cuda",
+        default=argparse.SUPPRESS,
         help="Thiết bị chạy OCR (mặc định: cuda)"
     )
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=8,
+        default=argparse.SUPPRESS,
         help="Batch size cho OCR (mặc định: 8)"
     )
     
@@ -142,8 +157,38 @@ Examples:
     parser.add_argument(
         "--format",
         choices=["srt", "txt"],
-        default="srt",
+        default=argparse.SUPPRESS,
         help="Định dạng output (mặc định: srt)"
+    )
+    parser.add_argument(
+        "--default-duration",
+        type=float,
+        default=argparse.SUPPRESS,
+        help="Thời lượng mặc định cho mỗi subtitle (mặc định: 3.0s)"
+    )
+    parser.add_argument(
+        "--min-duration",
+        type=float,
+        default=argparse.SUPPRESS,
+        help="Thời lượng tối thiểu cho subtitle (mặc định: 1.0s)"
+    )
+    parser.add_argument(
+        "--max-duration",
+        type=float,
+        default=argparse.SUPPRESS,
+        help="Thời lượng tối đa cho subtitle (mặc định: 7.0s)"
+    )
+    parser.add_argument(
+        "--no-deduplicate",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Tắt loại bỏ text trùng lặp liên tiếp"
+    )
+    parser.add_argument(
+        "--no-timestamp",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Tắt in timestamp (dành cho format txt)"
     )
     
     # Config file
@@ -204,32 +249,87 @@ def main():
         config = load_config(args.config)
     
     # Lấy thông tin box
-    boxes = parse_boxes_file(args.boxes_file)
+    boxes = []
+    
+    # Precedence cho boxes_file: YAML > CLI override fallback default
+    boxes_file = getattr(args, "boxes_file", "assets/boxesOCR.txt")
+    if config.get("roi", {}).get("boxes_file"):
+        boxes_file = config["roi"]["boxes_file"]
+    
+    boxes = parse_boxes_file(boxes_file)
     if not boxes:
-        logger.warning(f"Không tìm thấy cấu hình box hợp lệ trong {args.boxes_file}. Sử dụng box mặc định.")
+        # Fallback to YAML inline boxes if file fails
+        yaml_boxes = config.get("roi", {}).get("boxes", [])
+        if yaml_boxes:
+            logger.info("Sử dụng cấu hình inline boxes từ YAML config.")
+            for b in yaml_boxes:
+                boxes.append(OcrBox(
+                    name=b.get("name", "box"),
+                    x=b.get("x", 0),
+                    y=b.get("y", 0),
+                    w=b.get("w", 0),
+                    h=b.get("h", 0)
+                ))
+                
+    if not boxes:
+        logger.warning(f"Không tìm thấy cấu hình box hợp lệ. Sử dụng box mặc định.")
         boxes = [OcrBox(name="subtitle", x=0, y=800, w=1920, h=280)] # Fallback
         
+    # Helper để lấy config với thứ tự ưu tiên: CLI > YAML > Default
+    def get_param(cli_name: str, yaml_path: tuple, default_val):
+        # 1. Check CLI (nếu có và không phải SUPPRESS - đã xử lý ở parse_args bằng suppress)
+        if hasattr(args, cli_name):
+            return getattr(args, cli_name)
+            
+        # 2. Check YAML
+        val = config
+        for key in yaml_path:
+            if isinstance(val, dict) and key in val:
+                val = val[key]
+            else:
+                val = None
+                break
+                
+        if val is not None:
+            return val
+            
+        # 3. Default fallback
+        return default_val
+
     # Create extractor
     extractor = VideoSubtitleExtractor(
         boxes=boxes,
         
         # Frame processing
-        frame_interval=args.frame_interval,
-        scene_threshold=args.scene_threshold if not args.no_scene_detection else 0,
+        frame_interval=get_param("frame_interval", ("video", "frame_interval"), 30),
+        scene_threshold=0 if hasattr(args, "no_scene_detection") else get_param("scene_threshold", ("scene_detection", "threshold"), 30.0),
+        min_scene_frames=get_param("min_scene_frames", ("scene_detection", "min_scene_frames"), 10),
         
         # Chinese filter
-        keep_punctuation=not args.no_punctuation,
-        min_char_count=args.min_chars,
-        enable_chinese_filter=args.enable_chinese_filter,
+        keep_punctuation=not hasattr(args, "no_punctuation") if hasattr(args, "no_punctuation") else get_param("keep_punctuation", ("chinese_filter", "keep_punctuation"), True),
+        min_char_count=get_param("min_chars", ("chinese_filter", "min_char_count"), 2),
+        enable_chinese_filter=get_param("enable_chinese_filter", ("chinese_filter", "enabled"), False),
         
         # OCR
-        device=args.device,
-        batch_size=args.batch_size,
-        hf_token=args.hf_token,
+        ocr_model=get_param("ocr_model", ("ocr", "model"), "deepseek-ai/DeepSeek-OCR-2"),
+        device=get_param("device", ("ocr", "device"), "cuda"),
+        batch_size=get_param("batch_size", ("ocr", "batch_size"), 8),
+        hf_token=get_param("hf_token", ("ocr", "hf_token"), None),
         
         # Output
-        output_format=args.format
+        output_format=get_param("format", ("output", "format"), "srt"),
+        default_subtitle_duration=get_param("default_duration", ("output", "default_duration"), 3.0),
     )
+    
+    # Thiết lập Writer parameters (những tham số này được sử dụng khi gọi write_srt/write_txt)
+    # Lưu chúng vào extractor.metadata hoặc inject thẳng vào writers
+    for writer in extractor.writers.values():
+        writer.min_duration = get_param("min_duration", ("output", "min_duration"), 1.0)
+        writer.max_duration = get_param("max_duration", ("output", "max_duration"), 7.0)
+        
+    # Lưu flag output formatter
+    extractor.include_timestamp = not hasattr(args, "no_timestamp") if hasattr(args, "no_timestamp") else get_param("include_timestamp", ("output", "include_timestamp"), True)
+    extractor.deduplicate_output = not hasattr(args, "no_deduplicate") if hasattr(args, "no_deduplicate") else get_param("deduplicate", ("output", "deduplicate"), True)
     
     # Progress callback
     def progress_callback(current, total, ocr_done):

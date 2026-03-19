@@ -1,5 +1,76 @@
 # Project Journal
 
+## 2026-03-19: Loại bỏ tham số keep_numbers khỏi Chinese Filter
+
+### Yêu cầu
+
+Loại bỏ hoàn toàn tham số `keep_numbers` do logic hiện tại không phản ánh đúng ý nghĩa bật/tắt và có thể gây lặp ký tự số Hán khi bật.
+
+### Thay đổi
+
+1. **Cập nhật code runtime**:
+   - Xóa `keep_numbers` khỏi constructor của `ChineseFilter` trong `video_subtitle_extractor/chinese_filter.py`.
+   - Xóa `CHINESE_NUMBER_PATTERN` và nhánh nối số Hán trong `extract_chinese()`.
+   - Xóa `keep_numbers` khỏi constructor của `VideoSubtitleExtractor` và phần wiring tại `main_extract.py`.
+
+2. **Cập nhật cấu hình và test**:
+   - Xóa key `chinese_filter.keep_numbers` trong `config/extractor_config.yaml`.
+   - Cập nhật fixture config trong `tests/test_extractor_config.py` để bỏ key `keep_numbers`.
+
+3. **Cập nhật tài liệu**:
+   - Xóa tham số CLI `--keep-numbers` khỏi bảng tham số ở `docs/video-subtitle-extractor.md` và `docs/colab-guide.md`.
+
+### Trạng thái
+
+- ✅ Hoàn thành loại bỏ `keep_numbers` khỏi code, config, test và docs người dùng.
+- ✅ Giữ nguyên tương thích luồng xử lý còn lại (không thay đổi cơ chế bật/tắt Chinese filter).
+
+### Bước tiếp theo đề xuất
+
+- Chạy regression test tối thiểu cho module extractor config/CLI để xác nhận không còn tham chiếu `keep_numbers`.
+
+---
+
+## 2026-03-19: Đồng bộ Config Video Subtitle Extractor
+
+### Yêu cầu
+
+Người dùng nhận thấy các tham số cấu hình trong `config/extractor_config.yaml` và CLI (`docs/colab-guide.md`) chưa đồng bộ với constructor của `VideoSubtitleExtractor`. Cần xây dựng cơ chế merge cấu hình với mức ưu tiên rõ ràng: `code defaults < YAML < CLI`, đồng thời chuẩn hóa schema YAML.
+
+### Thay đổi
+
+1. **Chuẩn hóa schema trong [`config/extractor_config.yaml`](../config/extractor_config.yaml)**:
+   - Loại bỏ các keys chưa có runtime (như `logging`, `performance`, `confidence_threshold`, v.v.) để file YAML phản ánh chính xác 100% behavior hiện tại.
+   - Thêm phần cấu hình output: `default_duration`, `min_duration`, `max_duration`, `deduplicate`, `include_timestamp`.
+   - Thêm tham số còn thiếu như `min_scene_frames`.
+
+2. **Mở rộng CLI arguments trong [`main_extract.py`](../main_extract.py)**:
+   - Đặt `default=argparse.SUPPRESS` cho toàn bộ tham số CLI để dễ phân biệt user có truyền hay không.
+   - Thêm các cờ CLI mới: `--min-scene-frames`, `--keep-numbers`, `--ocr-model`, `--default-duration`, `--min-duration`, `--max-duration`, `--no-deduplicate`, `--no-timestamp`.
+
+3. **Cơ chế Merge Cấu Hình (Precedence)**:
+   - Thiết kế hàm `get_param(cli_name, yaml_path, default_val)` trong `main_extract.py` để lấy giá trị theo thứ tự ưu tiên: CLI > YAML > Default.
+   - Áp dụng `get_param` cho toàn bộ tham số khi khởi tạo `VideoSubtitleExtractor`.
+   - Box configuration giờ cũng tuân theo: `CLI --boxes-file > YAML roi.boxes_file > YAML roi.boxes (inline) > Default fallback`.
+
+4. **Wiring Writer Parameters**:
+   - Cập nhật vòng lặp khởi tạo writer trong `main_extract.py` để inject `min_duration`, `max_duration` từ cấu hình vào `extractor.writers`.
+   - Cập nhật hàm `extract()` trong `extractor.py` để đọc và truyền `include_timestamp`, `deduplicate` khi ghi file TXT/SRT.
+
+5. **Cập nhật tài liệu**:
+   - [`docs/video-subtitle-extractor.md`](../docs/video-subtitle-extractor.md) và [`docs/colab-guide.md`](../docs/colab-guide.md): Bổ sung toàn bộ tham số mới vào bảng tham số và ghi chú rõ ràng về Precedence (CLI > Config YAML > Default).
+
+6. **Test hồi quy**:
+   - Tạo file [`tests/test_extractor_config.py`](../tests/test_extractor_config.py) chứa các mock tests để kiểm chứng cơ chế precedence giữa CLI, YAML và defaults.
+
+### Trạng thái
+
+- ✅ Hoàn thành code (đã wiring, merge cấu hình)
+- ✅ Cập nhật tài liệu và tạo YAML chuẩn
+- ✅ Viết test module (sẵn sàng sử dụng khi fix đủ môi trường)
+
+---
+
 ## 2026-03-18: Cải tiến Video Subtitle Extractor hỗ trợ Multi-box OCR
 
 ### Yêu cầu

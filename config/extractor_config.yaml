@@ -1,124 +1,74 @@
 # Video Subtitle Extractor Configuration
 # Cấu hình cho việc trích xuất subtitle tiếng Trung từ video
+# Lưu ý: Các tham số chưa có ở đây có thể thêm trực tiếp qua CLI parameters.
 
 # Video processing settings
 video:
-  # Frame sampling: lấy mỗi N frame (1 = tất cả, 30 = mỗi giây với video 30fps)
-  frame_interval: 30
-
-  # Các định dạng video được hỗ trợ
-  supported_formats:
-    - mp4
-    - avi
-    - mkv
-    - mov
-    - wmv
-    - flv
+  # Frame sampling: lấy mỗi N frame (mặc định 30 = mỗi giây với video 30fps)
+  frame_interval: 1
 
 # Multi-Box Region of Interest (ROI) settings
 # Các vùng cần OCR - hỗ trợ nhiều box độc lập
 roi:
-  enabled: true
-
-  # Cách 1: Sử dụng file txt cấu hình (ưu tiên)
+  # Cấu hình bằng file txt (ưu tiên)
   boxes_file: "assets/boxesOCR.txt"
 
-  # Cách 2: Cấu hình inline (sẽ được dùng nếu boxes_file không tồn tại)
+  # Cấu hình inline (sẽ được dùng nếu boxes_file không tồn tại)
   boxes:
     - name: "subtitle"
-      x: 100
-      y: 800
-      w: 500
-      h: 100
-    - name: "note"
-      x: 1300
-      y: 800
-      w: 500
-      h: 100
+      x: 370
+      y: 930
+      w: 1180
+      h: 140
 
 # Scene detection settings
 # Phát hiện chuyển cảnh để tối ưu OCR
 scene_detection:
-  enabled: true
+  # Ngưỡng phát hiện (0-255). Mặc định 30.0
+  threshold: 10.0
 
-  # Ngưỡng phát hiện (0-255)
-  # Giá trị thấp = nhạy hơn, nhiều frame hơn
-  # Giá trị cao = ít nhạy, ít frame hơn
-  threshold: 30.0
-
-  # Số frame tối thiểu giữa 2 scene change
-  min_scene_frames: 10
+  # Số frame tối thiểu giữa 2 scene change để tránh OCR nhiễu. Mặc định 10
+  min_scene_frames: 1
 
 # OCR settings
 ocr:
-  # Model sử dụng
-  model: "deepseek-ocr-2"
+  # Model sử dụng trên Hugging Face
+  model: "deepseek-ai/DeepSeek-OCR-2"
 
   # Thiết bị: "cuda" (GPU) hoặc "cpu"
   device: "cuda"
 
   # Batch size cho processing
-  batch_size: 8
-
-  # Confidence threshold (0-1)
-  confidence_threshold: 0.5
+  batch_size: 4
 
 # Chinese filter settings
-# Lọc chỉ giữ text tiếng Trung
+# Lọc chỉ giữ text hợp lệ
 chinese_filter:
-  enabled: true
+  # Bật/tắt bộ lọc tiếng Trung. (Mặc định: false - lấy text của mọi ngôn ngữ)
+  enabled: false
 
   # Giữ dấu câu tiếng Trung
   keep_punctuation: true
 
-  # Giữ số tiếng Trung (零一二三...)
-  keep_numbers: false
-
   # Số ký tự tối thiểu để text hợp lệ
-  min_char_count: 2
-
-  # Tỷ lệ tối thiểu Chinese chars trong text (0-1)
-  # 0 = không filter theo tỷ lệ
-  min_chinese_ratio: 0.0
+  min_char_count: 1
 
 # Output settings
 output:
   # Format: "srt" hoặc "txt"
   format: "srt"
 
-  # Có bao gồm timestamp không (cho txt format)
+  # Có bao gồm timestamp không (chỉ áp dụng cho txt format)
   include_timestamp: true
 
   # Loại bỏ text trùng lặp liên tiếp
   deduplicate: true
 
-  # Thời lượng mặc định cho mỗi subtitle (seconds)
+  # Thời lượng mặc định cho mỗi subtitle khi không có text mới (seconds)
   default_duration: 3.0
 
-  # Thời lượng tối thiểu (seconds)
+  # Thời lượng tối thiểu cho một subtitle (seconds)
   min_duration: 1.0
 
-  # Thời lượng tối đa (seconds)
+  # Thời lượng tối đa cho một subtitle (seconds)
   max_duration: 7.0
-
-# Logging settings
-logging:
-  # Log level: DEBUG, INFO, WARNING, ERROR
-  level: "INFO"
-
-  # Có ghi log ra file không
-  file_logging: true
-
-  # Đường dẫn log file
-  log_file: "logs/extractor.log"
-
-# Performance settings
-performance:
-  # Số workers cho multiprocessing (0 = auto)
-  num_workers: 0
-
-  # Memory limit (GB) - 0 = không giới hạn
-  memory_limit: 0
-
-  # Cache frames trong memory
-  cache_frames: false

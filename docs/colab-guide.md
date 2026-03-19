@@ -576,18 +576,31 @@ Mỗi dòng gồm `box_name x y w h`.
 
 #### Tham số
 
-| Tham số                   | Mô tả                                                 | Mặc định              |
-| ------------------------- | ----------------------------------------------------- | --------------------- |
-| `input_video`             | File video đầu vào                                    | (bắt buộc)            |
-| `--boxes-file`            | File cấu hình các vùng OCR theo format `name x y w h` | `assets/boxesOCR.txt` |
-| `--output-dir`            | Thư mục output cho các file theo box                  | cùng thư mục video    |
-| `--frame-interval`        | Số frame bỏ qua giữa mỗi lần xử lý                    | `30`                  |
-| `--scene-threshold`       | Ngưỡng phát hiện chuyển cảnh cho từng box             | `30.0`                |
-| `--min-chars`             | Số ký tự tối thiểu để ghi nhận                        | `2`                   |
-| `--device`                | Thiết bị xử lý (cuda/cpu)                             | `cuda`                |
-| `--hf-token`              | Hugging Face Token                                    | (không dùng)          |
-| `--format`                | Định dạng output theo box (srt/txt)                   | `srt`                 |
-| `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung                    | (tắt)                 |
+| Tham số                   | Mô tả                                                      | Mặc định                                                    |
+| ------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------- |
+| `input_video`             | File video đầu vào (hoặc directory nếu dùng --input-dir)   | (bắt buộc)                                                  |
+| `--boxes-file`            | File cấu hình các vùng OCR theo format `name x y w h`      | `assets/boxesOCR.txt` (nếu có config yaml thì config > cli) |
+| `--output-dir`            | Thư mục output cho các file theo box                       | cùng thư mục video                                          |
+| `--frame-interval`        | Số frame bỏ qua giữa mỗi lần xử lý                         | `30`                                                        |
+| `--scene-threshold`       | Ngưỡng phát hiện chuyển cảnh cho từng box                  | `30.0`                                                      |
+| `--min-scene-frames`      | Số frame tối thiểu giữa 2 lần chuyển cảnh để tránh nhiễu   | `10`                                                        |
+| `--min-chars`             | Số ký tự tối thiểu để ghi nhận                             | `2`                                                         |
+| `--no-scene-detection`    | Tắt bỏ tính năng Scene detection (tương đương threshold=0) | (tắt)                                                       |
+| `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung                         | (tắt)                                                       |
+| `--no-punctuation`        | Không giữ dấu câu tiếng Trung (khi bật filter)             | (tắt)                                                       |
+| `--ocr-model`             | Tên model trên Hugging Face                                | `deepseek-ai/DeepSeek-OCR-2`                                |
+| `--device`                | Thiết bị xử lý (cuda/cpu)                                  | `cuda`                                                      |
+| `--hf-token`              | Hugging Face Token                                         | (không dùng)                                                |
+| `--batch-size`            | Batch size cho OCR batching                                | `8`                                                         |
+| `--format`                | Định dạng output theo box (srt/txt)                        | `srt`                                                       |
+| `--default-duration`      | Thời lượng mặc định mỗi subtitle                           | `3.0s`                                                      |
+| `--min-duration`          | Thời lượng tối thiểu sau deduplicate                       | `1.0s`                                                      |
+| `--max-duration`          | Thời lượng tối đa sau deduplicate                          | `7.0s`                                                      |
+| `--no-deduplicate`        | Tắt gộp subtitle trùng lặp                                 | (tắt)                                                       |
+| `--no-timestamp`          | Tắt timestamp (chỉ với format=txt)                         | (tắt)                                                       |
+| `--config`                | Đường dẫn file cấu hình `.yaml`                            | (không dùng)                                                |
+
+> **Mức ưu tiên Cấu hình**: CLI parameters có mức ưu tiên cao nhất, sau đó là tham số khai báo trong `--config`, và cuối cùng là Default values.
 
 #### Output theo từng box
 

@@ -74,7 +74,6 @@ class VideoSubtitleExtractor:
         # Chinese filter
         keep_punctuation: bool = True,
         min_char_count: int = 2,
-        keep_numbers: bool = False,
         enable_chinese_filter: bool = False,
         
         # OCR settings
@@ -104,8 +103,7 @@ class VideoSubtitleExtractor:
         
         self.chinese_filter = ChineseFilter(
             keep_punctuation=keep_punctuation,
-            min_char_count=min_char_count,
-            keep_numbers=keep_numbers
+            min_char_count=min_char_count
         )
         self.enable_chinese_filter = enable_chinese_filter
         
@@ -303,6 +301,10 @@ class VideoSubtitleExtractor:
         
         ext = ".srt" if self.output_format == "srt" else ".txt"
         
+        # Đọc các metadata output cấu hình thêm từ main
+        include_timestamp = getattr(self, "include_timestamp", True)
+        deduplicate_output = getattr(self, "deduplicate_output", True)
+        
         for box_name, state in self.box_states.items():
             writer = self.writers[box_name]
             
@@ -311,9 +313,9 @@ class VideoSubtitleExtractor:
             out_path = out_dir / file_name
             
             if self.output_format == "srt":
-                writer.write_srt(state.entries, str(out_path))
+                writer.write_srt(state.entries, str(out_path), deduplicate=deduplicate_output)
             else:
-                writer.write_txt(state.entries, str(out_path))
+                writer.write_txt(state.entries, str(out_path), include_timestamp=include_timestamp, deduplicate=deduplicate_output)
                 
             output_paths[box_name] = str(out_path)
             subtitles_count[box_name] = len(state.entries)
