@@ -5,7 +5,7 @@
 # Video processing settings
 video:
   # Frame sampling: lấy mỗi N frame (mặc định 30 = mỗi giây với video 30fps)
-  frame_interval: 1
+  frame_interval: 3
 
 # Multi-Box Region of Interest (ROI) settings
 # Các vùng cần OCR - hỗ trợ nhiều box độc lập
@@ -25,10 +25,10 @@ roi:
 # Phát hiện chuyển cảnh để tối ưu OCR
 scene_detection:
   # Ngưỡng phát hiện (0-255). Mặc định 30.0
-  threshold: 10.0
+  threshold: 20.0
 
   # Số frame tối thiểu giữa 2 scene change để tránh OCR nhiễu. Mặc định 10
-  min_scene_frames: 1
+  min_scene_frames: 3
 
 # CV prefilter settings
 # Tiền lọc ROI bằng OpenCV Canny edge để giảm ảo giác khi frame không có chữ
@@ -54,7 +54,7 @@ ocr:
   device: "cuda"
 
   # Batch size cho processing
-  batch_size: 4
+  batch_size: 8
 
 # Chinese filter settings
 # Lọc chỉ giữ text hợp lệ
@@ -66,7 +66,7 @@ chinese_filter:
   keep_punctuation: true
 
   # Số ký tự tối thiểu để text hợp lệ
-  min_char_count: 1
+  min_char_count: 2
 
 # Output settings
 output:

@@ -269,9 +269,9 @@ class VideoSubtitleExtractor:
                 
                 is_changed = self.frame_processor.detect_scene_change_for_box(curr_roi, state.prev_roi)
                 
-                # Bỏ qua scene change nếu chưa đủ số frame tối thiểu kể từ lần cuối thay đổi
+                # Bỏ qua scene change nếu chưa đủ số frame tối thiểu kể từ lần cuối thay đổi (nhưng luôn ưu tiên frame đầu tiên)
                 frames_since_last = frame_number - state.last_scene_frame
-                if is_changed and frames_since_last < self.min_scene_frames:
+                if is_changed and state.prev_roi is not None and frames_since_last < self.min_scene_frames:
                     is_changed = False
                 
                 if not is_changed:
