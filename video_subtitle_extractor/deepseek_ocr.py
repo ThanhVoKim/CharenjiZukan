@@ -186,7 +186,11 @@ class DeepSeekOCR:
                 "no visible text",
                 "no text found",
                 "no text in the image",
-                "không có văn bản"
+                "không có văn bản",
+                "文件(f)",
+                "编辑(e)",
+                "视图(v)",
+                "书签(o)"
             ]
             
             lower_result = text_result.lower()
@@ -194,6 +198,22 @@ class DeepSeekOCR:
                 if phrase in lower_result:
                     text_result = ""
                     break
+                    
+            # Bộ lọc Regex cho các Ảo giác (Hallucination) nâng cao
+            if text_result:
+                import re
+                
+                # 1. Ảo giác sinh ra URL
+                if re.search(r'https?://[^\s]+', text_result):
+                    text_result = ""
+                
+                # 2. Ảo giác sinh ra chuỗi đếm số liên tục (vd: 1\n2\n3\n4...)
+                elif re.fullmatch(r'[\d\s]+', text_result) and '\n' in text_result:
+                    text_result = ""
+                    
+                # 3. Ảo giác sinh ra 1 con số vô nghĩa (vd: "1")
+                elif text_result.strip().isdigit() and len(text_result.strip()) <= 2:
+                    text_result = ""
                 
             # Cắt bớt phần text rác nếu model sinh ra <|ref|> hoặc <|det|>
             # DeepSeek-OCR-2 thỉnh thoảng sinh ra markdown dư thừa

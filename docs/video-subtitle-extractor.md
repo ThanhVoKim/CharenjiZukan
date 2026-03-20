@@ -143,6 +143,10 @@ uv run python main_extract.py video.mp4
 | `--frame-interval`        | Số frame bỏ qua giữa mỗi lần xử lý                         | `30`                                                        |
 | `--scene-threshold`       | Ngưỡng phát hiện chuyển cảnh cho từng box                  | `30.0`                                                      |
 | `--min-scene-frames`      | Số frame tối thiểu giữa 2 lần chuyển cảnh để tránh nhiễu   | `10`                                                        |
+| `--cv-prefilter`          | Bật tiền lọc OpenCV để bỏ qua ROI không có dấu hiệu chữ    | (tắt)                                                       |
+| `--cv-min-edge-density`   | Ngưỡng mật độ cạnh tối thiểu cho CV prefilter              | `0.03`                                                      |
+| `--cv-edge-low`           | Ngưỡng thấp Canny edge detector                            | `50`                                                        |
+| `--cv-edge-high`          | Ngưỡng cao Canny edge detector                             | `150`                                                       |
 | `--min-chars`             | Số ký tự tối thiểu để ghi nhận                             | `2`                                                         |
 | `--no-scene-detection`    | Tắt bỏ tính năng Scene detection (tương đương threshold=0) | (tắt)                                                       |
 | `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung                         | (tắt)                                                       |
@@ -232,11 +236,12 @@ flowchart LR
     A[Video input] --> B[Frame sampling]
     B --> C[Scene-change check]
     C --> D[Crop ROI subtitle]
-    D --> E[OCR]
-    E --> F[Filter Chinese text]
-    F --> G[Build subtitle timeline]
-    G --> H[Deduplicate]
-    H --> I[Write SRT/TXT]
+    D --> E[CV Pre-filter]
+    E --> F[OCR]
+    F --> G[Filter Chinese text]
+    G --> H[Build subtitle timeline]
+    H --> I[Deduplicate]
+    I --> J[Write SRT/TXT]
 ```
 
 ## 1) Luồng chạy từ CLI

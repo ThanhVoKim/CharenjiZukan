@@ -1,5 +1,48 @@
 # Project Journal
 
+## 2026-03-20: Thêm Computer Vision Pre-filtering (OpenCV Canny)
+
+### Yêu cầu
+
+- Giảm ảo giác OCR khi frame/ROI không có chữ thật (model vẫn sinh text rác).
+- Giảm số lần gọi OCR không cần thiết để tăng tốc và ổn định timeline subtitle.
+- Cho phép cấu hình tính năng tiền lọc qua CLI/YAML theo cơ chế precedence hiện có.
+
+### Thay đổi
+
+1. **Cập nhật [`video_subtitle_extractor/frame_processor.py`](../video_subtitle_extractor/frame_processor.py)**:
+   - Thêm hàm [`has_text_content()`](../video_subtitle_extractor/frame_processor.py) dùng Canny edge để ước lượng ROI có khả năng chứa text.
+   - Tính `edge_density` và so với `min_edge_density`; có guard cho ngưỡng Canny không hợp lệ.
+   - Fail-open: nếu prefilter gặp lỗi, vẫn cho OCR chạy để tránh mất subtitle thật.
+
+2. **Cập nhật [`video_subtitle_extractor/extractor.py`](../video_subtitle_extractor/extractor.py)**:
+   - Mở rộng constructor với 4 tham số: `cv_prefilter`, `cv_min_edge_density`, `cv_edge_low`, `cv_edge_high`.
+   - Chèn bước CV prefilter vào vòng lặp extraction sau scene-change, trước khi push vào queue OCR.
+   - Bổ sung metadata output để lưu cấu hình CV prefilter đã dùng.
+
+3. **Cập nhật CLI trong [`main_extract.py`](../main_extract.py)**:
+   - Thêm các cờ CLI: `--cv-prefilter`, `--cv-min-edge-density`, `--cv-edge-low`, `--cv-edge-high`.
+   - Wiring vào hàm `get_param()` theo precedence: CLI > YAML > Default.
+
+4. **Cập nhật cấu hình [`config/extractor_config.yaml`](../config/extractor_config.yaml)**:
+   - Thêm section `cv_prefilter` với keys:
+     - `enabled`
+     - `min_edge_density`
+     - `edge_low_threshold`
+     - `edge_high_threshold`
+
+5. **Cập nhật tài liệu**:
+   - [`docs/colab-guide.md`](../docs/colab-guide.md): thêm ví dụ lệnh có `--cv-prefilter` + các tham số edge; bổ sung bảng tham số.
+   - [`docs/video-subtitle-extractor.md`](../docs/video-subtitle-extractor.md): bổ sung tham số CV prefilter và cập nhật workflow diagram với bước CV Pre-filter.
+
+### Trạng thái
+
+- ✅ Hoàn thành tích hợp CV prefilter trong runtime.
+- ✅ Hoàn thành đồng bộ CLI/YAML/docs.
+- ⏳ Đề xuất bước tiếp theo: benchmark trên 1 video thật để tune `min_edge_density` theo từng style subtitle.
+
+---
+
 ## 2026-03-20: Cải thiện Deduplication và thêm Warn English (Video Subtitle Extractor)
 
 ### Yêu cầu

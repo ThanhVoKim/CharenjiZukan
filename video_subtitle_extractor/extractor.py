@@ -57,6 +57,7 @@ class VideoSubtitleExtractor:
     Features:
     - Multi-box ROI: Định nghĩa nhiều vùng OCR, xuất file SRT riêng
     - Selective Scene Detection: Chỉ OCR box khi có thay đổi hình ảnh
+    - CV Pre-filtering: Dùng OpenCV Canny để bỏ qua ROI không có dấu hiệu chữ
     - Frame Sampling: Giảm số frame cần xử lý
     - Chinese Filter: Chỉ giữ tiếng Trung
     - Deduplication: Loại bỏ text trùng
@@ -71,6 +72,12 @@ class VideoSubtitleExtractor:
         frame_interval: int = 30,
         scene_threshold: float = 30.0,
         min_scene_frames: int = 10,
+
+        # CV pre-filtering
+        cv_prefilter: bool = False,
+        cv_min_edge_density: float = 0.03,
+        cv_edge_low: int = 50,
+        cv_edge_high: int = 150,
         
         # Chinese filter
         keep_punctuation: bool = True,
@@ -102,6 +109,12 @@ class VideoSubtitleExtractor:
             scene_threshold=scene_threshold
         )
         self.min_scene_frames = min_scene_frames
+
+        # CV pre-filter settings
+        self.cv_prefilter = cv_prefilter
+        self.cv_min_edge_density = cv_min_edge_density
+        self.cv_edge_low = cv_edge_low
+        self.cv_edge_high = cv_edge_high
         
         self.chinese_filter = ChineseFilter(
             keep_punctuation=keep_punctuation,
@@ -134,6 +147,13 @@ class VideoSubtitleExtractor:
         logger.info(f"  OCR Model: {ocr_model}")
         logger.info(f"  Device: {device}")
         logger.info(f"  Frame interval: {frame_interval}")
+        logger.info(
+            "  CV Pre-filter: %s (min_edge_density=%.4f, edge_low=%d, edge_high=%d)",
+            "enabled" if cv_prefilter else "disabled",
+            cv_min_edge_density,
+            cv_edge_low,
+            cv_edge_high,
+        )
     
     def load_ocr_model(self):
         """Load DeepSeek-OCR-2 model"""
@@ -259,9 +279,32 @@ class VideoSubtitleExtractor:
                     if state.entries:
                         state.entries[-1].end_time = timestamp
                 else:
+                    # Ghi nhận mốc scene change trước để min_scene_frames vẫn hoạt động ổn định
                     state.last_scene_frame = frame_number
-                    ocr_needed_images.append(curr_roi)
-                    ocr_needed_boxes.append(box_name)
+
+                    # CV Pre-filter: bỏ qua OCR nếu ROI khả năng cao không có text
+                    prefilter_passed = True
+                    if self.cv_prefilter:
+                        prefilter_passed = self.frame_processor.has_text_content(
+                            curr_roi,
+                            min_edge_density=self.cv_min_edge_density,
+                            low_threshold=self.cv_edge_low,
+                            high_threshold=self.cv_edge_high,
+                        )
+
+                    if prefilter_passed:
+                        ocr_needed_images.append(curr_roi)
+                        ocr_needed_boxes.append(box_name)
+                    else:
+                        # Nếu bỏ qua OCR vì không có dấu hiệu text,
+                        # kéo nhẹ end_time để tránh tạo gap nhỏ không cần thiết
+                        if state.entries:
+                            state.entries[-1].end_time = timestamp
+                        logger.debug(
+                            "CV prefilter skipped OCR for box '%s' at frame=%d",
+                            box_name,
+                            frame_number,
+                        )
                     
                 state.prev_roi = curr_roi.copy()
             
@@ -362,7 +405,11 @@ class VideoSubtitleExtractor:
                 "ocr_model": self.ocr_model_name,
                 "device": self.device,
                 "output_format": self.output_format,
-                "frame_interval": self.frame_interval
+                "frame_interval": self.frame_interval,
+                "cv_prefilter": self.cv_prefilter,
+                "cv_min_edge_density": self.cv_min_edge_density,
+                "cv_edge_low": self.cv_edge_low,
+                "cv_edge_high": self.cv_edge_high,
             },
             processing_time=processing_time
         )

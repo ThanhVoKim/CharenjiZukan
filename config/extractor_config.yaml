@@ -30,6 +30,21 @@ scene_detection:
   # Số frame tối thiểu giữa 2 scene change để tránh OCR nhiễu. Mặc định 10
   min_scene_frames: 1
 
+# CV prefilter settings
+# Tiền lọc ROI bằng OpenCV Canny edge để giảm ảo giác khi frame không có chữ
+cv_prefilter:
+  # Bật/tắt tiền lọc trước OCR
+  enabled: false
+
+  # Ngưỡng mật độ cạnh tối thiểu (0.0-1.0) để xem như có dấu hiệu text
+  min_edge_density: 0.04
+
+  # Ngưỡng thấp của Canny
+  edge_low_threshold: 100
+
+  # Ngưỡng cao của Canny
+  edge_high_threshold: 200
+
 # OCR settings
 ocr:
   # Model sử dụng trên Hugging Face

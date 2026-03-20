@@ -559,6 +559,10 @@ hf_token = userdata.get('hf_token')
     --output-dir /content \
     --frame-interval 30 \
     --scene-threshold 30.0 \
+    --cv-prefilter \
+    --cv-min-edge-density 0.03 \
+    --cv-edge-low 50 \
+    --cv-edge-high 150 \
     --min-chars 2 \
     --device cuda \
     --warn-english \
@@ -585,6 +589,10 @@ Mỗi dòng gồm `box_name x y w h`.
 | `--frame-interval`        | Số frame bỏ qua giữa mỗi lần xử lý                         | `30`                                                        |
 | `--scene-threshold`       | Ngưỡng phát hiện chuyển cảnh cho từng box                  | `30.0`                                                      |
 | `--min-scene-frames`      | Số frame tối thiểu giữa 2 lần chuyển cảnh để tránh nhiễu   | `10`                                                        |
+| `--cv-prefilter`          | Bật tiền lọc OpenCV để bỏ qua ROI không có dấu hiệu chữ    | (tắt)                                                       |
+| `--cv-min-edge-density`   | Ngưỡng mật độ cạnh tối thiểu cho CV prefilter              | `0.03`                                                      |
+| `--cv-edge-low`           | Ngưỡng thấp Canny edge detector                            | `50`                                                        |
+| `--cv-edge-high`          | Ngưỡng cao Canny edge detector                             | `150`                                                       |
 | `--min-chars`             | Số ký tự tối thiểu để ghi nhận                             | `2`                                                         |
 | `--no-scene-detection`    | Tắt bỏ tính năng Scene detection (tương đương threshold=0) | (tắt)                                                       |
 | `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung                         | (tắt)                                                       |
@@ -684,6 +692,8 @@ hf_token = userdata.get('hf_token')
     --boxes-file /content/CharenjiZukan/assets/boxesOCR.txt \
     --output-dir /content \
     --frame-interval 30 \
+    --cv-prefilter \
+    --cv-min-edge-density 0.03 \
     --hf-token "{hf_token}" \
     --enable-chinese-filter
 

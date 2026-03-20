@@ -131,3 +131,64 @@ class FrameProcessor:
         except Exception as e:
             logger.error(f"Error in per-box scene detection: {e}")
             return True  # Mặc định xử lý nếu có lỗi
+
+    def has_text_content(
+        self,
+        roi: np.ndarray,
+        min_edge_density: float = 0.03,
+        low_threshold: int = 50,
+        high_threshold: int = 150
+    ) -> bool:
+        """
+        Tiền lọc ROI bằng OpenCV để ước lượng xem có khả năng chứa text hay không.
+
+        Ý tưởng:
+        - Chữ thường tạo nhiều cạnh sắc nét (edges)
+        - ROI không có text thường có mật độ cạnh rất thấp
+
+        Args:
+            roi: Ảnh ROI của box hiện tại (BGR)
+            min_edge_density: Ngưỡng tối thiểu mật độ edge (0.0-1.0)
+            low_threshold: Ngưỡng thấp cho Canny
+            high_threshold: Ngưỡng cao cho Canny
+
+        Returns:
+            True nếu ROI có khả năng chứa text, False nếu khả năng cao là frame trống
+        """
+        if roi is None or roi.size == 0:
+            return False
+
+        # Bảo vệ cấu hình sai
+        if low_threshold < 0:
+            low_threshold = 0
+        if high_threshold <= low_threshold:
+            high_threshold = low_threshold + 1
+
+        try:
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+            # Giảm nhiễu nhẹ để edge ổn định hơn
+            blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+            edges = cv2.Canny(blurred, low_threshold, high_threshold)
+
+            total_pixels = edges.size
+            if total_pixels == 0:
+                return False
+
+            edge_pixels = int(np.count_nonzero(edges))
+            edge_density = edge_pixels / float(total_pixels)
+
+            logger.debug(
+                "CV prefilter edge_density=%.4f (min=%.4f, low=%d, high=%d)",
+                edge_density,
+                min_edge_density,
+                low_threshold,
+                high_threshold,
+            )
+
+            return edge_density >= min_edge_density
+
+        except Exception as e:
+            # Fail-open: khi prefilter lỗi thì vẫn cho OCR chạy để tránh mất subtitle thật
+            logger.warning(f"CV prefilter error, fallback to OCR: {e}")
+            return True

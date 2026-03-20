@@ -108,6 +108,32 @@ Examples:
         default=argparse.SUPPRESS,
         help="Tắt scene detection (set threshold=0)"
     )
+
+    # CV pre-filtering
+    parser.add_argument(
+        "--cv-prefilter",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Bật tiền lọc OpenCV (Canny edge) để bỏ qua ROI không có dấu hiệu text"
+    )
+    parser.add_argument(
+        "--cv-min-edge-density",
+        type=float,
+        default=argparse.SUPPRESS,
+        help="Ngưỡng mật độ cạnh tối thiểu cho CV prefilter (mặc định: 0.03)"
+    )
+    parser.add_argument(
+        "--cv-edge-low",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Ngưỡng thấp Canny edge detector (mặc định: 50)"
+    )
+    parser.add_argument(
+        "--cv-edge-high",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Ngưỡng cao Canny edge detector (mặc định: 150)"
+    )
     
     # Chinese filter
     parser.add_argument(
@@ -312,6 +338,12 @@ def main():
         frame_interval=get_param("frame_interval", ("video", "frame_interval"), 30),
         scene_threshold=0 if hasattr(args, "no_scene_detection") else get_param("scene_threshold", ("scene_detection", "threshold"), 30.0),
         min_scene_frames=get_param("min_scene_frames", ("scene_detection", "min_scene_frames"), 10),
+
+        # CV pre-filtering
+        cv_prefilter=get_param("cv_prefilter", ("cv_prefilter", "enabled"), False),
+        cv_min_edge_density=get_param("cv_min_edge_density", ("cv_prefilter", "min_edge_density"), 0.03),
+        cv_edge_low=get_param("cv_edge_low", ("cv_prefilter", "edge_low_threshold"), 50),
+        cv_edge_high=get_param("cv_edge_high", ("cv_prefilter", "edge_high_threshold"), 150),
         
         # Chinese filter
         keep_punctuation=not hasattr(args, "no_punctuation") if hasattr(args, "no_punctuation") else get_param("keep_punctuation", ("chinese_filter", "keep_punctuation"), True),
