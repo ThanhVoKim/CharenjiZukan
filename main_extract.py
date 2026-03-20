@@ -191,6 +191,14 @@ Examples:
         help="Tắt in timestamp (dành cho format txt)"
     )
     
+    # Feature
+    parser.add_argument(
+        "--warn-english",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Xuất cảnh báo ra file txt nếu subtitle chứa ký tự tiếng Anh/số [a-zA-Z0-9]"
+    )
+    
     # Config file
     parser.add_argument(
         "--config",
@@ -319,6 +327,7 @@ def main():
         # Output
         output_format=get_param("format", ("output", "format"), "srt"),
         default_subtitle_duration=get_param("default_duration", ("output", "default_duration"), 3.0),
+        warn_english=get_param("warn_english", ("output", "warn_english"), False),
     )
     
     # Thiết lập Writer parameters (những tham số này được sử dụng khi gọi write_srt/write_txt)

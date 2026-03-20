@@ -64,6 +64,9 @@ output:
   # Loại bỏ text trùng lặp liên tiếp
   deduplicate: true
 
+  # Xuất file cảnh báo nếu subtitle chứa ký tự tiếng Anh/số
+  warn_english: false
+
   # Thời lượng mặc định cho mỗi subtitle khi không có text mới (seconds)
   default_duration: 3.0
 

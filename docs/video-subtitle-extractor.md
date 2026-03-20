@@ -156,6 +156,7 @@ uv run python main_extract.py video.mp4
 | `--min-duration`          | Thời lượng tối thiểu sau deduplicate                       | `1.0s`                                                      |
 | `--max-duration`          | Thời lượng tối đa sau deduplicate                          | `7.0s`                                                      |
 | `--no-deduplicate`        | Tắt gộp subtitle trùng lặp                                 | (tắt)                                                       |
+| `--warn-english`          | Tạo file cảnh báo riêng nếu subtitle chứa tiếng Anh/số     | (tắt)                                                       |
 | `--no-timestamp`          | Tắt timestamp (chỉ với format=txt)                         | (tắt)                                                       |
 | `--config`                | Đường dẫn file cấu hình `.yaml`                            | (không dùng)                                                |
 

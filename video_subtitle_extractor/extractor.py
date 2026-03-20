@@ -86,6 +86,7 @@ class VideoSubtitleExtractor:
         # Output settings
         output_format: str = "srt",
         default_subtitle_duration: float = 3.0,
+        warn_english: bool = False,
     ):
         """Khởi tạo VideoSubtitleExtractor với danh sách các box"""
         
@@ -121,6 +122,7 @@ class VideoSubtitleExtractor:
         self.output_format = output_format
         self.default_subtitle_duration = default_subtitle_duration
         self.frame_interval = frame_interval
+        self.warn_english = warn_english
         
         # OCR model (lazy load)
         self._ocr_model = None
@@ -317,6 +319,12 @@ class VideoSubtitleExtractor:
                 writer.write_srt(state.entries, str(out_path), deduplicate=deduplicate_output)
             else:
                 writer.write_txt(state.entries, str(out_path), include_timestamp=include_timestamp, deduplicate=deduplicate_output)
+                
+            # Tạo cảnh báo nếu cần
+            if self.warn_english:
+                warn_path = out_dir / f"{video_stem}_{box_name}_english_warnings.txt"
+                final_entries = writer.deduplicate(state.entries) if deduplicate_output else state.entries
+                writer.generate_english_warnings(final_entries, str(warn_path))
                 
             output_paths[box_name] = str(out_path)
             subtitles_count[box_name] = len(state.entries)

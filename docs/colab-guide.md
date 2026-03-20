@@ -561,6 +561,7 @@ hf_token = userdata.get('hf_token')
     --scene-threshold 30.0 \
     --min-chars 2 \
     --device cuda \
+    --warn-english \
     --hf-token "{hf_token}" \
     --format srt \
     --enable-chinese-filter
@@ -597,6 +598,7 @@ Mỗi dòng gồm `box_name x y w h`.
 | `--min-duration`          | Thời lượng tối thiểu sau deduplicate                       | `1.0s`                                                      |
 | `--max-duration`          | Thời lượng tối đa sau deduplicate                          | `7.0s`                                                      |
 | `--no-deduplicate`        | Tắt gộp subtitle trùng lặp                                 | (tắt)                                                       |
+| `--warn-english`          | Tạo file cảnh báo riêng nếu subtitle chứa tiếng Anh/số     | (tắt)                                                       |
 | `--no-timestamp`          | Tắt timestamp (chỉ với format=txt)                         | (tắt)                                                       |
 | `--config`                | Đường dẫn file cấu hình `.yaml`                            | (không dùng)                                                |
 

@@ -116,7 +116,7 @@ class SubtitleWriter:
             logger.error(f"Cannot parse timestamp '{timestamp}': {e}")
             return 0.0
     
-    def deduplicate(self, entries: List[SubtitleEntry], similarity_threshold: float = 0.85) -> List[SubtitleEntry]:
+    def deduplicate(self, entries: List[SubtitleEntry], similarity_threshold: float = 0.70) -> List[SubtitleEntry]:
         """
         Loại bỏ các entry trùng lặp liên tiếp
         
@@ -125,7 +125,7 @@ class SubtitleWriter:
         
         Args:
             entries: List các subtitle entry
-            similarity_threshold: Ngưỡng tương đồng để gộp (mặc định 0.85)
+            similarity_threshold: Ngưỡng tương đồng để gộp (mặc định 0.70 để trị lỗi nhận diện dao động mạnh của DeepSeek)
             
         Returns:
             List đã loại bỏ trùng lặp
@@ -239,6 +239,43 @@ class SubtitleWriter:
                 ))
         
         return merged
+    
+    def generate_english_warnings(self, entries: List[SubtitleEntry], output_path: str) -> bool:
+        """
+        Lưu lại timestamp và nội dung nếu tìm thấy ký tự tiếng Anh/số [a-zA-Z0-9].
+        Phục vụ mục đích warning cho người dùng dò tìm English words trong kết quả subtitle.
+        
+        Args:
+            entries: List các subtitle entry đã deduplicate
+            output_path: Đường dẫn file warning output
+            
+        Returns:
+            True nếu có warning được tạo, False nếu không có
+        """
+        import re
+        warnings = []
+        for entry in entries:
+            if re.search(r'[a-zA-Z0-9]', entry.text):
+                warnings.append(entry)
+                
+        if warnings:
+            # Tạo thư mục nếu cần
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write("=== ENGLISH/NUMBER WARNINGS ===\n")
+                f.write("Danh sách các dòng phụ đề có chứa ký tự tiếng Anh hoặc chữ số.\n")
+                f.write(f"Tổng cộng: {len(warnings)} cảnh báo.\n")
+                f.write("="*31 + "\n\n")
+                
+                for entry in warnings:
+                    start = self.format_timestamp(entry.start_time)
+                    end = self.format_timestamp(entry.end_time)
+                    f.write(f"[{start} --> {end}]\n{entry.text}\n\n")
+            
+            logger.warning(f"⚠️ Phát hiện {len(warnings)} dòng có tiếng Anh/số. Đã lưu cảnh báo tại: {output_path}")
+            return True
+        return False
     
     def write_srt(
         self, 

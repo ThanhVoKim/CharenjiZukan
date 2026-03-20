@@ -1,5 +1,35 @@
 # Project Journal
 
+## 2026-03-20: Cải thiện Deduplication và thêm Warn English (Video Subtitle Extractor)
+
+### Yêu cầu
+
+- Giải quyết triệt để lỗi overlapping timestamps và lỗi nhận diện nhấp nháy/lặp từ do sai số dao động mạnh của DeepSeek-VL-2.
+- Loại bỏ các câu mô tả ảo giác rác của AI như `（图片中没有可见的文字内容）`.
+- Bổ sung cờ `--warn-english` để giúp người dùng dò tìm chữ cái tiếng Anh/số bị lọt vào video output, xuất thành file `.txt` độc lập.
+
+### Thay đổi
+
+1. **Cập nhật [`video_subtitle_extractor/subtitle_writer.py`](../video_subtitle_extractor/subtitle_writer.py)**:
+   - Hạ `similarity_threshold` xuống `0.70` và sử dụng `difflib.SequenceMatcher` nhằm merge các kết quả OCR bị dao động lớn (thay đổi tới 30% nội dung).
+   - Thêm logic khóa cứng (clamp) `end_time` không được phép vượt qua `start_time` của entry theo sau, vá triệt để bug lồng chéo timestamp.
+   - Viết mới hàm `generate_english_warnings()` xuất kết quả những câu subtitle có ký tự `[a-zA-Z0-9]`.
+
+2. **Cập nhật [`video_subtitle_extractor/deepseek_ocr.py`](../video_subtitle_extractor/deepseek_ocr.py)**:
+   - Thêm danh sách đen (blacklist) `empty_phrases` với các mô tả quen thuộc của AI khi frame trống (vd: `图片中没有可见的文字`, `no visible text`).
+
+3. **Cập nhật Config, CLI và Docs**:
+   - Thêm flag `--warn-english` vào parser của [`main_extract.py`](../main_extract.py).
+   - Thêm `warn_english: false` vào khóa `output` của file [`config/extractor_config.yaml`](../config/extractor_config.yaml).
+   - Cập nhật [`docs/colab-guide.md`](../docs/colab-guide.md) và [`docs/video-subtitle-extractor.md`](../docs/video-subtitle-extractor.md) với tham số mới.
+
+### Trạng thái
+
+- ✅ Hoàn thành code fix bug và feature mới.
+- ✅ Cập nhật toàn bộ tài liệu và cấu hình liên quan.
+
+---
+
 ## 2026-03-19: Loại bỏ tham số keep_numbers khỏi Chinese Filter
 
 ### Yêu cầu
