@@ -178,6 +178,23 @@ class DeepSeekOCR:
             if text_result.strip().lower() == "none":
                 text_result = ""
                 
+            # Lọc các câu trả lời rỗng hoặc mô tả ảnh phổ biến của AI
+            empty_phrases = [
+                "图片中没有",
+                "没有可见的文字",
+                "没有可识别的文字",
+                "no visible text",
+                "no text found",
+                "no text in the image",
+                "không có văn bản"
+            ]
+            
+            lower_result = text_result.lower()
+            for phrase in empty_phrases:
+                if phrase in lower_result:
+                    text_result = ""
+                    break
+                
             # Cắt bớt phần text rác nếu model sinh ra <|ref|> hoặc <|det|>
             # DeepSeek-OCR-2 thỉnh thoảng sinh ra markdown dư thừa
             if "<|ref|>" in text_result:

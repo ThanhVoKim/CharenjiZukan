@@ -116,20 +116,25 @@ class SubtitleWriter:
             logger.error(f"Cannot parse timestamp '{timestamp}': {e}")
             return 0.0
     
-    def deduplicate(self, entries: List[SubtitleEntry]) -> List[SubtitleEntry]:
+    def deduplicate(self, entries: List[SubtitleEntry], similarity_threshold: float = 0.85) -> List[SubtitleEntry]:
         """
         Loại bỏ các entry trùng lặp liên tiếp
         
-        Khi text trùng lặp, sẽ merge thời gian của các entry liên tiếp.
+        Khi text trùng lặp hoặc tương đồng cao (để tránh nhiễu OCR), 
+        sẽ merge thời gian của các entry liên tiếp.
         
         Args:
             entries: List các subtitle entry
+            similarity_threshold: Ngưỡng tương đồng để gộp (mặc định 0.85)
             
         Returns:
             List đã loại bỏ trùng lặp
         """
         if not entries:
             return []
+            
+        import difflib
+        import re
         
         deduped = [SubtitleEntry(
             index=1,
@@ -139,9 +144,29 @@ class SubtitleWriter:
         )]
         
         for entry in entries[1:]:
-            if entry.text == deduped[-1].text:
+            prev_text = deduped[-1].text
+            curr_text = entry.text
+            
+            # Kiểm tra text giống nhau hoàn toàn
+            is_same = (curr_text == prev_text)
+            
+            # Nếu không giống hoàn toàn, kiểm tra mức độ tương đồng (bỏ qua khoảng trắng và dấu câu)
+            if not is_same and similarity_threshold < 1.0:
+                clean_prev = re.sub(r'[^\w\s]', '', prev_text).replace(' ', '')
+                clean_curr = re.sub(r'[^\w\s]', '', curr_text).replace(' ', '')
+                
+                # Chỉ kiểm tra nếu cả 2 chuỗi đều có ký tự chữ/số sau khi làm sạch
+                if clean_prev and clean_curr:
+                    ratio = difflib.SequenceMatcher(None, clean_prev, clean_curr).ratio()
+                    if ratio >= similarity_threshold:
+                        is_same = True
+            
+            if is_same:
                 # Mở rộng thời gian của entry trước
                 deduped[-1].end_time = entry.end_time
+                # Nếu text mới dài hơn text cũ (nhiều thông tin hơn), ta có thể thay thế
+                if len(curr_text) > len(prev_text):
+                    deduped[-1].text = curr_text
             else:
                 # Tạo entry mới
                 deduped.append(SubtitleEntry(
@@ -151,15 +176,25 @@ class SubtitleWriter:
                     text=entry.text
                 ))
         
-        # Validate duration
-        for entry in deduped:
-            duration = entry.end_time - entry.start_time
+        # Validate duration và chống overlapping (sửa lỗi timestamps lồng nhau)
+        for i in range(len(deduped)):
+            # Lấy start_time của entry tiếp theo làm giới hạn, nếu là entry cuối thì không giới hạn
+            max_end_time = deduped[i+1].start_time if i < len(deduped) - 1 else float('inf')
+            
+            duration = deduped[i].end_time - deduped[i].start_time
+            
+            # Nếu duration quá ngắn, cố gắng kéo dài tới min_duration nhưng không vượt quá next entry
             if duration < self.min_duration:
-                entry.end_time = entry.start_time + self.min_duration
+                proposed_end = deduped[i].start_time + self.min_duration
+                deduped[i].end_time = min(proposed_end, max_end_time)
             elif duration > self.max_duration:
-                # Có thể split entry ở đây nếu cần
-                pass
-        
+                # Cắt bớt nếu quá dài
+                deduped[i].end_time = deduped[i].start_time + self.max_duration
+                
+            # Đảm bảo không bao giờ overlap với entry tiếp theo
+            if deduped[i].end_time > max_end_time:
+                deduped[i].end_time = max_end_time
+                
         logger.info(f"Deduplicated: {len(entries)} -> {len(deduped)} entries")
         return deduped
     

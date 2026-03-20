@@ -17,6 +17,7 @@ Workflow:
 import os
 import sys
 import cv2
+import numpy as np
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Callable
 from dataclasses import dataclass, field
