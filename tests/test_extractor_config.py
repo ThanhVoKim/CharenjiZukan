@@ -2,7 +2,7 @@ import os
 import argparse
 import pytest
 from unittest.mock import patch, MagicMock
-from main_extract import parse_args, load_config
+from cli.video_ocr import parse_args, load_config
 import sys
 import yaml
 
@@ -28,7 +28,7 @@ def test_config_precedence(mock_yaml_config):
     
     # Giả lập sys.argv với một số CLI params
     test_args = [
-        "main_extract.py", "video.mp4",
+        "cli/video_ocr.py", "video.mp4",
         "--config", config_path,
         "--frame-interval", "45",  # override YAML 60
         "--device", "cuda",        # override YAML cpu
@@ -40,7 +40,7 @@ def test_config_precedence(mock_yaml_config):
         
     config = load_config(args.config)
     
-    # Helper get_param copy từ main_extract.py
+    # Helper get_param copy từ cli/video_ocr.py
     def get_param(cli_name: str, yaml_path: tuple, default_val):
         if hasattr(args, cli_name):
             return getattr(args, cli_name)
@@ -77,7 +77,7 @@ def test_boolean_flags_precedence(mock_yaml_config):
     config_path, yaml_config = mock_yaml_config
     
     test_args = [
-        "main_extract.py", "video.mp4",
+        "cli/video_ocr.py", "video.mp4",
         "--config", config_path,
         "--no-punctuation",
         "--no-timestamp"

@@ -7,20 +7,20 @@ Trích xuất subtitle tiếng Trung từ video sử dụng DeepSeek-OCR-2
 Hỗ trợ xuất nhiều file subtitle cho từng vùng box.
 
 Sử dụng:
-    python main_extract.py video.mp4
-    python main_extract.py video.mp4 --boxes-file assets/boxesOCR.txt
-    python main_extract.py video.mp4 --output-dir ./subtitles
-    python main_extract.py video.mp4 --frame-interval 60
+    python cli/video_ocr.py video.mp4
+    python cli/video_ocr.py video.mp4 --boxes-file assets/boxesOCR.txt
+    python cli/video_ocr.py video.mp4 --output-dir ./subtitles
+    python cli/video_ocr.py video.mp4 --frame-interval 60
 
 Examples:
     # Cơ bản với cấu hình box mặc định
-    python main_extract.py my_video.mp4
+    python cli/video_ocr.py my_video.mp4
     
     # Với các tùy chọn
-    python main_extract.py my_video.mp4 --frame-interval 60 --boxes-file my_boxes.txt
+    python cli/video_ocr.py my_video.mp4 --frame-interval 60 --boxes-file my_boxes.txt
     
     # Xử lý batch
-    python main_extract.py --input-dir ./videos --output-dir ./subtitles
+    python cli/video_ocr.py --input-dir ./videos --output-dir ./subtitles
 """
 
 import argparse
@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 # Thêm project root vào path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from utils.logger import setup_logging, get_logger
 from video_subtitle_extractor import VideoSubtitleExtractor

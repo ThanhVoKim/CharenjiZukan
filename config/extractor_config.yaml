@@ -36,13 +36,13 @@ cv_prefilter:
   # Bật/tắt tiền lọc trước OCR
   enabled: false
 
-  # Ngưỡng mật độ cạnh tối thiểu (0.0-1.0) để xem như có dấu hiệu text
+  # Ngưỡng mật độ cạnh tối thiểu (0.0-1.0) để xem như có dấu hiệu text: 0.03
   min_edge_density: 0.04
 
-  # Ngưỡng thấp của Canny
+  # Ngưỡng thấp của Canny: 50
   edge_low_threshold: 100
 
-  # Ngưỡng cao của Canny
+  # Ngưỡng cao của Canny: 150
   edge_high_threshold: 200
 
 # OCR settings

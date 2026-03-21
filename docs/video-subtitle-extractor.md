@@ -130,7 +130,7 @@ uv run extract-subtitles video.mp4 --config config/extractor_config.yaml
 ### Chạy trực tiếp Python (fallback)
 
 ```bash
-uv run python main_extract.py video.mp4
+uv run python cli/video_ocr.py video.mp4
 ```
 
 ## Tham số
@@ -246,7 +246,7 @@ flowchart LR
 
 ## 1) Luồng chạy từ CLI
 
-- Entry nằm ở [`main()`](main_extract.py:190), parse tham số tại [`parse_args()`](main_extract.py:42).
+- Entry nằm ở [`main()`](cli/video_ocr.py:190), parse tham số tại [`parse_args()`](cli/video_ocr.py:42).
 - Tạo extractor tại [`VideoSubtitleExtractor.__init__()`](video_subtitle_extractor/extractor.py:70) với các tham số frame interval, ROI, scene threshold, device, format output.
 - Chạy pipeline chính qua [`VideoSubtitleExtractor.extract()`](video_subtitle_extractor/extractor.py:231).
 
@@ -333,7 +333,7 @@ Vị trí ROI phụ thuộc vào loại video:
 uv pip install -e .
 
 # Hoặc chạy trực tiếp file Python
-uv run python main_extract.py video.mp4
+uv run python cli/video_ocr.py video.mp4
 ```
 
 ### Lỗi: "CUDA out of memory"

@@ -34,7 +34,7 @@ merge-srt = "cli.merge_srt:main"
 srt-to-ass = "cli.srt_to_ass:main"
 demucs-audio = "cli.demucs_audio:main"
 media-speed = "cli.media_speed:main"
-extract-subtitles = "main_extract:main"
+video-ocr = "cli.video_ocr:main"
 
 [tool.setuptools.packages.find]
 include = ["cli*", "utils*", "video_subtitle_extractor*"]

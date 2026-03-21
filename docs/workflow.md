@@ -135,7 +135,7 @@ flowchart TB
 | ------------------- | ---------------------- | ------------------------------------------------ | ------------- |
 | **Mute Audio**      | `cli/mute_srt.py`      | Mute audio từ file mute.srt                      | ✅ Hoàn thành |
 | **Extract Audio**   | `cli/extract_srt.py`   | Extract audio theo mute.srt                      | ✅ Hoàn thành |
-| **Extract Sub**     | `main_extract.py`      | Trích xuất subtitle Multi-Box bằng OCR           | ✅ Hoàn thành |
+| **Extract Sub**     | `cli/video_ocr.py`      | Trích xuất subtitle Multi-Box bằng OCR           | ✅ Hoàn thành |
 | **Merge SRT**       | `cli/merge_srt.py`     | Merge 2 file SRT theo timestamp                  | ✅ Hoàn thành |
 | **Translate**       | `cli/translate_srt.py` | Dịch file .srt bằng Gemini API                   | ✅ Hoàn thành |
 | **SRT to ASS**      | `cli/srt_to_ass.py`    | Chuyển SRT → ASS với template                    | ✅ Hoàn thành |
@@ -444,7 +444,7 @@ uv run cli/speed_video.py --input video_slow_final.mp4 --speed 1.2 --output vide
 | ---- | -------------- | ------------------------------------------------- |
 | 1a   | Mute audio     | ✅ [`cli/mute_srt.py`](cli/mute_srt.py)           |
 | 1b   | Extract audio  | ✅ [`cli/extract_srt.py`](cli/extract_srt.py)     |
-| 2    | Extract Sub    | ✅ [`main_extract.py`](main_extract.py)           |
+| 2    | Extract Sub    | ✅ [`cli/video_ocr.py`](cli/video_ocr.py)           |
 | 3    | Merge SRT      | ✅ [`cli/merge_srt.py`](cli/merge_srt.py)         |
 | 4a   | Translate Note | ✅ [`cli/translate_srt.py`](cli/translate_srt.py) |
 | 4b   | SRT to ASS     | ✅ [`cli/srt_to_ass.py`](cli/srt_to_ass.py)       |
