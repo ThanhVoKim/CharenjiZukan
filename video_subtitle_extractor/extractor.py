@@ -30,7 +30,7 @@ from utils.logger import get_logger
 from .frame_processor import FrameProcessor
 from .chinese_filter import ChineseFilter
 from .subtitle_writer import SubtitleWriter, SubtitleEntry
-from .deepseek_ocr import DeepSeekOCR
+from .ocr.factory import create_ocr_backend
 from .box_manager import OcrBox, BoxState
 
 logger = get_logger(__name__)
@@ -89,6 +89,9 @@ class VideoSubtitleExtractor:
         device: str = "cuda",
         batch_size: int = 8,
         hf_token: Optional[str] = None,
+        qwen_max_new_tokens: int = 256,
+        qwen_min_pixels: int = 256 * 28 * 28,
+        qwen_max_pixels: int = 1280 * 28 * 28,
         
         # Output settings
         output_format: str = "srt",
@@ -132,6 +135,9 @@ class VideoSubtitleExtractor:
         self.device = device
         self.batch_size = batch_size
         self.hf_token = hf_token
+        self.qwen_max_new_tokens = qwen_max_new_tokens
+        self.qwen_min_pixels = qwen_min_pixels
+        self.qwen_max_pixels = qwen_max_pixels
         self.output_format = output_format
         self.default_subtitle_duration = default_subtitle_duration
         self.frame_interval = frame_interval
@@ -156,16 +162,19 @@ class VideoSubtitleExtractor:
         )
     
     def load_ocr_model(self):
-        """Load DeepSeek-OCR-2 model"""
+        """Load OCR model (tự động chọn backend theo model_name)"""
         if self._model_loaded:
             return
         
         logger.info(f"🔄 Loading {self.ocr_model_name} on {self.device}...")
         try:
-            self._ocr_model = DeepSeekOCR(
+            self._ocr_model = create_ocr_backend(
                 model_name=self.ocr_model_name,
                 device=self.device,
-                hf_token=self.hf_token
+                hf_token=self.hf_token,
+                qwen_max_new_tokens=getattr(self, "qwen_max_new_tokens", 256),
+                qwen_min_pixels=getattr(self, "qwen_min_pixels", 256 * 28 * 28),
+                qwen_max_pixels=getattr(self, "qwen_max_pixels", 1280 * 28 * 28)
             )
             self._model_loaded = True
             logger.info(f"✅ Model loaded successfully")
@@ -404,6 +413,9 @@ class VideoSubtitleExtractor:
             metadata={
                 "ocr_model": self.ocr_model_name,
                 "device": self.device,
+                "qwen_max_new_tokens": self.qwen_max_new_tokens,
+                "qwen_min_pixels": self.qwen_min_pixels,
+                "qwen_max_pixels": self.qwen_max_pixels,
                 "output_format": self.output_format,
                 "frame_interval": self.frame_interval,
                 "cv_prefilter": self.cv_prefilter,

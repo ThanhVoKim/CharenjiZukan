@@ -159,7 +159,25 @@ Examples:
     parser.add_argument(
         "--ocr-model",
         default=argparse.SUPPRESS,
-        help="Model Hugging Face OCR (mặc định: deepseek-ai/DeepSeek-OCR-2)"
+        help="Model Hugging Face OCR. DeepSeek: 'deepseek-ai/DeepSeek-OCR-2'. Qwen3-VL nhanh: 'Qwen/Qwen3-VL-8B-Instruct'. Qwen3-VL chính xác: 'Qwen/Qwen3-VL-8B-Thinking'."
+    )
+    parser.add_argument(
+        "--qwen-max-new-tokens",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="[Chỉ Qwen3-VL] Số token tối đa sinh ra (mặc định: 256)"
+    )
+    parser.add_argument(
+        "--qwen-min-pixels",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="[Chỉ Qwen3-VL] Pixel blocks tối thiểu (mặc định: 256). Ảnh hưởng VRAM."
+    )
+    parser.add_argument(
+        "--qwen-max-pixels",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="[Chỉ Qwen3-VL] Pixel blocks tối đa (mặc định: 1280). Ảnh hưởng VRAM."
     )
     parser.add_argument(
         "--hf-token",
@@ -355,6 +373,9 @@ def main():
         device=get_param("device", ("ocr", "device"), "cuda"),
         batch_size=get_param("batch_size", ("ocr", "batch_size"), 8),
         hf_token=get_param("hf_token", ("ocr", "hf_token"), None),
+        qwen_max_new_tokens=get_param("qwen_max_new_tokens", ("ocr", "qwen_max_new_tokens"), 256),
+        qwen_min_pixels=get_param("qwen_min_pixels", ("ocr", "qwen_min_pixels"), 256),
+        qwen_max_pixels=get_param("qwen_max_pixels", ("ocr", "qwen_max_pixels"), 1280),
         
         # Output
         output_format=get_param("format", ("output", "format"), "srt"),

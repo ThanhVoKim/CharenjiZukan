@@ -36,7 +36,9 @@
 
 - ✅ Đã hoàn thành tài liệu kế hoạch chi tiết tại `plans/qwen3vl-integration.md`.
 - ✅ Đã phản ánh toàn bộ feedback kỹ thuật vào plan (OOP structure, factory wiring, model-selection strategy, hardware test fixtures).
-- ⏳ Chưa triển khai code runtime; đang ở pha thiết kế/kế hoạch.
+- ✅ Đã hoàn thành implementation: tạo module `ocr`, tách `BaseOCR`, thêm class `Qwen3VLOCR` sử dụng `transformers` và `qwen-vl-utils`, thiết lập wiring `create_ocr_backend()` trong `extractor.py`.
+- ✅ Đã cập nhật tham số `--qwen-max-new-tokens`, `--qwen-min-pixels` và `--qwen-max-pixels` qua CLI và file YAML config để quản lý VRAM.
+- ✅ Cập nhật tài liệu Colab với luồng cấu hình thư viện tùy ý giữa hai models (deepseek vs qwen).
 
 ### Tác động luồng hệ thống
 
@@ -45,10 +47,8 @@
 
 ### Bước tiếp theo đề xuất
 
-1. Implement cấu trúc thư mục OCR mới và factory wiring trong extractor.
-2. Viết `Qwen3VLOCR` với đường suy luận/batch đúng chuẩn Qwen3-VL.
-3. Bổ sung test hardware-aware cho OCR backends.
-4. Cập nhật tài liệu cài đặt Colab theo ma trận phiên bản transformers.
+1. Khởi chạy integration tests và end-to-end tests cho Qwen3-VL mode trên GPU để đảm bảo VRAM và padding alignment hoạt động ổn định.
+2. Xóa các file rác (nếu có) do quá trình caching.
 
 ---
 

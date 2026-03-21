@@ -91,6 +91,34 @@ Các thư viện nền (như `transformers`, `torch`, `einops`, `PyMuPDF`) đã 
 !uv pip install -p .venv/bin/python flash-attn==2.7.3 --no-build-isolation
 ```
 
+### 1.5. Cài đặt Qwen3-VL OCR (tùy chọn)
+
+Nếu muốn dùng Qwen3-VL thay cho DeepSeek-OCR-2 (có tốc độ chậm hơn nhưng đọc chính xác hơn, đặc biệt khi dùng bản Thinking), cần cài đặt thủ công do yêu cầu phiên bản `transformers` khác với DeepSeek:
+
+> **⚠️ Lưu ý phiên bản transformers:**
+>
+> - DeepSeek-OCR-2: yêu cầu `transformers==4.45.2`
+> - Qwen3-VL: yêu cầu `transformers>=4.57.0`
+>   Hai model **không thể dùng chung** một phiên bản `transformers` cùng lúc.
+
+```colab
+# Nâng transformers cho Qwen3-VL
+!uv pip install "transformers>=4.57.0"
+
+# Cài qwen-vl-utils (phiên bản khuyến nghị)
+!uv pip install qwen-vl-utils==0.0.14
+```
+
+**Chạy với Qwen3-VL (Bước 2):**
+
+```colab
+# Đọc nhanh (Instruct)
+!uv run video-ocr /content/video.mp4 --ocr-model Qwen/Qwen3-VL-8B-Instruct --device cuda
+
+# Đọc chính xác với suy luận (Thinking)
+!uv run video-ocr /content/video.mp4 --ocr-model Qwen/Qwen3-VL-8B-Thinking --device cuda
+```
+
 ---
 
 ## 2. Các script chính
@@ -597,7 +625,10 @@ Mỗi dòng gồm `box_name x y w h`.
 | `--no-scene-detection`    | Tắt bỏ tính năng Scene detection (tương đương threshold=0) | (tắt)                                                       |
 | `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung                         | (tắt)                                                       |
 | `--no-punctuation`        | Không giữ dấu câu tiếng Trung (khi bật filter)             | (tắt)                                                       |
-| `--ocr-model`             | Tên model trên Hugging Face                                | `deepseek-ai/DeepSeek-OCR-2`                                |
+| `--ocr-model`             | Tên model Hugging Face (DeepSeek-OCR-2 hoặc Qwen3-VL)      | `deepseek-ai/DeepSeek-OCR-2`                                |
+| `--qwen-max-new-tokens`   | [Chỉ Qwen3-VL] Số token tối đa sinh ra                     | `256`                                                       |
+| `--qwen-min-pixels`       | [Chỉ Qwen3-VL] Pixel blocks tối thiểu (ảnh hưởng VRAM)     | `256`                                                       |
+| `--qwen-max-pixels`       | [Chỉ Qwen3-VL] Pixel blocks tối đa (ảnh hưởng VRAM)        | `1280`                                                      |
 | `--device`                | Thiết bị xử lý (cuda/cpu)                                  | `cuda`                                                      |
 | `--hf-token`              | Hugging Face Token                                         | (không dùng)                                                |
 | `--batch-size`            | Batch size cho OCR batching                                | `8`                                                         |

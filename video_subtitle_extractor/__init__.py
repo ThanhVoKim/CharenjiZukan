@@ -26,6 +26,7 @@ from .frame_processor import FrameProcessor
 from .chinese_filter import ChineseFilter, ChineseText
 from .subtitle_writer import SubtitleWriter, SubtitleEntry
 from .box_manager import OcrBox, BoxState, parse_boxes_file
+from .ocr import BaseOCR, Qwen3VLOCR, create_ocr_backend
 
 __version__ = "1.1.0"
 __all__ = [
@@ -38,5 +39,8 @@ __all__ = [
     "SubtitleEntry",
     "OcrBox",
     "BoxState",
-    "parse_boxes_file"
+    "parse_boxes_file",
+    "BaseOCR",
+    "Qwen3VLOCR",
+    "create_ocr_backend"
 ]

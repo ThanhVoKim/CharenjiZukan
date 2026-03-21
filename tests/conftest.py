@@ -55,6 +55,39 @@ def skip_if_weak_hardware():
 
 
 @pytest.fixture(scope="module")
+def skip_if_no_gpu():
+    """Skip nếu không có GPU (bắt buộc cho các OCR model lớn)."""
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            pytest.skip("GPU không khả dụng. OCR model cần CUDA GPU.")
+    except ImportError:
+        pytest.skip("torch không được cài đặt.")
+    return True
+
+
+@pytest.fixture(scope="module")
+def skip_if_insufficient_vram(min_vram_gb: float = 10.0):
+    """
+    Skip nếu VRAM không đủ cho model OCR.
+    - DeepSeek-OCR-2: ~8GB VRAM
+    - Qwen3-VL-8B: ~16GB VRAM
+    """
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            pytest.skip("Không có GPU.")
+        vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        if vram_gb < min_vram_gb:
+            pytest.skip(
+                f"VRAM không đủ: {vram_gb:.1f}GB < {min_vram_gb}GB yêu cầu."
+            )
+    except ImportError:
+        pytest.skip("torch không được cài đặt.")
+    return True
+
+
+@pytest.fixture(scope="module")
 def check_ffmpeg_available():
     """
     Kiểm tra FFmpeg có sẵn trong PATH.
