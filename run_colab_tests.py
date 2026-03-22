@@ -44,9 +44,22 @@ except ImportError:
 # ─────────────────────────────────────────────────────────────────────
 
 DEFAULT_MATRIX_PATH = "tests/test_matrix.yaml"
-DEFAULT_REPORTS_DIR = "test_reports"
+DEFAULT_REPORTS_DIR = "tests/test_reports"
 DEFAULT_TIMEOUT_SEC = 120
 SEPARATOR = "─" * 60
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def _resolve_path(path_value: str, project_root: Path = PROJECT_ROOT) -> Path:
+    """
+    Resolve đường dẫn từ CLI theo nguyên tắc:
+    - Nếu absolute path: giữ nguyên (ví dụ: /content/test_reports).
+    - Nếu relative path: resolve theo thư mục project chứa run_colab_tests.py.
+    """
+    path = Path(path_value)
+    if path.is_absolute():
+        return path
+    return (project_root / path).resolve()
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -334,7 +347,7 @@ def print_test_list(tests: List[Dict]) -> None:
 
 def run_all(
     tests: List[Dict],
-    reports_dir: str = DEFAULT_REPORTS_DIR,
+    reports_dir: Path,
 ) -> Dict[str, List[str]]:
     """
     Chạy toàn bộ test đã được lọc.
@@ -400,7 +413,7 @@ def run_all(
         else:
             # Tất cả trường hợp fail: FAILED, ERROR, TIMEOUT, EXIT_*
             safe_name = name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-            report_path = Path(reports_dir) / f"failed_{safe_name}.md"
+            report_path = reports_dir / f"failed_{safe_name}.md"
 
             generate_markdown_report(
                 test_config=test_config,
@@ -421,7 +434,7 @@ def run_all(
     return results
 
 
-def print_summary(results: Dict[str, List[str]], reports_dir: str) -> None:
+def print_summary(results: Dict[str, List[str]], reports_dir: Path) -> None:
     """In tổng kết sau khi chạy xong."""
     total = sum(len(v) for v in results.values())
     passed = len(results["passed"])
@@ -438,7 +451,8 @@ def print_summary(results: Dict[str, List[str]], reports_dir: str) -> None:
     print(f"{'═' * 60}")
 
     if failed > 0:
-        print(f"\n📁 File report lỗi tại thư mục: `{reports_dir}/`")
+        reports_dir_display = reports_dir.as_posix().rstrip("/") + "/"
+        print(f"\n📁 File report lỗi tại thư mục: `{reports_dir_display}`")
         print("   Mở file .md tương ứng và gửi cho AI Agent để phân tích.\n")
         for name in results["failed"]:
             safe_name = name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
@@ -483,7 +497,10 @@ Ví dụ:
     parser.add_argument(
         "--reports-dir",
         default=DEFAULT_REPORTS_DIR,
-        help=f"Thư mục lưu báo cáo lỗi (mặc định: {DEFAULT_REPORTS_DIR})",
+        help=(
+            f"Thư mục lưu báo cáo lỗi (mặc định: {DEFAULT_REPORTS_DIR}; "
+            "đường dẫn tương đối được resolve theo thư mục project chứa run_colab_tests.py)"
+        ),
     )
     parser.add_argument(
         "--list",
@@ -500,7 +517,10 @@ Ví dụ:
 def main() -> None:
     args = parse_args()
 
-    all_tests = load_matrix(args.matrix)
+    matrix_path = _resolve_path(args.matrix)
+    reports_dir = _resolve_path(args.reports_dir)
+
+    all_tests = load_matrix(str(matrix_path))
     tests_to_run = filter_tests(
         all_tests,
         tags=args.tags,
@@ -516,8 +536,8 @@ def main() -> None:
         print_test_list(all_tests)
         return
 
-    results = run_all(tests_to_run, reports_dir=args.reports_dir)
-    print_summary(results, reports_dir=args.reports_dir)
+    results = run_all(tests_to_run, reports_dir=reports_dir)
+    print_summary(results, reports_dir=reports_dir)
 
     # Exit code phản ánh kết quả để có thể dùng trong CI
     failed_count = len(results["failed"])

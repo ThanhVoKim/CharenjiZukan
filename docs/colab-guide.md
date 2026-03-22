@@ -825,9 +825,33 @@ OPTIONS:
 !python run_colab_tests.py --matrix tests/test_matrix_ci.yaml
 ```
 
-### 3.3 Quy trình làm việc trên Google Colab
+### 3.3 Chạy toàn bộ test trong một file
 
-#### 3.3.1 Workflow chuẩn khi develop một feature mới
+Khi một entry trong [`tests/test_matrix.yaml`](tests/test_matrix.yaml) **bỏ trống `keyword`**, script [`run_colab_tests.py`](tests/run_colab_tests.py) sẽ **không thêm cờ `-k`** và `pytest` sẽ collect toàn bộ test trong file đó.
+
+#### Ví dụ entry trong `test_matrix.yaml`
+
+```yaml
+- name: "Native Video OCR — All Layers"
+  file: "tests/test_native_video_ocr_pipeline.py"
+  # keyword: bỏ trống hoàn toàn
+  timeout_sec: 900 # Tổng timeout của cả 4 layers cộng lại
+  pytest_args: ["-v", "-s"]
+  tags: ["unit", "integration", "gpu", "native_ocr"]
+  enabled: true
+```
+
+> `timeout_sec` ở đây là timeout tổng cho toàn bộ các layer trong cùng một file.
+
+#### Chạy trực tiếp bằng pytest (không qua `run_colab_tests.py`)
+
+```bash
+python -m pytest tests/test_native_video_ocr_pipeline.py -v
+```
+
+### 3.4 Quy trình làm việc trên Google Colab
+
+#### 3.4.1 Workflow chuẩn khi develop một feature mới
 
 ```text
 Bước 1: Viết code feature
@@ -850,7 +874,7 @@ Bước 6: (Khi có GPU) Chạy Layer 4 → confirm chất lượng AI
 !cat "test_reports/failed_*.md"
 ```
 
-#### 3.3.2 Workflow debug khi có fail
+#### 3.4.2 Workflow debug khi có fail
 
 ```colab
 # Bước 1: Xem report tóm tắt

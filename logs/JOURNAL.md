@@ -1,5 +1,51 @@
 # Project Journal
 
+## 2026-03-22: Ổn định đường dẫn report của run_colab_tests.py trên Colab
+
+### Yêu cầu
+
+- Mặc định report phải nằm trong thư mục `tests/` của project.
+- Không phụ thuộc current working directory khi chạy script trên Colab.
+- Vẫn hỗ trợ override `--reports-dir` sang path tuyệt đối ngoài project (ví dụ: `/content/test_reports`).
+
+### Thay đổi đã thực hiện
+
+1. **Cập nhật mặc định reports dir** trong `run_colab_tests.py`:
+   - `DEFAULT_REPORTS_DIR` đổi từ `test_reports` thành `tests/test_reports`.
+
+2. **Thêm cơ chế resolve path an toàn theo vị trí script**:
+   - thêm `PROJECT_ROOT = Path(__file__).resolve().parent`.
+   - thêm helper `_resolve_path()` với nguyên tắc:
+     - absolute path: giữ nguyên.
+     - relative path: resolve theo thư mục project chứa `run_colab_tests.py`.
+
+3. **Áp dụng resolve path trong luồng chính**:
+   - trong `main()`, cả `args.matrix` và `args.reports_dir` đều được resolve trước khi dùng.
+
+4. **Chuẩn hóa truyền kiểu `Path` cho reports_dir**:
+   - cập nhật chữ ký `run_all(..., reports_dir: Path)`.
+   - cập nhật chữ ký `print_summary(..., reports_dir: Path)`.
+   - chỗ tạo report dùng trực tiếp `reports_dir / filename`.
+
+5. **Cải thiện hiển thị summary**:
+   - in rõ đường dẫn thư mục report đã resolve để giảm nhầm lẫn vị trí file trên Colab.
+
+### Trạng thái hiện tại
+
+- ✅ Mặc định report được ghi vào `tests/test_reports` trong project.
+- ✅ `--reports-dir /content/test_reports` vẫn hoạt động đúng (path tuyệt đối ngoài project).
+- ✅ Kiểm tra cú pháp script đã pass với `python -m py_compile run_colab_tests.py`.
+
+### Outstanding / Pending
+
+1. Đồng bộ ví dụ trong docs nếu team muốn hiển thị rõ default path mới là `tests/test_reports`.
+
+### Đối chiếu Data Flow
+
+- Thay đổi chỉ tác động lớp tooling test runner (`run_colab_tests.py`), không thay đổi pipeline xử lý chính đã mô tả trong `docs/workflow.md`.
+
+---
+
 ## 2026-03-22: Tái cấu trúc tài liệu hướng dẫn test Colab
 
 ### Yêu cầu
