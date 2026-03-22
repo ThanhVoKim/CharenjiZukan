@@ -7,9 +7,9 @@
 - Triển khai code thực tế theo kế hoạch tại `plans/native-video-ocr-plan.md` để hỗ trợ trích xuất subtitle bằng Qwen3-VL Native Video mode.
 - Tái sử dụng logic/hàm sẵn có từ `video_subtitle_extractor` và chỉ tách hàm khi cần dùng chung.
 - Đáp ứng các tham số chính theo yêu cầu:
-  - sampling theo `frame_interval` (mặc định 8)
+  - sampling theo `frame_interval` (mặc định 6)
   - xử lý theo batch 60 giây
-  - `sample_fps=4.0`
+  - `sample_fps=5.0`
   - `image_patch_size=16`
   - `do_resize=False`
   - hỗ trợ model `Qwen/Qwen3-VL-8B-Instruct` hoặc `Qwen/Qwen3-VL-8B-Thinking`

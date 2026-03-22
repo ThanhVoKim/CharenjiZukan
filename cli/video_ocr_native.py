@@ -34,7 +34,7 @@ Examples:
 
   %(prog)s video.mp4 --model Qwen/Qwen3-VL-8B-Thinking --device cuda
 
-  %(prog)s video.mp4 --frame-interval 8 --sample-fps 4.0 --batch-duration 60
+  %(prog)s video.mp4 --frame-interval 6 --sample-fps 5.0 --batch-duration 60
 
   %(prog)s video.mp4 --warn-english --save-minify-txt
         """,
@@ -71,7 +71,7 @@ Examples:
         "--frame-interval",
         type=int,
         default=argparse.SUPPRESS,
-        help="Lấy 1 frame mỗi N frame (mặc định: 8)",
+        help="Lấy 1 frame mỗi N frame (mặc định: 6)",
     )
     parser.add_argument(
         "--batch-duration",
@@ -83,7 +83,7 @@ Examples:
         "--sample-fps",
         type=float,
         default=argparse.SUPPRESS,
-        help="sample_fps cho Native Video frame-list (mặc định: 4.0)",
+        help="sample_fps cho Native Video frame-list (mặc định: 5.0)",
     )
 
     # Model
@@ -221,9 +221,9 @@ def main():
         model_name=get_param("model", ("ocr", "model"), "Qwen/Qwen3-VL-8B-Instruct"),
         device=get_param("device", ("ocr", "device"), "cuda"),
         hf_token=get_param("hf_token", ("ocr", "hf_token"), None),
-        frame_interval=get_param("frame_interval", ("video", "frame_interval"), 8),
+        frame_interval=get_param("frame_interval", ("video", "frame_interval"), 6),
         batch_duration=get_param("batch_duration", ("video", "batch_duration"), 60.0),
-        sample_fps=get_param("sample_fps", ("video", "sample_fps"), 4.0),
+        sample_fps=get_param("sample_fps", ("video", "sample_fps"), 5.0),
         max_new_tokens=get_param("max_new_tokens", ("ocr", "max_new_tokens"), 2048),
         total_pixels=get_param("total_pixels", ("ocr", "total_pixels"), 20480 * 32 * 32),
         min_pixels=get_param("min_pixels", ("ocr", "min_pixels"), 64 * 32 * 32),

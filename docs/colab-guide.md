@@ -681,9 +681,9 @@ hf_token = userdata.get('hf_token')
     --model Qwen/Qwen3-VL-8B-Instruct \
     --device cuda \
     --hf-token "{hf_token}" \
-    --frame-interval 8 \
+    --frame-interval 6 \
     --batch-duration 60 \
-    --sample-fps 4.0 \
+    --sample-fps 5.0 \
     --max-new-tokens 2048 \
     --total-pixels 20971520 \
     --min-pixels 65536 \
@@ -705,9 +705,9 @@ hf_token = userdata.get('hf_token')
 | `--model`           | Model Qwen3-VL                              | `Qwen/Qwen3-VL-8B-Instruct`           |
 | `--device`          | Thiết bị chạy model                         | `cuda`                                |
 | `--hf-token`        | Hugging Face token                          | (không dùng)                          |
-| `--frame-interval`  | Lấy mẫu 1 frame mỗi N frame                 | `8`                                   |
+| `--frame-interval`  | Lấy mẫu 1 frame mỗi N frame                 | `6`                                   |
 | `--batch-duration`  | Số giây mỗi batch video                     | `60.0`                                |
-| `--sample-fps`      | FPS khai báo cho frame-list native video    | `4.0`                                 |
+| `--sample-fps`      | FPS khai báo cho frame-list native video    | `5.0`                                 |
 | `--max-new-tokens`  | Số token output tối đa mỗi batch            | `2048`                                |
 | `--total-pixels`    | Giới hạn tổng pixel video input             | `20971520`                            |
 | `--min-pixels`      | Giới hạn pixel tối thiểu                    | `65536`                               |
