@@ -62,6 +62,57 @@
 
 ---
 
+## 2026-03-22: Bổ sung test tự động cho Native Video OCR + GPU preflight
+
+### Yêu cầu
+
+- Tạo test case automated bằng `pytest` cho luồng Native Video OCR.
+- Bắt buộc có bước kiểm tra cấu hình GPU trước khi chạy test.
+- Mock phần model/inference để test tập trung vào data flow của pipeline.
+
+### Thay đổi đã thực hiện
+
+1. **Cập nhật [`tests/conftest.py`](../tests/conftest.py)**
+   - Thêm fixture `native_video_gpu_preflight()` để preflight môi trường GPU:
+     - kiểm tra `torch` đã cài,
+     - kiểm tra CUDA khả dụng,
+     - kiểm tra VRAM tối thiểu (mặc định `10GB`, có thể override bằng biến môi trường `NATIVE_OCR_MIN_VRAM_GB`),
+     - trả metadata GPU cho test assertions.
+
+2. **Tạo mới [`tests/test_native_video_ocr.py`](../tests/test_native_video_ocr.py)**
+   - Viết test pipeline cho [`NativeVideoSubtitleExtractor.extract()`](../video_subtitle_extractor/native_video_extractor.py):
+     - dùng fixture GPU preflight thật,
+     - mock `iter_sampled_frames`, `FrameProcessor.crop_roi`, `_load_model`, `_infer`,
+     - xác nhận chia batch, multi-turn context, timestamp offset giữa các batch,
+     - xác nhận `NativeExtractionResult` và file output SRT được tạo đúng.
+   - Bổ sung `pytest.importorskip()` cho dependencies nặng (`numpy`, `cv2`, `PIL`) để test skip sạch khi thiếu môi trường.
+
+3. **Xác nhận chạy test**
+   - Chạy `python -m pytest tests/test_native_video_ocr.py -q`.
+   - Kết quả hiện tại: `1 skipped` (môi trường hiện tại thiếu điều kiện để chạy đầy đủ), không phát sinh lỗi collection/runtime.
+
+### Trạng thái hiện tại
+
+- ✅ Đã hoàn thành test tự động Native Video OCR theo phạm vi đã chốt.
+- ✅ Đã tích hợp bước kiểm tra GPU preflight vào test framework.
+- ⏳ Test thực thi đầy đủ (pass thay vì skip) phụ thuộc máy có đầy đủ dependencies + CUDA GPU đạt ngưỡng VRAM.
+
+### Outstanding / Pending
+
+1. Chạy lại test trên máy có môi trường đầy đủ (`numpy`, `opencv-python`, `Pillow`, `torch` + CUDA) để xác nhận pass toàn bộ assertions.
+2. Cân nhắc bổ sung test riêng cho nhánh `warn_english` và `save_minify_txt` của Native extractor.
+
+### Bước tiếp theo đề xuất
+
+1. Dựng môi trường test GPU chuẩn và chạy lại:
+   - `python -m pytest tests/test_native_video_ocr.py -q`
+2. Mở rộng coverage cho các edge-cases:
+   - nhiều ROI boxes,
+   - response rỗng/invalid timestamp,
+   - path output warnings/txt optional.
+
+---
+
 ## 2026-03-21: Kế hoạch tích hợp Qwen3-VL OCR backend (Architectural Plan)
 
 ### Yêu cầu
