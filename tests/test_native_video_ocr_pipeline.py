@@ -102,28 +102,40 @@ def synthetic_video_path(tmp_path_factory) -> Path:
         str(video_path), fourcc, VIDEO_FPS, (VIDEO_W, VIDEO_H)
     )
 
+    # Khởi tạo font CJK cho Pillow
+    font_path = PROJECT_ROOT / "assets" / "NotoSansCJKsc-VF.ttf"
+    try:
+        font = ImageFont.truetype(str(font_path), 60)
+    except IOError:
+        print(f"WARNING: Cannot load {font_path}. Using default font (CJK will fail).")
+        font = ImageFont.load_default()
+
     for frame_no in range(total_frames):
         timestamp = frame_no / VIDEO_FPS
 
         # Tạo frame nền tối
-        frame = np.full((VIDEO_H, VIDEO_W, 3), 20, dtype=np.uint8)
+        frame_cv2 = np.full((VIDEO_H, VIDEO_W, 3), 20, dtype=np.uint8)
 
         # Vẽ chữ nếu timestamp nằm trong khoảng của subtitle nào đó
         for start, end, text in SYNTHETIC_SUBTITLES:
             if start <= timestamp < end:
-                cv2.putText(
-                    frame,
+                # Chuyển BGR (OpenCV) sang RGB (Pillow)
+                img_pil = Image.fromarray(cv2.cvtColor(frame_cv2, cv2.COLOR_BGR2RGB))
+                draw = ImageDraw.Draw(img_pil)
+                
+                # Vẽ text với Pillow thay vì cv2.putText
+                draw.text(
+                    (ROI_X + 10, ROI_Y + 10),
                     text,
-                    org=(ROI_X + 10, ROI_Y + 55),
-                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=1.6,
-                    color=(255, 255, 255),
-                    thickness=2,
-                    lineType=cv2.LINE_AA,
+                    font=font,
+                    fill=(255, 255, 255)
                 )
+                
+                # Chuyển lại RGB sang BGR
+                frame_cv2 = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
                 break
 
-        writer.write(frame)
+        writer.write(frame_cv2)
 
     writer.release()
     assert video_path.exists(), "Tạo video tổng hợp thất bại"
@@ -838,7 +850,7 @@ class TestLayer4_RealModelOCR:
     Xác nhận chất lượng OCR thực tế với video tổng hợp đã biết trước nội dung.
 
     Để chạy layer này:
-        NATIVE_OCR_MIN_VRAM_GB=10 pytest tests/test_native_video_ocr_pipeline.py -v -k "Layer4"
+        NATIVE_OCR_MIN_VRAM_GB=15 pytest tests/test_native_video_ocr_pipeline.py -v -k "Layer4"
     """
 
     @pytest.fixture(scope="class")
