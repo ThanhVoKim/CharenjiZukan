@@ -53,6 +53,8 @@ token = userdata.get('github_token')
 !git clone https://{token}@github.com/ThanhVoKim/CharenjiZukan.git /content/CharenjiZukan
 %cd /content/CharenjiZukan
 
+!pip install -q pyyaml pytest
+
 # Cài đặt project ở chế độ editable (để sử dụng CLI commands)
 !uv pip install -e .
 
@@ -122,6 +124,37 @@ Nếu muốn dùng Qwen3-VL thay cho DeepSeek-OCR-2 (có tốc độ chậm hơn
 ---
 
 ## 2. Các script chính
+
+### 2.0 Speech-to-Text với WhisperX (cho video có giọng đọc rõ ràng)
+
+Chuyển audio thành file subtitle .srt:
+
+#### Tham số WhisperX
+
+| Tham số          | Mô tả           | Giá trị khuyến nghị                              |
+| ---------------- | --------------- | ------------------------------------------------ |
+| `--model`        | Model Whisper   | `large-v2` (chính xác cao nhất)                  |
+| `--language`     | Ngôn ngữ audio  | `zh` (Trung), `ja` (Nhật), `en` (Anh)            |
+| `--align_model`  | Model alignment | Xem [HuggingFace](https://huggingface.co/models) |
+| `--device`       | Thiết bị xử lý  | `cuda` (GPU)                                     |
+| `--compute_type` | Precision       | `float16` (GPU), `int8` (CPU)                    |
+| `--batch_size`   | Batch size      | `16` (GPU L4)                                    |
+
+#### Output
+
+- File `.srt` tại thư mục output
+- File `.json` với thông tin chi tiết
+
+```colab
+!uv run whisperx "/content/audio_muted.wav" \
+  --model large-v2 \
+  --language zh \
+  --align_model jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn \
+  --device cuda \
+  --compute_type float16 \
+  --batch_size 16 \
+  --output_dir "/content/output"
+```
 
 ### 2.1. Mute Audio (mute-srt)
 
@@ -727,173 +760,112 @@ Với input `/content/video.mp4`:
 
 ---
 
-## 3. Workflow đầy đủ theo docs/workflow.md
+## 3. Chạy test trên Google Colab với `run_colab_tests.py`
 
-### Bước 1: Audio Processing
+File nằm tại: `run_colab_tests.py` (project root)
 
-#### 1a. Mute Audio
+### 3.1 Cú pháp đầy đủ
 
 ```colab
-!uv run mute-srt \
-    --input       /content/video.mp4 \
-    --mute        /content/mute.srt \
-    --output      /content/audio_muted.wav \
-    --sample-rate 16000
+!python run_colab_tests.py [OPTIONS]
+
+OPTIONS:
+  --matrix PATH       File test_matrix.yaml (mặc định: tests/test_matrix.yaml)
+  --tags TAG [TAG...] Lọc entry theo tags (OR logic: khớp bất kỳ tag nào)
+  --name SUBSTR       Lọc entry theo tên (substring, case-insensitive)
+  --reports-dir DIR   Thư mục lưu báo cáo fail (mặc định: test_reports/)
+  --list              Hiển thị danh sách test sẽ chạy, không chạy thật
 ```
 
-#### 1b. Extract Audio
+### 3.2 Các trường hợp sử dụng thường gặp
+
+**Xem danh sách không chạy**:
 
 ```colab
-!uv run extract-srt \
-    --input       /content/video.mp4 \
-    --mute        /content/mute.srt \
-    --output      /content/audio_extracted.wav \
-    --sample-rate 16000
+!python run_colab_tests.py --list
+!python run_colab_tests.py --tags gpu --list
 ```
 
-### Bước 2: Trích xuất phụ đề
-
-Tùy thuộc vào loại video, bạn có thể chọn một trong hai cách:
-
-#### Cách 2A: Speech-to-Text với WhisperX (cho video có giọng đọc rõ ràng)
-
-Chuyển audio thành file subtitle .srt:
-
-#### Tham số WhisperX
-
-| Tham số          | Mô tả           | Giá trị khuyến nghị                              |
-| ---------------- | --------------- | ------------------------------------------------ |
-| `--model`        | Model Whisper   | `large-v2` (chính xác cao nhất)                  |
-| `--language`     | Ngôn ngữ audio  | `zh` (Trung), `ja` (Nhật), `en` (Anh)            |
-| `--align_model`  | Model alignment | Xem [HuggingFace](https://huggingface.co/models) |
-| `--device`       | Thiết bị xử lý  | `cuda` (GPU)                                     |
-| `--compute_type` | Precision       | `float16` (GPU), `int8` (CPU)                    |
-| `--batch_size`   | Batch size      | `16` (GPU L4)                                    |
-
-#### Output
-
-- File `.srt` tại thư mục output
-- File `.json` với thông tin chi tiết
+**Chạy toàn bộ tests nhanh (không GPU)**:
 
 ```colab
-!uv run whisperx "/content/audio_muted.wav" \
-  --model large-v2 \
-  --language zh \
-  --align_model jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn \
-  --device cuda \
-  --compute_type float16 \
-  --batch_size 16 \
-  --output_dir "/content/output"
+!python run_colab_tests.py --tags unit
+!python run_colab_tests.py --tags unit integration
 ```
 
-#### Cách 2B: Trích xuất phụ đề cứng với DeepSeek-OCR-2 (cho video có hardsub)
-
-Nếu video có sẵn phụ đề cứng (hardsub) tiếng Trung trên màn hình:
+**Chạy tests cần FFmpeg**:
 
 ```colab
-from google.colab import userdata
-hf_token = userdata.get('hf_token')
-
-!uv run video-ocr /content/video.mp4 \
-    --boxes-file /content/CharenjiZukan/assets/boxesOCR.txt \
-    --output-dir /content \
-    --frame-interval 30 \
-    --cv-prefilter \
-    --cv-min-edge-density 0.03 \
-    --hf-token "{hf_token}" \
-    --enable-chinese-filter
-
-# Dùng box chính cho merge
-# /content/video_subtitle.srt
+!python run_colab_tests.py --tags ffmpeg
+!python run_colab_tests.py --tags integration ffmpeg
 ```
 
-### Bước 3: Merge Subtitle
+**Chạy tests cần GPU**:
 
 ```colab
-!uv run merge-srt \
-    --commentary /content/video_subtitle.srt \
-    --quoted     /content/subtitle_quoted.srt \
-    --output     /content/subtitle_merged.srt
+!python run_colab_tests.py --tags gpu
 ```
 
-### Bước 4: Note Processing
-
-#### 4a. Translate Note
+**Chạy tất cả tests liên quan 1 feature**:
 
 ```colab
-from google.colab import userdata
-gemini_key = userdata.get('gemini_key')
-
-!uv run translate-srt \
-    --input  /content/note_source.srt \
-    --output /content/note_translated.srt \
-    --lang   "Japanese" \
-    --keys   "{gemini_key}"
+!python run_colab_tests.py --name "Native Video"
+!python run_colab_tests.py --name "SRT Parser"
 ```
 
-#### 4b. Convert SRT to ASS
+**Chạy toàn bộ** (enabled tests):
 
 ```colab
-!uv run srt-to-ass \
-    --input     /content/note_translated.srt \
-    --output    /content/note_overlay.ass \
-    --template  /content/CharenjiZukan/assets/sample.ass \
-    --max-chars 14 \
-    --style     NoteStyle
+!python run_colab_tests.py
 ```
 
-### Bước 5: Translate Subtitle
+**Dùng file matrix khác** (khi có nhiều môi trường):
 
 ```colab
-from google.colab import userdata
-gemini_key = userdata.get('gemini_key')
-
-!uv run translate-srt \
-    --input  /content/subtitle_merged.srt \
-    --output /content/subtitle_translated.srt \
-    --lang   "Japanese" \
-    --keys   "{gemini_key}"
+!python run_colab_tests.py --matrix tests/test_matrix_ci.yaml
 ```
 
-### Bước 6: Demucs Voice Removal
+### 3.3 Quy trình làm việc trên Google Colab
 
-```colab
-!uv run demucs-audio \
-    --input  /content/audio_muted.wav \
-    --output /content/audio_bgm.wav \
-    --model  htdemucs \
-    --stems  2 \
-    --keep   bgm
+#### 3.3.1 Workflow chuẩn khi develop một feature mới
+
+```text
+Bước 1: Viết code feature
+Bước 2: Viết file test (4 layers) + thêm vào test_matrix.yaml
+Bước 3: Chạy Layer 1 → fix cho đến khi pass
+Bước 4: Chạy Layer 2 → fix cho đến khi pass
+Bước 5: Chạy Layer 3 → fix cho đến khi pass
+Bước 6: (Khi có GPU) Chạy Layer 4 → confirm chất lượng AI
 ```
 
-### Bước 7: Slow Down 0.65x
-
 ```colab
-# Video
-!uv run media-speed --input /content/video.mp4 --speed 0.65
+# Cell: Layer 1 và 2 (không cần GPU)
+!python run_colab_tests.py --tags unit integration --name "TÊN FEATURE"
 
-# Audio extracted
-!uv run media-speed --input /content/audio_extracted.wav --speed 0.65
+# Cell: Layer 3 (không cần GPU)
+!python run_colab_tests.py --name "TÊN FEATURE" --name "Layer 3"
 
-# Audio BGM
-!uv run media-speed --input /content/audio_bgm.wav --speed 0.65
-
-# Subtitle
-!uv run media-speed --input /content/subtitle_translated.srt --speed 0.65
-
-# Note overlay
-!uv run media-speed --input /content/note_overlay.ass --speed 0.65
+# Cell: Nếu có lỗi, xem report
+!ls test_reports/
+!cat "test_reports/failed_*.md"
 ```
 
-### Bước 8: TTS
+#### 3.3.2 Workflow debug khi có fail
 
 ```colab
-!uv run tts-srt \
-    --input    /content/subtitle_slow_translated.srt \
-    --output   /content/audio_slow_tts.wav \
-    --voice    ja-JP-KeitaNeural \
-    --rate     +5% \
-    --autorate
+# Bước 1: Xem report tóm tắt
+!ls -la test_reports/*.md
+
+# Bước 2: Đọc report chi tiết (hoặc download file .md để gửi AI)
+import subprocess
+result = subprocess.run(["cat", "test_reports/failed_xxx.md"], capture_output=True, text=True)
+print(result.stdout[:5000])  # Print 5000 chars đầu
+
+# Bước 3: Chạy lại command từ mục "1. Lệnh đã chạy" trong report
+!python -m pytest tests/test_native_video_ocr_pipeline.py -k "Layer3" -v --tb=long -s
+
+# Bước 4: Chạy 1 test duy nhất để isolate lỗi
+!python -m pytest tests/test_native_video_ocr_pipeline.py::TestLayer3_FullPipeline::test_entries_count -v --tb=long
 ```
 
 ---

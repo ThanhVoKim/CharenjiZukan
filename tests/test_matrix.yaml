@@ -1,0 +1,163 @@
+# tests/test_matrix.yaml
+# Test Matrix cho CharenjiZukan — chạy qua run_colab_tests.py
+#
+# Cấu trúc mỗi entry:
+#   name        : Tên hiển thị khi chạy (bắt buộc)
+#   file        : Đường dẫn file test (bắt buộc)
+#   markers     : Danh sách pytest marker để lọc (-m "mark1 and mark2")
+#   keyword     : Lọc theo tên hàm / class (-k "keyword")
+#   env         : Biến môi trường bổ sung (merge với env hiện tại của Colab)
+#   pytest_args : Cờ pytest bổ sung (list string)
+#   timeout_sec : Timeout tổng cho toàn bộ file test (mặc định: 120s)
+#   enabled     : true/false (mặc định: true)
+#   tags        : Nhóm để lọc khi chạy (vd: --tags unit / integration / gpu)
+
+tests:
+  # ──────────────────────────────────────────────
+  # UNIT TESTS — Không cần GPU, không cần FFmpeg
+  # ──────────────────────────────────────────────
+
+  - name: "SRT Parser — Unit Tests"
+    file: "tests/test_srt_parser.py"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "ASS Utils — Unit Tests"
+    file: "tests/test_ass_utils.py"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Merge SRT — Unit Tests"
+    file: "tests/test_merge_srt.py"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Media Utils — Type Detection & Timestamp Scaling"
+    file: "tests/test_media_utils.py"
+    keyword: "TestDetectMediaType or TestScaleTimeMs or TestAssTimestampConversion or TestGetDefaultOutputPath or TestScaleSrtTimestamps or TestScaleAssTimestamps"
+    timeout_sec: 60
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Demucs CLI — Parser & Hardware Check (No GPU)"
+    file: "tests/test_demucs_audio.py"
+    keyword: "TestBuildParser or TestCheckHardwareRequirements or TestCheckDemucsInstalled or TestGetDevice or TestOutputPath or TestMain"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Media Speed CLI — Parser & Main (No FFmpeg)"
+    file: "tests/test_media_speed.py"
+    keyword: "TestBuildParser or TestMain"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Extractor Config — Precedence (CLI > YAML > Default)"
+    file: "tests/test_extractor_config.py"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  # ──────────────────────────────────────────────
+  # INTEGRATION TESTS — Cần FFmpeg, không cần GPU
+  # ──────────────────────────────────────────────
+
+  - name: "Media Utils — Audio Stretching (FFmpeg atempo)"
+    file: "tests/test_media_utils.py"
+    keyword: "TestAudioStretching"
+    timeout_sec: 120
+    pytest_args: ["-v", "-s"]
+    tags: ["integration", "ffmpeg"]
+    enabled: true
+
+  - name: "Media Speed — SRT/ASS Scaling via CLI (FFmpeg)"
+    file: "tests/test_media_speed.py"
+    keyword: "TestMediaSpeedCLI"
+    timeout_sec: 120
+    pytest_args: ["-v", "-s"]
+    tags: ["integration", "ffmpeg"]
+    enabled: true
+
+  - name: "Demucs — Source Separation (GPU)"
+    file: "tests/test_demucs_audio.py"
+    keyword: "TestSeparateAudio"
+    timeout_sec: 600
+    env:
+      TORCH_CUDNN_V8_API_ENABLED: "1"
+    pytest_args: ["-v", "-s"]
+    tags: ["integration", "gpu"]
+    enabled: true
+
+  - name: "Media Utils — Rubberband Check"
+    file: "tests/test_media_utils.py"
+    keyword: "TestCheckRubberbandAvailable"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["integration"]
+    enabled: true
+
+  # ──────────────────────────────────────────────
+  # GPU TESTS — Cần CUDA GPU + VRAM đủ lớn
+  # ──────────────────────────────────────────────
+
+  # ──────────────────────────────────────────────
+  # SUITES — Shortcut chạy nhóm
+  # Không phải test thật, chỉ là comment gợi nhớ
+  # Dùng: python run_colab_tests.py --tags unit
+  # ──────────────────────────────────────────────
+  # Tags có sẵn:
+  #   unit        → Không cần GPU/FFmpeg, chạy nhanh
+  #   integration → Cần FFmpeg hoặc system binary
+  #   ffmpeg      → Cần FFmpeg trong PATH
+  #   gpu         → Cần CUDA GPU
+  #   native_ocr  → Cần GPU + VRAM >= 10GB
+
+  # ──────────────────────────────────────────────
+  # NATIVE VIDEO OCR — 4 layers riêng biệt
+  # ──────────────────────────────────────────────
+
+  - name: "Native Video OCR — Layer 1: Unit Tests (No GPU)"
+    file: "tests/test_native_video_ocr_pipeline.py"
+    keyword: "Layer1"
+    timeout_sec: 60
+    pytest_args: ["-v"]
+    tags: ["unit", "native_ocr"]
+    enabled: true
+
+  - name: "Native Video OCR — Layer 2: Component Tests (Synthetic Video)"
+    file: "tests/test_native_video_ocr_pipeline.py"
+    keyword: "Layer2"
+    timeout_sec: 120
+    pytest_args: ["-v", "-s"]
+    tags: ["integration", "native_ocr"]
+    enabled: true
+
+  - name: "Native Video OCR — Layer 3: Full Pipeline (Mocked Model)"
+    file: "tests/test_native_video_ocr_pipeline.py"
+    keyword: "Layer3"
+    timeout_sec: 180
+    pytest_args: ["-v", "-s"]
+    tags: ["integration", "native_ocr"]
+    enabled: true
+
+  - name: "Native Video OCR — Layer 4: Real Model (GPU Required)"
+    file: "tests/test_native_video_ocr_pipeline.py"
+    keyword: "Layer4"
+    timeout_sec: 600
+    env:
+      NATIVE_OCR_MIN_VRAM_GB: "10"
+      CUDA_VISIBLE_DEVICES: "0"
+    pytest_args: ["-v", "-s"]
+    tags: ["gpu", "native_ocr"]
+    enabled: true

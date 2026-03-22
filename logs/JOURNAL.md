@@ -1,5 +1,59 @@
 # Project Journal
 
+## 2026-03-22: Tái cấu trúc tài liệu hướng dẫn test Colab
+
+### Yêu cầu
+
+- Di chuyển nội dung hướng dẫn sử dụng trên Colab từ `docs/testing-guide.md` sang `docs/colab-guide.md`.
+- Phạm vi di chuyển:
+  - `### 9.1 Cú pháp đầy đủ`
+  - `### 9.2 Các trường hợp sử dụng thường gặp`
+  - toàn bộ `## 10. Quy trình làm việc trên Google Colab`
+- Đánh lại index trong `docs/testing-guide.md` và cập nhật các tham chiếu mục lục tương ứng.
+
+### Thay đổi đã thực hiện
+
+1. **Cập nhật `docs/colab-guide.md`**
+   - Điền nội dung đầy đủ cho `## 3` với tiêu đề mới: “Chạy test trên Google Colab với `run_colab_tests.py`”.
+   - Thêm các mục:
+     - `### 3.1 Cú pháp đầy đủ`
+     - `### 3.2 Các trường hợp sử dụng thường gặp`
+     - `### 3.3 Quy trình làm việc trên Google Colab`
+       - `#### 3.3.1 Workflow chuẩn khi develop một feature mới`
+       - `#### 3.3.2 Workflow debug khi có fail`
+
+2. **Cập nhật `docs/testing-guide.md`**
+   - Loại bỏ phần cũ:
+     - `### 9.1 Cú pháp đầy đủ`
+     - `### 9.2 Các trường hợp sử dụng thường gặp`
+     - toàn bộ `## 10. Quy trình làm việc trên Google Colab`
+   - Đánh lại index:
+     - giữ `## 9` cho phần đọc kết quả runner
+     - đổi `### 9.3` → `### 9.1`
+     - đổi `### 9.4` → `### 9.2`
+     - đổi `## 11` → `## 10`
+   - Cập nhật mục lục đầu file để phản ánh index mới.
+   - Bổ sung ghi chú điều hướng từ `docs/testing-guide.md` sang `docs/colab-guide.md` cho phần cú pháp/workflow Colab.
+
+### Trạng thái hiện tại
+
+- ✅ Đã hoàn thành tách tài liệu theo đúng mục tiêu:
+  - `docs/testing-guide.md` tập trung vào quy tắc thiết kế/đọc kết quả test.
+  - `docs/colab-guide.md` tập trung vào thao tác chạy thực tế trên Colab.
+- ✅ Đã đồng bộ lại index và anchor tham chiếu trong mục lục của `docs/testing-guide.md`.
+
+### Outstanding / Pending
+
+1. Theo dõi phản hồi thực tế khi team sử dụng tài liệu mới để đảm bảo không có nhầm lẫn luồng đọc.
+2. Nếu cần, bổ sung mục lục chi tiết cho `docs/colab-guide.md` để tăng khả năng điều hướng nhanh.
+
+### Đối chiếu Data Flow
+
+- Tái cấu trúc tài liệu không thay đổi luồng xử lý hệ thống trong `docs/workflow.md`.
+- Chỉ thay đổi vị trí tài liệu hướng dẫn thao tác, giữ nguyên logic pipeline và convention testing.
+
+---
+
 ## 2026-03-22: Triển khai Native Video OCR pipeline (Qwen3-VL)
 
 ### Yêu cầu
