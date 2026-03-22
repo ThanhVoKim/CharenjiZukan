@@ -22,6 +22,7 @@ Usage:
 """
 
 from .extractor import VideoSubtitleExtractor, ExtractionResult
+from .native_video_extractor import NativeVideoSubtitleExtractor, NativeExtractionResult
 from .frame_processor import FrameProcessor
 from .chinese_filter import ChineseFilter, ChineseText
 from .subtitle_writer import SubtitleWriter, SubtitleEntry
@@ -32,6 +33,8 @@ __version__ = "1.1.0"
 __all__ = [
     "VideoSubtitleExtractor",
     "ExtractionResult",
+    "NativeVideoSubtitleExtractor",
+    "NativeExtractionResult",
     "FrameProcessor",
     "ChineseFilter",
     "ChineseText",

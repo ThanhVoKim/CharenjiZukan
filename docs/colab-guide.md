@@ -103,7 +103,7 @@ Nếu muốn dùng Qwen3-VL thay cho DeepSeek-OCR-2 (có tốc độ chậm hơn
 
 ```colab
 # Nâng transformers cho Qwen3-VL
-!uv pip install "transformers>=4.57.0"
+!uv pip install --upgrade "transformers>=4.57.0"
 
 # Cài qwen-vl-utils (phiên bản khuyến nghị)
 !uv pip install qwen-vl-utils==0.0.14
@@ -649,6 +649,81 @@ Ví dụ input là `/content/video.mp4` với 2 box `subtitle` và `note`, outpu
 
 - `/content/video_subtitle.srt`
 - `/content/video_note.srt`
+
+---
+
+### 2.10. Native Video Subtitle Extractor (video-ocr-native)
+
+CLI này dùng Qwen3-VL Native Video mode để xử lý subtitle theo từng batch video (mặc định 60 giây), giữ context theo chiến lược multi-turn giữa các batch.
+
+#### Chạy nhanh (khuyến nghị cho Colab)
+
+```colab
+from google.colab import userdata
+hf_token = userdata.get('hf_token')
+
+!uv run video-ocr-native /content/video.mp4 \
+    --hf-token "{hf_token}" \
+    --device cuda
+```
+
+#### Chạy đầy đủ tham số chính
+
+```colab
+from google.colab import userdata
+hf_token = userdata.get('hf_token')
+
+!uv run video-ocr-native /content/video.mp4 \
+    --config /content/CharenjiZukan/config/native_video_ocr_config.yaml \
+    --boxes-file /content/CharenjiZukan/assets/boxesOCR.txt \
+    --output-dir /content \
+    --prompt-file /content/CharenjiZukan/prompts/native_video_ocr_prompt.txt \
+    --model Qwen/Qwen3-VL-8B-Instruct \
+    --device cuda \
+    --hf-token "{hf_token}" \
+    --frame-interval 8 \
+    --batch-duration 60 \
+    --sample-fps 4.0 \
+    --max-new-tokens 2048 \
+    --total-pixels 20971520 \
+    --min-pixels 65536 \
+    --max-frames 2048 \
+    --warn-english \
+    --save-minify-txt \
+    --verbose
+```
+
+#### Tham số chính
+
+| Tham số             | Mô tả                                       | Mặc định                              |
+| ------------------- | ------------------------------------------- | ------------------------------------- |
+| `video`             | Đường dẫn video input                       | (bắt buộc)                            |
+| `--config`          | YAML config cho native pipeline             | `config/native_video_ocr_config.yaml` |
+| `--boxes-file`      | File ROI dạng `name x y w h`                | theo config (`assets/boxesOCR.txt`)   |
+| `--output-dir`      | Thư mục output                              | cùng thư mục video                    |
+| `--prompt-file`     | Prompt template cho native extraction       | `prompts/native_video_ocr_prompt.txt` |
+| `--model`           | Model Qwen3-VL                              | `Qwen/Qwen3-VL-8B-Instruct`           |
+| `--device`          | Thiết bị chạy model                         | `cuda`                                |
+| `--hf-token`        | Hugging Face token                          | (không dùng)                          |
+| `--frame-interval`  | Lấy mẫu 1 frame mỗi N frame                 | `8`                                   |
+| `--batch-duration`  | Số giây mỗi batch video                     | `60.0`                                |
+| `--sample-fps`      | FPS khai báo cho frame-list native video    | `4.0`                                 |
+| `--max-new-tokens`  | Số token output tối đa mỗi batch            | `2048`                                |
+| `--total-pixels`    | Giới hạn tổng pixel video input             | `20971520`                            |
+| `--min-pixels`      | Giới hạn pixel tối thiểu                    | `65536`                               |
+| `--max-frames`      | Giới hạn số frame mỗi batch                 | `2048`                                |
+| `--warn-english`    | Lưu file cảnh báo English/number            | (tắt)                                 |
+| `--save-minify-txt` | Lưu file script text-only (không timestamp) | (tắt)                                 |
+| `-v`, `--verbose`   | Tăng chi tiết log                           | (tắt)                                 |
+| `--quiet`           | Chỉ in lỗi                                  | (tắt)                                 |
+
+#### Output files
+
+Với input `/content/video.mp4`:
+
+- `/content/video_native.srt` (luôn tạo)
+- `/content/video_native_script.txt` (khi bật `--save-minify-txt`)
+- `/content/video_subtitle_english_warnings.txt` (khi bật `--warn-english`)
 
 ---
 

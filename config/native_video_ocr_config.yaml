@@ -1,0 +1,35 @@
+# config/native_video_ocr_config.yaml
+# Cấu hình mặc định cho Native Video Subtitle Extractor (Qwen3-VL)
+
+prompt:
+  file: "prompts/native_video_ocr_prompt.txt"
+
+roi:
+  boxes_file: "assets/boxesOCR.txt"
+
+video:
+  # Lấy mẫu mỗi N frame (user yêu cầu mặc định 8)
+  frame_interval: 8
+
+  # Xử lý mỗi lần 1 đoạn video 1 phút
+  batch_duration: 60.0
+
+  # user yêu cầu sample_fps = 4.0
+  sample_fps: 4.0
+
+ocr:
+  model: "Qwen/Qwen3-VL-8B-Instruct"
+  device: "cuda"
+  hf_token: null
+  max_new_tokens: 2048
+
+  # total_pixels = 20480 * 32 * 32
+  total_pixels: 20971520
+  # min_pixels = 64 * 32 * 32
+  min_pixels: 65536
+
+  max_frames: 2048
+
+output:
+  warn_english: false
+  save_minify_txt: false

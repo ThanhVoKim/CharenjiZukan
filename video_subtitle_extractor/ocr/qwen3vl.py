@@ -123,19 +123,21 @@ class Qwen3VLOCR(BaseOCR):
             }
         ]
 
-    def _strip_thinking(self, text: str) -> str:
+    @staticmethod
+    def strip_thinking(text: str) -> str:
         """Loại bỏ khối <think>...</think> đặc trưng của phiên bản Qwen3-VL-Thinking."""
         return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
-    def _apply_hallucination_filter(self, text_result: str) -> str:
+    @staticmethod
+    def apply_hallucination_filter(text_result: str) -> str:
         """Bộ lọc các mô tả hình ảnh vô nghĩa thường thấy từ AI khi không tìm thấy text."""
         if not text_result:
             return ""
-            
+
         # Tránh lỗi trả về chuỗi "None" (từ str(None))
         if text_result.strip().lower() == "none":
             return ""
-            
+
         empty_phrases = [
             "图片中没有",
             "没有可见的文字",
@@ -147,28 +149,32 @@ class Qwen3VLOCR(BaseOCR):
             "文件(f)",
             "编辑(e)",
             "视图(v)",
-            "书签(o)"
+            "书签(o)",
         ]
-        
+
         lower_result = text_result.lower()
         for phrase in empty_phrases:
             if phrase in lower_result:
                 return ""
-                
+
         # Bộ lọc Regex cho các Ảo giác (Hallucination)
         # 1. Ảo giác sinh ra URL
         if re.search(r'https?://[^\s]+', text_result):
             return ""
-        
+
         # 2. Ảo giác sinh ra chuỗi đếm số liên tục (vd: 1\n2\n3\n4...)
         if re.fullmatch(r'[\d\s]+', text_result) and '\n' in text_result:
             return ""
-            
+
         # 3. Ảo giác sinh ra 1 con số vô nghĩa (vd: "1")
         if text_result.strip().isdigit() and len(text_result.strip()) <= 2:
             return ""
-            
+
         return text_result.strip()
+
+    # Backward compatibility aliases
+    _strip_thinking = strip_thinking
+    _apply_hallucination_filter = apply_hallucination_filter
 
     def recognize(self, image: np.ndarray) -> str:
         """Nhận dạng text từ 1 ảnh đơn (numpy array BGR format từ OpenCV)."""
@@ -250,9 +256,9 @@ class Qwen3VLOCR(BaseOCR):
                 else:
                     raw_text = output_texts[valid_idx]
                     # Loại bỏ block thinking của Qwen3-VL-Thinking
-                    no_think_text = self._strip_thinking(raw_text)
+                    no_think_text = self.strip_thinking(raw_text)
                     # Lọc hallucination
-                    filtered_text = self._apply_hallucination_filter(no_think_text)
+                    filtered_text = self.apply_hallucination_filter(no_think_text)
                     results.append(filtered_text)
                     valid_idx += 1
                     logger.debug(f"OCR Extracted: '{filtered_text[:50]}...'")

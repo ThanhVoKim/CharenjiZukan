@@ -11,7 +11,7 @@ Bao gồm:
 import cv2
 import numpy as np
 import hashlib
-from typing import Optional
+from typing import Optional, Iterator, Tuple
 import sys
 from pathlib import Path
 
@@ -192,3 +192,39 @@ class FrameProcessor:
             # Fail-open: khi prefilter lỗi thì vẫn cho OCR chạy để tránh mất subtitle thật
             logger.warning(f"CV prefilter error, fallback to OCR: {e}")
             return True
+
+
+def iter_sampled_frames(
+    video_path: str,
+    frame_interval: int = 6,
+) -> Iterator[Tuple[int, float, np.ndarray]]:
+    """
+    Generator duyệt video và yield các frame được lấy mẫu.
+
+    Args:
+        video_path: Đường dẫn tới video local.
+        frame_interval: Lấy 1 frame sau mỗi N frame (mặc định: 6).
+
+    Yields:
+        Tuple gồm (frame_number, timestamp_seconds, frame_bgr_numpy)
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open video: {video_path}")
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    frame_number = 0
+
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if frame_number % frame_interval == 0:
+                timestamp = frame_number / fps
+                yield frame_number, timestamp, frame
+
+            frame_number += 1
+    finally:
+        cap.release()

@@ -10,7 +10,8 @@
 				"DEFAULT_MINIMUM_TOKENS": ""
 			},
 			"alwaysAllow": [
-				"query-docs"
+				"query-docs",
+				"resolve-library-id"
 			]
 		}
 	}

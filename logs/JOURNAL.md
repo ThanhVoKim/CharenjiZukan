@@ -1,5 +1,67 @@
 # Project Journal
 
+## 2026-03-22: Triển khai Native Video OCR pipeline (Qwen3-VL)
+
+### Yêu cầu
+
+- Triển khai code thực tế theo kế hoạch tại `plans/native-video-ocr-plan.md` để hỗ trợ trích xuất subtitle bằng Qwen3-VL Native Video mode.
+- Tái sử dụng logic/hàm sẵn có từ `video_subtitle_extractor` và chỉ tách hàm khi cần dùng chung.
+- Đáp ứng các tham số chính theo yêu cầu:
+  - sampling theo `frame_interval` (mặc định 8)
+  - xử lý theo batch 60 giây
+  - `sample_fps=4.0`
+  - `image_patch_size=16`
+  - `do_resize=False`
+  - hỗ trợ model `Qwen/Qwen3-VL-8B-Instruct` hoặc `Qwen/Qwen3-VL-8B-Thinking`
+  - multi-turn context giữ text lượt trước, bỏ tham chiếu video cũ
+  - output `.srt`, optional warning/minify txt
+
+### Thay đổi đã thực hiện
+
+1. **Refactor hàm dùng chung**
+   - Cập nhật `video_subtitle_extractor/frame_processor.py`:
+     - thêm `iter_sampled_frames(video_path, frame_interval=6)` để tái sử dụng luồng duyệt frame theo sampling.
+   - Cập nhật `video_subtitle_extractor/ocr/qwen3vl.py`:
+     - nâng `strip_thinking()` và `apply_hallucination_filter()` thành `@staticmethod`.
+     - giữ backward compatibility qua alias `_strip_thinking` và `_apply_hallucination_filter`.
+
+2. **Thêm extractor mới cho Native Video**
+   - Tạo `video_subtitle_extractor/native_video_extractor.py` với:
+     - class `NativeVideoSubtitleExtractor`
+     - dataclass `NativeExtractionResult`
+     - batching 60s + multi-turn context
+     - native video message dùng `{"type": "video", "video": List[PIL.Image], "sample_fps": ...}`
+     - parse output thành `SubtitleEntry`, ghi SRT, optional warning/minify txt.
+
+3. **Thêm CLI/config/prompt mới**
+   - Tạo `cli/video_ocr_native.py` (CLI entrypoint riêng).
+   - Tạo `config/native_video_ocr_config.yaml` (defaults native mode).
+   - Tạo `prompts/native_video_ocr_prompt.txt` (prompt template có `{previous_context}`).
+
+4. **Cập nhật exports/entrypoints**
+   - Cập nhật `video_subtitle_extractor/__init__.py` export `NativeVideoSubtitleExtractor` và `NativeExtractionResult`.
+   - Cập nhật `pyproject.toml` thêm script `video-ocr-native`.
+
+### Trạng thái hiện tại
+
+- ✅ Hoàn thành phần triển khai code lõi cho Native Video mode.
+- ✅ Hoàn thành wiring CLI/config/prompt cho chạy độc lập.
+- ⏳ Chưa chạy benchmark chất lượng/hiệu năng trên video thực tế dài nhiều phút.
+
+### Outstanding / Pending
+
+1. Chạy kiểm thử end-to-end với video thật để tinh chỉnh:
+   - `frame_interval`, `sample_fps`, `batch_duration`
+   - ngưỡng prompt cho giảm hallucination/repetition.
+2. Bổ sung test tự động (unit/integration) cho parser timestamp và multi-turn conversation flow.
+
+### Đối chiếu Data Flow
+
+- Luồng triển khai đã bám theo workflow tổng quan trong `docs/workflow.md`: video input → sampling/crop ROI → inference → post-process → xuất subtitle.
+- Native mode là nhánh mở rộng OCR backend, không thay đổi pipeline tổng thể của dự án.
+
+---
+
 ## 2026-03-21: Kế hoạch tích hợp Qwen3-VL OCR backend (Architectural Plan)
 
 ### Yêu cầu
