@@ -228,11 +228,17 @@ class NativeVideoSubtitleExtractor:
         """
         Sau mỗi batch:
         - strip video refs khỏi user turn cuối (giữ text prompt)
+        - loại bỏ timestamp khỏi assistant_response để tránh làm model ảo giác ở batch tiếp theo
         - thêm assistant turn
         - chỉ giữ cặp gần nhất [user_text, assistant]
         """
+        import re
+        # Xóa các mốc thời gian [MM:SS.ff --> MM:SS.ff] để ngăn model đếm tiếp ở lượt sau
+        text_only_response = re.sub(r"\[.*?-->.*?\]\s*", "", assistant_response)
+        text_only_response = "\n".join(line.strip() for line in text_only_response.splitlines() if line.strip())
+
         if not conversation:
-            return [{"role": "assistant", "content": assistant_response}]
+            return [{"role": "assistant", "content": text_only_response}]
 
         last_user = conversation[-1]
         text_only_content = [
@@ -241,7 +247,7 @@ class NativeVideoSubtitleExtractor:
             if isinstance(item, dict) and item.get("type") == "text"
         ]
         stripped_user = {"role": "user", "content": text_only_content}
-        assistant_turn = {"role": "assistant", "content": assistant_response}
+        assistant_turn = {"role": "assistant", "content": text_only_response}
         return [stripped_user, assistant_turn]
 
     def _split_into_batches(
