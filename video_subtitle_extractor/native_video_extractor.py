@@ -270,6 +270,9 @@ class NativeVideoSubtitleExtractor:
 
     def _infer(self, messages: List[Dict[str, Any]]) -> str:
         """Chạy 1 lượt native video inference với Qwen3-VL."""
+        import torch
+        import gc
+
         if not self._model_loaded:
             self._load_model()
 
@@ -291,28 +294,37 @@ class NativeVideoSubtitleExtractor:
         else:
             video_metadatas = None
 
-        inputs = self._processor(
-            text=[text],
-            images=image_inputs,
-            videos=video_inputs,
-            video_metadata=video_metadatas,
-            **video_kwargs,
-            do_resize=False,
-            padding=True,
-            return_tensors="pt",
-        ).to(self.device)
+        with torch.inference_mode():
+            inputs = self._processor(
+                text=[text],
+                images=image_inputs,
+                videos=video_inputs,
+                video_metadata=video_metadatas,
+                **video_kwargs,
+                do_resize=False,
+                padding=True,
+                return_tensors="pt",
+            ).to(self.device)
 
-        output_ids = self._model.generate(**inputs, max_new_tokens=self.max_new_tokens)
-        generated_ids = [
-            out_ids[len(in_ids) :]
-            for in_ids, out_ids in zip(inputs.input_ids, output_ids)
-        ]
+            output_ids = self._model.generate(**inputs, max_new_tokens=self.max_new_tokens)
+            generated_ids = [
+                out_ids[len(in_ids) :]
+                for in_ids, out_ids in zip(inputs.input_ids, output_ids)
+            ]
 
-        output_text = self._processor.batch_decode(
-            generated_ids,
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=True,
-        )
+            output_text = self._processor.batch_decode(
+                generated_ids,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=True,
+            )
+
+        # Giải phóng memory VRAM để tránh leak giữa các batch
+        del inputs
+        del output_ids
+        del generated_ids
+        if self.device.startswith("cuda"):
+            torch.cuda.empty_cache()
+        gc.collect()
 
         return output_text[0] if output_text else ""
 

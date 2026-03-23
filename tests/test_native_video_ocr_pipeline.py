@@ -210,7 +210,7 @@ class TestLayer1_PromptBuilder:
         )
 
     def test_load_template_contains_placeholder(self, extractor):
-        assert "{previous_context}" not in extractor._prompt_template
+        assert "{previous_context}" in extractor._prompt_template
         # Sau khi load, template phải đã có nội dung
         assert len(extractor._prompt_template) > 10
 
