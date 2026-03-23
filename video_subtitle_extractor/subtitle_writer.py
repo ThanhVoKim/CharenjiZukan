@@ -376,6 +376,46 @@ class SubtitleWriter:
         logger.info(f"📝 Written {len(entries)} lines to {output_path}")
         return output_path
     
+    def write_minify_txt(
+        self, 
+        entries: List[SubtitleEntry], 
+        output_path: str,
+        deduplicate: bool = True
+    ) -> str:
+        """
+        Ghi file text minify (mỗi câu 1 dòng, không có dòng trống, không có timestamp)
+        
+        Args:
+            entries: List các subtitle entry
+            output_path: Đường dẫn file output
+            deduplicate: Có loại bỏ trùng lặp không
+            
+        Returns:
+            Đường dẫn file đã ghi
+        """
+        if not entries:
+            logger.warning("No entries to write")
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write("")
+            return output_path
+        
+        # Deduplicate nếu cần
+        if deduplicate:
+            entries = self.deduplicate(entries)
+            
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            for entry in entries:
+                # Thay thế newline thành khoảng trắng để đảm bảo nội dung nằm trên 1 dòng
+                text = entry.text.strip().replace('\n', ' ')
+                if text:
+                    f.write(f"{text}\n")
+                    
+        logger.info(f"📝 Written {len(entries)} minify lines to {output_path}")
+        return output_path
+    
     def read_srt(self, srt_path: str) -> List[SubtitleEntry]:
         """
         Đọc file SRT

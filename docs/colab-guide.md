@@ -627,6 +627,7 @@ hf_token = userdata.get('hf_token')
     --min-chars 2 \
     --device cuda \
     --warn-english \
+    --save-minify-txt \
     --hf-token "{hf_token}" \
     --format srt \
     --enable-chinese-filter
@@ -642,37 +643,38 @@ Mỗi dòng gồm `box_name x y w h`.
 
 #### Tham số
 
-| Tham số                   | Mô tả                                                      | Mặc định                                                    |
-| ------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------- |
-| `input_video`             | File video đầu vào (hoặc directory nếu dùng --input-dir)   | (bắt buộc)                                                  |
-| `--boxes-file`            | File cấu hình các vùng OCR theo format `name x y w h`      | `assets/boxesOCR.txt` (nếu có config yaml thì config > cli) |
-| `--output-dir`            | Thư mục output cho các file theo box                       | cùng thư mục video                                          |
-| `--frame-interval`        | Số frame bỏ qua giữa mỗi lần xử lý                         | `30`                                                        |
-| `--scene-threshold`       | Ngưỡng phát hiện chuyển cảnh cho từng box                  | `30.0`                                                      |
-| `--min-scene-frames`      | Số frame tối thiểu giữa 2 lần chuyển cảnh để tránh nhiễu   | `10`                                                        |
-| `--cv-prefilter`          | Bật tiền lọc OpenCV để bỏ qua ROI không có dấu hiệu chữ    | (tắt)                                                       |
-| `--cv-min-edge-density`   | Ngưỡng mật độ cạnh tối thiểu cho CV prefilter              | `0.03`                                                      |
-| `--cv-edge-low`           | Ngưỡng thấp Canny edge detector                            | `50`                                                        |
-| `--cv-edge-high`          | Ngưỡng cao Canny edge detector                             | `150`                                                       |
-| `--min-chars`             | Số ký tự tối thiểu để ghi nhận                             | `2`                                                         |
-| `--no-scene-detection`    | Tắt bỏ tính năng Scene detection (tương đương threshold=0) | (tắt)                                                       |
-| `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung                         | (tắt)                                                       |
-| `--no-punctuation`        | Không giữ dấu câu tiếng Trung (khi bật filter)             | (tắt)                                                       |
-| `--ocr-model`             | Tên model Hugging Face (DeepSeek-OCR-2 hoặc Qwen3-VL)      | `deepseek-ai/DeepSeek-OCR-2`                                |
-| `--qwen-max-new-tokens`   | [Chỉ Qwen3-VL] Số token tối đa sinh ra                     | `256`                                                       |
-| `--qwen-min-pixels`       | [Chỉ Qwen3-VL] Pixel blocks tối thiểu (ảnh hưởng VRAM)     | `256`                                                       |
-| `--qwen-max-pixels`       | [Chỉ Qwen3-VL] Pixel blocks tối đa (ảnh hưởng VRAM)        | `1280`                                                      |
-| `--device`                | Thiết bị xử lý (cuda/cpu)                                  | `cuda`                                                      |
-| `--hf-token`              | Hugging Face Token                                         | (không dùng)                                                |
-| `--batch-size`            | Batch size cho OCR batching                                | `8`                                                         |
-| `--format`                | Định dạng output theo box (srt/txt)                        | `srt`                                                       |
-| `--default-duration`      | Thời lượng mặc định mỗi subtitle                           | `3.0s`                                                      |
-| `--min-duration`          | Thời lượng tối thiểu sau deduplicate                       | `1.0s`                                                      |
-| `--max-duration`          | Thời lượng tối đa sau deduplicate                          | `7.0s`                                                      |
-| `--no-deduplicate`        | Tắt gộp subtitle trùng lặp                                 | (tắt)                                                       |
-| `--warn-english`          | Tạo file cảnh báo riêng nếu subtitle chứa tiếng Anh/số     | (tắt)                                                       |
-| `--no-timestamp`          | Tắt timestamp (chỉ với format=txt)                         | (tắt)                                                       |
-| `--config`                | Đường dẫn file cấu hình `.yaml`                            | (không dùng)                                                |
+| Tham số                   | Mô tả                                                       | Mặc định                                                    |
+| ------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------- |
+| `input_video`             | File video đầu vào (hoặc directory nếu dùng --input-dir)    | (bắt buộc)                                                  |
+| `--boxes-file`            | File cấu hình các vùng OCR theo format `name x y w h`       | `assets/boxesOCR.txt` (nếu có config yaml thì config > cli) |
+| `--output-dir`            | Thư mục output cho các file theo box                        | cùng thư mục video                                          |
+| `--frame-interval`        | Số frame bỏ qua giữa mỗi lần xử lý                          | `30`                                                        |
+| `--scene-threshold`       | Ngưỡng phát hiện chuyển cảnh cho từng box                   | `30.0`                                                      |
+| `--min-scene-frames`      | Số frame tối thiểu giữa 2 lần chuyển cảnh để tránh nhiễu    | `10`                                                        |
+| `--cv-prefilter`          | Bật tiền lọc OpenCV để bỏ qua ROI không có dấu hiệu chữ     | (tắt)                                                       |
+| `--cv-min-edge-density`   | Ngưỡng mật độ cạnh tối thiểu cho CV prefilter               | `0.03`                                                      |
+| `--cv-edge-low`           | Ngưỡng thấp Canny edge detector                             | `50`                                                        |
+| `--cv-edge-high`          | Ngưỡng cao Canny edge detector                              | `150`                                                       |
+| `--min-chars`             | Số ký tự tối thiểu để ghi nhận                              | `2`                                                         |
+| `--no-scene-detection`    | Tắt bỏ tính năng Scene detection (tương đương threshold=0)  | (tắt)                                                       |
+| `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung                          | (tắt)                                                       |
+| `--no-punctuation`        | Không giữ dấu câu tiếng Trung (khi bật filter)              | (tắt)                                                       |
+| `--ocr-model`             | Tên model Hugging Face (DeepSeek-OCR-2 hoặc Qwen3-VL)       | `deepseek-ai/DeepSeek-OCR-2`                                |
+| `--qwen-max-new-tokens`   | [Chỉ Qwen3-VL] Số token tối đa sinh ra                      | `256`                                                       |
+| `--qwen-min-pixels`       | [Chỉ Qwen3-VL] Pixel blocks tối thiểu (ảnh hưởng VRAM)      | `256`                                                       |
+| `--qwen-max-pixels`       | [Chỉ Qwen3-VL] Pixel blocks tối đa (ảnh hưởng VRAM)         | `1280`                                                      |
+| `--device`                | Thiết bị xử lý (cuda/cpu)                                   | `cuda`                                                      |
+| `--hf-token`              | Hugging Face Token                                          | (không dùng)                                                |
+| `--batch-size`            | Batch size cho OCR batching                                 | `8`                                                         |
+| `--format`                | Định dạng output theo box (srt/txt)                         | `srt`                                                       |
+| `--default-duration`      | Thời lượng mặc định mỗi subtitle                            | `3.0s`                                                      |
+| `--min-duration`          | Thời lượng tối thiểu sau deduplicate                        | `1.0s`                                                      |
+| `--max-duration`          | Thời lượng tối đa sau deduplicate                           | `7.0s`                                                      |
+| `--no-deduplicate`        | Tắt gộp subtitle trùng lặp                                  | (tắt)                                                       |
+| `--warn-english`          | Tạo file cảnh báo riêng nếu subtitle chứa tiếng Anh/số      | (tắt)                                                       |
+| `--save-minify-txt`       | Lưu file `<video>_script.txt` thuần văn bản, mỗi câu 1 dòng | (tắt)                                                       |
+| `--no-timestamp`          | Tắt timestamp (chỉ với format=txt)                          | (tắt)                                                       |
+| `--config`                | Đường dẫn file cấu hình `.yaml`                             | (không dùng)                                                |
 
 > **Mức ưu tiên Cấu hình**: CLI parameters có mức ưu tiên cao nhất, sau đó là tham số khai báo trong `--config`, và cuối cùng là Default values.
 
@@ -728,27 +730,27 @@ hf_token = userdata.get('hf_token')
 
 #### Tham số chính
 
-| Tham số             | Mô tả                                       | Mặc định                              |
-| ------------------- | ------------------------------------------- | ------------------------------------- |
-| `video`             | Đường dẫn video input                       | (bắt buộc)                            |
-| `--config`          | YAML config cho native pipeline             | `config/native_video_ocr_config.yaml` |
-| `--boxes-file`      | File ROI dạng `name x y w h`                | theo config (`assets/boxesOCR.txt`)   |
-| `--output-dir`      | Thư mục output                              | cùng thư mục video                    |
-| `--prompt-file`     | Prompt template cho native extraction       | `prompts/native_video_ocr_prompt.txt` |
-| `--model`           | Model Qwen3-VL                              | `Qwen/Qwen3-VL-8B-Instruct`           |
-| `--device`          | Thiết bị chạy model                         | `cuda`                                |
-| `--hf-token`        | Hugging Face token                          | (không dùng)                          |
-| `--frame-interval`  | Lấy mẫu 1 frame mỗi N frame                 | `6`                                   |
-| `--batch-duration`  | Số giây mỗi batch video                     | `60.0`                                |
-| `--sample-fps`      | FPS khai báo cho frame-list native video    | `5.0`                                 |
-| `--max-new-tokens`  | Số token output tối đa mỗi batch            | `2048`                                |
-| `--total-pixels`    | Giới hạn tổng pixel video input             | `20971520`                            |
-| `--min-pixels`      | Giới hạn pixel tối thiểu                    | `65536`                               |
-| `--max-frames`      | Giới hạn số frame mỗi batch                 | `2048`                                |
-| `--warn-english`    | Lưu file cảnh báo English/number            | (tắt)                                 |
-| `--save-minify-txt` | Lưu file script text-only (không timestamp) | (tắt)                                 |
-| `-v`, `--verbose`   | Tăng chi tiết log                           | (tắt)                                 |
-| `--quiet`           | Chỉ in lỗi                                  | (tắt)                                 |
+| Tham số             | Mô tả                                                           | Mặc định                              |
+| ------------------- | --------------------------------------------------------------- | ------------------------------------- |
+| `video`             | Đường dẫn video input                                           | (bắt buộc)                            |
+| `--config`          | YAML config cho native pipeline                                 | `config/native_video_ocr_config.yaml` |
+| `--boxes-file`      | File ROI dạng `name x y w h`                                    | theo config (`assets/boxesOCR.txt`)   |
+| `--output-dir`      | Thư mục output                                                  | cùng thư mục video                    |
+| `--prompt-file`     | Prompt template cho native extraction                           | `prompts/native_video_ocr_prompt.txt` |
+| `--model`           | Model Qwen3-VL                                                  | `Qwen/Qwen3-VL-8B-Instruct`           |
+| `--device`          | Thiết bị chạy model                                             | `cuda`                                |
+| `--hf-token`        | Hugging Face token                                              | (không dùng)                          |
+| `--frame-interval`  | Lấy mẫu 1 frame mỗi N frame                                     | `6`                                   |
+| `--batch-duration`  | Số giây mỗi batch video                                         | `60.0`                                |
+| `--sample-fps`      | FPS khai báo cho frame-list native video                        | `5.0`                                 |
+| `--max-new-tokens`  | Số token output tối đa mỗi batch                                | `2048`                                |
+| `--total-pixels`    | Giới hạn tổng pixel video input                                 | `20971520`                            |
+| `--min-pixels`      | Giới hạn pixel tối thiểu                                        | `65536`                               |
+| `--max-frames`      | Giới hạn số frame mỗi batch                                     | `2048`                                |
+| `--warn-english`    | Lưu file cảnh báo English/number                                | (tắt)                                 |
+| `--save-minify-txt` | Lưu file script thuần văn bản (mỗi câu 1 dòng, không timestamp) | (tắt)                                 |
+| `-v`, `--verbose`   | Tăng chi tiết log                                               | (tắt)                                 |
+| `--quiet`           | Chỉ in lỗi                                                      | (tắt)                                 |
 
 #### Output files
 

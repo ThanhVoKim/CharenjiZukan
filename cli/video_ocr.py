@@ -242,6 +242,12 @@ Examples:
         default=argparse.SUPPRESS,
         help="Xuất cảnh báo ra file txt nếu subtitle chứa ký tự tiếng Anh/số [a-zA-Z0-9]"
     )
+    parser.add_argument(
+        "--save-minify-txt",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Lưu file [video]_script.txt thuần văn bản (minify), mỗi câu 1 dòng"
+    )
     
     # Config file
     parser.add_argument(
@@ -381,6 +387,7 @@ def main():
         output_format=get_param("format", ("output", "format"), "srt"),
         default_subtitle_duration=get_param("default_duration", ("output", "default_duration"), 3.0),
         warn_english=get_param("warn_english", ("output", "warn_english"), False),
+        save_minify_txt=get_param("save_minify_txt", ("output", "save_minify_txt"), False),
     )
     
     # Thiết lập Writer parameters (những tham số này được sử dụng khi gọi write_srt/write_txt)

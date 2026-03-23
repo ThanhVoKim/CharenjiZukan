@@ -643,3 +643,29 @@ uv run cli/demucs_audio.py --input audio_muted.wav --stems 4
 - ✅ Cập nhật documentation
 
 ---
+
+## 2026-03-23: Lập kế hoạch và tích hợp tham số --save-minify-txt
+
+### Yêu cầu
+
+- Tích hợp tham số `--save-minify-txt` vào CLI `video-ocr` và đồng bộ với `Native Video Subtitle Extractor`.
+- Xây dựng logic minify dùng chung theo chuẩn DRY.
+- Xuất ra file script thuần văn bản, không timestamp, mỗi câu 1 dòng.
+
+### Trạng thái hiện tại
+
+- ✅ Đã khảo sát mã nguồn và chốt phương án với người dùng.
+- ✅ Đã tạo bản kế hoạch kỹ thuật chi tiết tại `plans/minify-txt-plan.md`.
+- ✅ Đã lập trình xong hàm `write_minify_txt` tái sử dụng trong `SubtitleWriter`.
+- ✅ Tích hợp cờ `--save-minify-txt` vào cả hai CLI `video-ocr` và `video-ocr-native` theo chuẩn DRY.
+- ✅ Đã cập nhật xong `config/extractor_config.yaml` và `docs/colab-guide.md`.
+
+### Outstanding / Pending
+
+- Chạy test trên môi trường Google Colab để kiểm chứng chức năng thực tế.
+
+### Đề xuất tiếp theo
+
+- Xem xét cập nhật tự động trigger test pipeline mỗi khi có thay đổi liên quan đến IO của `SubtitleWriter`.
+
+---

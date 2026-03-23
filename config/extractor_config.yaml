@@ -93,6 +93,9 @@ output:
   # Xuất file cảnh báo nếu subtitle chứa ký tự tiếng Anh/số
   warn_english: false
 
+  # Lưu file [video]_script.txt thuần văn bản (không timestamp, mỗi câu 1 dòng)
+  save_minify_txt: false
+
   # Thời lượng mặc định cho mỗi subtitle khi không có text mới (seconds)
   default_duration: 3.0
 

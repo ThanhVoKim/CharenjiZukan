@@ -97,6 +97,7 @@ class VideoSubtitleExtractor:
         output_format: str = "srt",
         default_subtitle_duration: float = 3.0,
         warn_english: bool = False,
+        save_minify_txt: bool = False,
     ):
         """Khởi tạo VideoSubtitleExtractor với danh sách các box"""
         
@@ -142,6 +143,7 @@ class VideoSubtitleExtractor:
         self.default_subtitle_duration = default_subtitle_duration
         self.frame_interval = frame_interval
         self.warn_english = warn_english
+        self.save_minify_txt = save_minify_txt
         
         # OCR model (lazy load)
         self._ocr_model = None
@@ -372,6 +374,12 @@ class VideoSubtitleExtractor:
             else:
                 writer.write_txt(state.entries, str(out_path), include_timestamp=include_timestamp, deduplicate=deduplicate_output)
                 
+            # Lưu file minify text
+            if self.save_minify_txt:
+                minify_path = out_dir / f"{video_stem}_{box_name}_script.txt"
+                writer.write_minify_txt(state.entries, str(minify_path), deduplicate=deduplicate_output)
+                output_paths[f"{box_name}_minify"] = str(minify_path)
+
             # Tạo cảnh báo nếu cần
             if self.warn_english:
                 warn_path = out_dir / f"{video_stem}_{box_name}_english_warnings.txt"
@@ -422,6 +430,7 @@ class VideoSubtitleExtractor:
                 "cv_min_edge_density": self.cv_min_edge_density,
                 "cv_edge_low": self.cv_edge_low,
                 "cv_edge_high": self.cv_edge_high,
+                "save_minify_txt": self.save_minify_txt,
             },
             processing_time=processing_time
         )

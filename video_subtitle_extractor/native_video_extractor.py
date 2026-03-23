@@ -484,7 +484,7 @@ class NativeVideoSubtitleExtractor:
 
         if self.save_minify_txt:
             txt_path = out_dir / f"{video_stem}_native_script.txt"
-            writer.write_txt(all_entries, str(txt_path), include_timestamp=False, deduplicate=True)
+            writer.write_minify_txt(all_entries, str(txt_path), deduplicate=True)
             output_paths["txt"] = str(txt_path)
 
         if self.warn_english:
