@@ -79,6 +79,8 @@ def run_tts(
     cache_folder:  str  = None,
     max_concurrent:int  = 10,
     max_speed_rate:float= 100.0,
+    strip_silence: bool = True,
+    silence_thresh:int  = -50,
 ) -> dict:
     """
     Pipeline hoàn chỉnh: SRT → queue_tts → EdgeTTS → SpeedRate → audio.
@@ -138,8 +140,8 @@ def run_tts(
         pitch         = pitch,
         proxy         = proxy,
         max_concurrent= max_concurrent,
-        strip_silence       = not args.no_strip_silence,
-        silence_thresh_dbfs = args.silence_thresh,
+        strip_silence       = strip_silence,
+        silence_thresh_dbfs = silence_thresh,
     )
     tts_stats = engine.run()
     print(f"   ✅ EdgeTTS: {tts_stats['ok']} OK | {tts_stats['err']} lỗi\n")
@@ -328,6 +330,8 @@ def main():
             cache_folder   = args.cache,
             max_concurrent = args.concurrent,
             max_speed_rate = args.max_speed,
+            strip_silence  = not args.no_strip_silence,
+            silence_thresh = args.silence_thresh,
         )
         sys.exit(0)
     except KeyboardInterrupt:
