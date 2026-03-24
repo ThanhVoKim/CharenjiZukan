@@ -126,7 +126,7 @@ class EdgeTTSEngine:
         strip_silence: bool = True,          # Bật mặc định
         silence_thresh_dbfs: int = -50,      # Ngưỡng silence
         min_silence_len_ms: int = 100,       # Silence tối thiểu để detect
-        keep_padding_ms: int = 30,           # Padding giữ lại ở viền
+        keep_padding_ms: int = 60,           # Padding giữ lại ở viền
     ):
         self.queue_tts      = queue_tts
         self.voice          = voice
