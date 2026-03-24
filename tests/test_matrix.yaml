@@ -112,6 +112,34 @@ tests:
   # ──────────────────────────────────────────────
 
   # ──────────────────────────────────────────────
+  # TTS EDGETTS — cli/tts_srt.py & tts_edgetts.py
+  # ──────────────────────────────────────────────
+
+  - name: "EdgeTTS — Layer 1: Strip Silence Logic"
+    file: "tests/test_tts_edgetts.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "EdgeTTS — Layer 2: Engine Component"
+    file: "tests/test_tts_edgetts.py"
+    keyword: "Layer2"
+    timeout_sec: 60
+    pytest_args: ["-v"]
+    tags: ["integration", "ffmpeg"]
+    enabled: true
+
+  - name: "EdgeTTS — Layer 3: CLI Pipeline"
+    file: "tests/test_tts_edgetts.py"
+    keyword: "Layer3"
+    timeout_sec: 120
+    pytest_args: ["-v", "-s"]
+    tags: ["integration", "ffmpeg"]
+    enabled: true
+
+  # ──────────────────────────────────────────────
   # SUITES — Shortcut chạy nhóm
   # Không phải test thật, chỉ là comment gợi nhớ
   # Dùng: python run_colab_tests.py --tags unit

@@ -285,6 +285,12 @@ def _build_pytest_cmd(test_config: Dict) -> List[str]:
     # Thêm các pytest args tùy chỉnh
     cmd += test_config.get("pytest_args", [])
 
+    # Luôn thiết lập pytest basetemp để lưu test data vào thư mục project thay vì system tmp
+    # Chọn một thư mục con pytest_tmp bên trong tests/test_data để tránh bị pytest clear mất các file khác
+    basetemp_dir = PROJECT_ROOT / "tests" / "test_data" / "pytest_tmp"
+    if not any(arg.startswith("--basetemp") for arg in cmd):
+        cmd += [f"--basetemp={basetemp_dir}"]
+
     # Luôn thêm --tb=short nếu chưa có --tb flag
     if not any(arg.startswith("--tb") for arg in cmd):
         cmd += ["--tb=short"]
