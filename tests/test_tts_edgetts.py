@@ -168,7 +168,7 @@ class TestLayer2_EdgeTTSEngine:
         # Chuẩn bị queue test
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
-        filename = str(cache_dir / "test01")
+        filename = str(cache_dir / "test01.wav")
         
         queue_tts = [{
             "text": "Hello world",
@@ -195,13 +195,12 @@ class TestLayer2_EdgeTTSEngine:
         assert stats["ok"] == 1
         assert stats["err"] == 0
         
-        wav_out = filename + ".wav"
-        assert Path(wav_out).exists()
+        assert Path(filename).exists()
         
         # Vì synthetic_wav_with_silence có độ dài 2000ms
         # Với keep_padding_ms=0, start=0, đoạn non-silent kết thúc ở 1500ms
         # Đoạn wav xuất ra cuối cùng sẽ có độ dài 1500ms thay vì 2000ms.
-        final_seg = AudioSegment.from_file(wav_out)
+        final_seg = AudioSegment.from_file(filename)
         assert abs(len(final_seg) - 1500) < 5
 
     @patch("tts_edgetts.convert_to_wav")
@@ -210,7 +209,7 @@ class TestLayer2_EdgeTTSEngine:
         
         cache_dir = tmp_path / "cache2"
         cache_dir.mkdir()
-        filename = str(cache_dir / "test02")
+        filename = str(cache_dir / "test02.wav")
         
         queue_tts = [{
             "text": "Hello world 2",
@@ -232,8 +231,7 @@ class TestLayer2_EdgeTTSEngine:
         
         engine.run()
         
-        wav_out = filename + ".wav"
-        final_seg = AudioSegment.from_file(wav_out)
+        final_seg = AudioSegment.from_file(filename)
         # Giữ nguyên độ dài 2000ms
         assert len(final_seg) == 2000
 
