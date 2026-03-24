@@ -75,20 +75,6 @@ def strip_audio_silence(
     min_silence_len_ms: int = 100,
     keep_padding_ms: int = 30,
 ) -> int:
-    """
-    Xóa silence ở cuối (đuôi) file WAV do EdgeTTS padding. Không cắt phần đầu.
-
-    Args:
-        wav_path            : Đường dẫn file WAV cần xử lý (in-place).
-        silence_thresh_dbfs : Ngưỡng dBFS coi là silence (mặc định -50).
-                              EdgeTTS silence thường ở -60 đến -70 dBFS.
-        min_silence_len_ms  : Độ dài tối thiểu (ms) để coi là silence.
-        keep_padding_ms     : Giữ lại bao nhiêu ms ở viền để âm thanh không
-                              bị cắt cụt ngay sát chữ cuối.
-
-    Returns:
-        Số ms đã cắt bỏ (để logging).
-    """
     try:
         seg = AudioSegment.from_file(wav_path, format="wav")
         original_len = len(seg)
@@ -100,11 +86,10 @@ def strip_audio_silence(
         )
 
         if not non_silent:
-            # Toàn bộ là silence (TTS fail) — giữ nguyên, không xóa
-            return 0
+            return 0  # Toàn silence → giữ nguyên
 
-        # Chỉ cắt phần đuôi, giữ nguyên phần đầu
-        start_ms = 0
+        # ✅ Strip CẢ HAI ĐẦU
+        start_ms = max(0, non_silent[0][0] - keep_padding_ms)
         end_ms   = min(original_len, non_silent[-1][1] + keep_padding_ms)
 
         trimmed = seg[start_ms:end_ms]

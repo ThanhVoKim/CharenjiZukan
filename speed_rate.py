@@ -426,10 +426,15 @@ class SpeedRate:
                 it["filename"]  = sil
                 it["dubb_time"] = it["source_duration"]
 
+            rate_info = " (x1.00)"
+            if it["dubb_time"] > it["source_duration"] and it["source_duration"] > 0:
+                req_rate = it["dubb_time"] / it["source_duration"]
+                rate_info = f" (cần x{req_rate:.2f})"
+
             _safe_log("debug",
                 f"[Prepare] sub {it.get('line', i)}: "
                 f"slot={it['start_time_source']}→{it['end_time_source']} "
-                f"({it['source_duration']}ms)  dubb={it['dubb_time']}ms"
+                f"({it['source_duration']}ms)  dubb={it['dubb_time']}ms{rate_info}"
             )
 
     def _calculate(self):
@@ -457,15 +462,16 @@ class SpeedRate:
                     "dubb_time":   dubb_dur,
                     "target_time": audio_target,
                 })
+                actual_rate = dubb_dur / audio_target if audio_target > 0 else 1.0
                 _safe_log("debug",
                     f"[Calc] sub {it.get('line','?')}: "
                     f"dubb={dubb_dur}ms > slot={source_dur}ms "
-                    f"→ nén về {audio_target}ms"
+                    f"→ nén về {audio_target}ms (x{actual_rate:.2f})"
                 )
             else:
                 _safe_log("debug",
                     f"[Calc] sub {it.get('line','?')}: "
-                    f"dubb={dubb_dur}ms ≤ slot={source_dur}ms → không cần nén"
+                    f"dubb={dubb_dur}ms ≤ slot={source_dur}ms → không cần nén (x1.00)"
                 )
 
     def _speedup_all(self):

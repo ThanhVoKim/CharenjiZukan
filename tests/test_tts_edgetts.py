@@ -88,7 +88,8 @@ def mock_edgetts_communicate():
         # Mock hàm save trả về future hoàn thành ngay lập tức
         # Nó sẽ tạo ra 1 file rỗng tại path truyền vào để mô phỏng tải xong
         async def fake_save(path):
-            Path(path).touch()
+            with open(path, "wb") as f:
+                f.write(b"dummy mp3 data")
         
         instance.save.side_effect = fake_save
         mock_comm.return_value = instance
