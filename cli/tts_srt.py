@@ -138,6 +138,8 @@ def run_tts(
         pitch         = pitch,
         proxy         = proxy,
         max_concurrent= max_concurrent,
+        strip_silence       = not args.no_strip_silence,
+        silence_thresh_dbfs = args.silence_thresh,
     )
     tts_stats = engine.run()
     print(f"   ✅ EdgeTTS: {tts_stats['ok']} OK | {tts_stats['err']} lỗi\n")
@@ -252,6 +254,20 @@ Xem danh sách giọng tiếng Việt:
                         help="Proxy URL, vd: http://127.0.0.1:7890")
     parser.add_argument("--cache", default=None, metavar="DIR",
                         help="Thư mục cache audio tạm (mặc định: PROJ/tmp/<stem>_<ts>/, tự xoá khi xong)")
+
+    parser.add_argument(
+        "--no-strip-silence",
+        action="store_true",
+        help="Tắt tính năng tự động cắt silence ở đuôi mỗi clip TTS (mặc định: bật)",
+    )
+    parser.add_argument(
+        "--silence-thresh",
+        type=int,
+        default=-50,
+        metavar="DBFS",
+        help="Ngưỡng dBFS coi là silence (mặc định: -50). "
+             "Giảm xuống -60 nếu bị cắt quá nhiều.",
+    )
 
     # Tiện ích
     parser.add_argument("--list-voices", metavar="LOCALE",

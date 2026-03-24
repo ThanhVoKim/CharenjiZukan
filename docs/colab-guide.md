@@ -410,21 +410,23 @@ Chuyển file SRT thành file ASS để overlay lên video.
 
 #### Tham số
 
-| Tham số          | Mô tả                           | Mặc định                  |
-| ---------------- | ------------------------------- | ------------------------- |
-| `--input`, `-i`  | File .srt đầu vào               | (bắt buộc)                |
-| `--voice`, `-v`  | Tên giọng EdgeTTS               | (bắt buộc)                |
-| `--output`, `-o` | File audio đầu ra (.wav/.mp3)   | `output/<input_stem>.wav` |
-| `--rate`         | Tốc độ giọng (vd: +10%, -5%)    | `+0%`                     |
-| `--volume`       | Âm lượng (vd: +20%)             | `+0%`                     |
-| `--pitch`        | Cao độ (vd: +50Hz)              | `+0Hz`                    |
-| `--autorate`     | Tự động nén audio khớp slot SRT | (tắt)                     |
-| `--max-speed`    | Giới hạn tốc độ nén tối đa      | `100.0`                   |
-| `--concurrent`   | Số request EdgeTTS song song    | `10`                      |
-| `--cache`        | Thư mục cache audio tạm         | `tmp/<stem>_<ts>/`        |
-| `--proxy`        | Proxy URL                       | (không dùng)              |
-| `--list-voices`  | Liệt kê giọng EdgeTTS           | (không dùng)              |
-| `--verbose`      | Bật logging debug               | (tắt)                     |
+| Tham số              | Mô tả                           | Mặc định                  |
+| -------------------- | ------------------------------- | ------------------------- |
+| `--input`, `-i`      | File .srt đầu vào               | (bắt buộc)                |
+| `--voice`, `-v`      | Tên giọng EdgeTTS               | (bắt buộc)                |
+| `--output`, `-o`     | File audio đầu ra (.wav/.mp3)   | `output/<input_stem>.wav` |
+| `--rate`             | Tốc độ giọng (vd: +10%, -5%)    | `+0%`                     |
+| `--volume`           | Âm lượng (vd: +20%)             | `+0%`                     |
+| `--pitch`            | Cao độ (vd: +50Hz)              | `+0Hz`                    |
+| `--autorate`         | Tự động nén audio khớp slot SRT | (tắt)                     |
+| `--max-speed`        | Giới hạn tốc độ nén tối đa      | `100.0`                   |
+| `--concurrent`       | Số request EdgeTTS song song    | `10`                      |
+| `--cache`            | Thư mục cache audio tạm         | `tmp/<stem>_<ts>/`        |
+| `--no-strip-silence` | Tắt cắt silence ở đuôi mỗi clip | (tắt)                     |
+| `--silence-thresh`   | Ngưỡng dBFS coi là silence      | `-50`                     |
+| `--proxy`            | Proxy URL                       | (không dùng)              |
+| `--list-voices`      | Liệt kê giọng EdgeTTS           | (không dùng)              |
+| `--verbose`          | Bật logging debug               | (tắt)                     |
 
 ---
 

@@ -22,6 +22,7 @@ import aiohttp
 from edge_tts import Communicate
 from edge_tts.exceptions import NoAudioReceived
 from pydub import AudioSegment
+from pydub.silence import detect_nonsilent
 
 logger = logging.getLogger("srt_translator")
 
@@ -68,6 +69,55 @@ def convert_to_wav(mp3_path: str, wav_path: str) -> bool:
         return False
 
 
+def strip_audio_silence(
+    wav_path: str,
+    silence_thresh_dbfs: int = -50,
+    min_silence_len_ms: int = 100,
+    keep_padding_ms: int = 30,
+) -> int:
+    """
+    Xóa silence ở cuối (đuôi) file WAV do EdgeTTS padding. Không cắt phần đầu.
+
+    Args:
+        wav_path            : Đường dẫn file WAV cần xử lý (in-place).
+        silence_thresh_dbfs : Ngưỡng dBFS coi là silence (mặc định -50).
+                              EdgeTTS silence thường ở -60 đến -70 dBFS.
+        min_silence_len_ms  : Độ dài tối thiểu (ms) để coi là silence.
+        keep_padding_ms     : Giữ lại bao nhiêu ms ở viền để âm thanh không
+                              bị cắt cụt ngay sát chữ cuối.
+
+    Returns:
+        Số ms đã cắt bỏ (để logging).
+    """
+    try:
+        seg = AudioSegment.from_file(wav_path, format="wav")
+        original_len = len(seg)
+
+        non_silent = detect_nonsilent(
+            seg,
+            min_silence_len=min_silence_len_ms,
+            silence_thresh=silence_thresh_dbfs,
+        )
+
+        if not non_silent:
+            # Toàn bộ là silence (TTS fail) — giữ nguyên, không xóa
+            return 0
+
+        # Chỉ cắt phần đuôi, giữ nguyên phần đầu
+        start_ms = 0
+        end_ms   = min(original_len, non_silent[-1][1] + keep_padding_ms)
+
+        trimmed = seg[start_ms:end_ms]
+        trimmed.export(wav_path, format="wav")
+
+        trimmed_ms = original_len - len(trimmed)
+        return trimmed_ms
+
+    except Exception as e:
+        logger.warning(f"[StripSilence] Bỏ qua {Path(wav_path).name}: {e}")
+        return 0
+
+
 # ─────────────────────────────────────────────────────────────────────
 # ASYNC ENGINE
 # ─────────────────────────────────────────────────────────────────────
@@ -87,6 +137,11 @@ class EdgeTTSEngine:
         pitch: str   = "+0Hz",
         proxy: str   = None,
         max_concurrent: int = MAX_CONCURRENT_TASKS,
+        # ── Tham số strip silence ─────────────────────────────────
+        strip_silence: bool = True,          # Bật mặc định
+        silence_thresh_dbfs: int = -50,      # Ngưỡng silence
+        min_silence_len_ms: int = 100,       # Silence tối thiểu để detect
+        keep_padding_ms: int = 30,           # Padding giữ lại ở viền
     ):
         self.queue_tts      = queue_tts
         self.voice          = voice
@@ -95,6 +150,11 @@ class EdgeTTSEngine:
         self.pitch          = pitch
         self.proxy          = proxy or None
         self.max_concurrent = max_concurrent
+        
+        self.strip_silence       = strip_silence
+        self.silence_thresh_dbfs = silence_thresh_dbfs
+        self.min_silence_len_ms  = min_silence_len_ms
+        self.keep_padding_ms     = keep_padding_ms
 
         self._stop_event  = asyncio.Event()
         self._lock        = asyncio.Lock()
@@ -262,6 +322,25 @@ class EdgeTTSEngine:
                     Path(mp3).unlink(missing_ok=True)
                 except Exception:
                     pass
+
+        # ── Phase 2.5: strip silence từ mỗi wav ─────────────────────
+        if self.strip_silence and ok_count > 0:
+            wav_paths = [wav for _, wav in to_convert if Path(wav).exists()]
+            total_trimmed_ms = 0
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [
+                    pool.submit(strip_audio_silence, wav,
+                                self.silence_thresh_dbfs,
+                                self.min_silence_len_ms,
+                                self.keep_padding_ms)
+                    for wav in wav_paths
+                ]
+                for fut in futures:
+                    total_trimmed_ms += fut.result()
+            logger.info(
+                f"[StripSilence] Đã cắt tổng {total_trimmed_ms}ms "
+                f"({total_trimmed_ms/1000:.1f}s) silence từ {len(wav_paths)} clips"
+            )
 
         logger.info(f"[EdgeTTS] Xong: {ok_count} thành công, {err_count} lỗi")
         return {"ok": ok_count, "err": err_count}
