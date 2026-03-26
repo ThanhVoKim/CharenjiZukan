@@ -81,11 +81,15 @@ def build_ffmpeg_chunk_cmd(
 def _run_chunk(args: tuple) -> Tuple[int, str, str]:
     """Worker: chạy 1 FFmpeg command, trả về (index, output_path, error)."""
     idx, cmd, out_path = args
+    logger.debug(f"Running chunk {idx} with command: {' '.join(cmd)}")
     try:
-        subprocess.run(cmd, check=True, capture_output=True, timeout=600)
+        result = subprocess.run(cmd, check=True, capture_output=True, timeout=600)
+        logger.debug(f"Chunk {idx} output: {result.stdout.decode(errors='ignore')}")
         return idx, out_path, ""
     except subprocess.CalledProcessError as e:
-        return idx, out_path, e.stderr.decode(errors="ignore")[-500:]
+        err_msg = e.stderr.decode(errors="ignore")
+        logger.error(f"Chunk {idx} failed with error: {err_msg}")
+        return idx, out_path, err_msg[-500:]
 
 def process_video_chunks_parallel(
     video_path: str,
