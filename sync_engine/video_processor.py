@@ -132,6 +132,8 @@ def _concat_chunks(chunk_paths: List[str], output_path: str) -> None:
     """
     Concat bằng FFmpeg concat demuxer.
     Sửa lỗi #6: as_posix() tránh backslash trên Windows.
+
+    Khi FFmpeg concat lỗi, log đầy đủ stderr/stdout để debug nhanh.
     """
     list_file = output_path + ".txt"
     with open(list_file, "w", encoding="utf-8") as f:
@@ -139,11 +141,37 @@ def _concat_chunks(chunk_paths: List[str], output_path: str) -> None:
             # BUG FIX #6: forward slashes
             f.write(f"file '{Path(p).resolve().as_posix()}'\n")
 
-    subprocess.run([
+    cmd = [
         "ffmpeg", "-y",
         "-f", "concat", "-safe", "0",
         "-i", list_file,
         "-c:v", "copy", "-an",
         output_path,
-    ], check=True, capture_output=True)
-    Path(list_file).unlink(missing_ok=True)
+    ]
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        logger.error("FFmpeg concat failed (returncode=%s)", e.returncode)
+        logger.error("Concat command: %s", " ".join(cmd))
+        logger.error("Concat list file: %s", list_file)
+
+        if chunk_paths:
+            logger.error("Chunk count: %d", len(chunk_paths))
+        else:
+            logger.error("Chunk list is empty before concat.")
+
+        try:
+            list_content = Path(list_file).read_text(encoding="utf-8", errors="ignore")
+            logger.error("Concat list content:\n%s", list_content)
+        except Exception as read_err:
+            logger.error("Cannot read concat list file %s: %s", list_file, read_err)
+
+        if e.stdout:
+            logger.error("FFmpeg concat stdout:\n%s", e.stdout[-8000:])
+        if e.stderr:
+            logger.error("FFmpeg concat stderr:\n%s", e.stderr[-8000:])
+
+        raise
+    finally:
+        Path(list_file).unlink(missing_ok=True)
