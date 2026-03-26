@@ -14,7 +14,7 @@ import time
 from typing import Optional
 
 from utils.logger import get_logger, setup_logging
-from utils.srt_parser import parse_srt
+from utils.srt_parser import parse_srt_file
 
 from sync_engine.analyzer import classify_and_compute_slots, compute_speeds, build_timeline_map
 from sync_engine.video_processor import query_keyframes, process_video_chunks_parallel
@@ -39,8 +39,11 @@ def run_sync_pipeline(args):
         logger.info(f"TTS Dir: {args.tts_dir}")
         
         # Parse inputs
-        subtitle_segments = parse_srt(args.subtitle)
-        mute_segments = parse_srt(args.mute) if args.mute and Path(args.mute).exists() else []
+        if not Path(args.subtitle).exists():
+            raise FileNotFoundError(f"Không tìm thấy file subtitle: {args.subtitle}")
+
+        subtitle_segments = parse_srt_file(args.subtitle)
+        mute_segments = parse_srt_file(args.mute) if args.mute and Path(args.mute).exists() else []
         
         # Get video duration
         import wave

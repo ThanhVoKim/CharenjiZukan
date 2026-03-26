@@ -86,10 +86,14 @@ def _run_chunk(args: tuple) -> Tuple[int, str, str]:
         result = subprocess.run(cmd, check=True, capture_output=True, timeout=600)
         logger.debug(f"Chunk {idx} output: {result.stdout.decode(errors='ignore')}")
         return idx, out_path, ""
+    except subprocess.TimeoutExpired:
+        err_msg = f"Chunk {idx} timeout sau 600 giây."
+        logger.error(err_msg)
+        return idx, out_path, err_msg
     except subprocess.CalledProcessError as e:
-        err_msg = e.stderr.decode(errors="ignore")
+        err_msg = e.stderr.decode(errors="ignore") if e.stderr else str(e)
         logger.error(f"Chunk {idx} failed with error: {err_msg}")
-        return idx, out_path, err_msg[-500:]
+        return idx, out_path, err_msg[-2000:]
 
 def process_video_chunks_parallel(
     video_path: str,
@@ -113,17 +117,47 @@ def process_video_chunks_parallel(
         )
         chunk_tasks.append((i, cmd, out))
 
+    if not chunk_tasks:
+        raise RuntimeError("Timeline rỗng: không có segment nào để tạo chunk video.")
+
     results: Dict[int, str] = {}
+    failed_chunks: Dict[int, str] = {}
+
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_run_chunk, t): t[0] for t in chunk_tasks}
         for f in as_completed(futures):
             idx, out_path, err = f.result()
             if err:
+                failed_chunks[idx] = err
                 logger.error(f"Chunk {idx} lỗi: {err}")
-            else:
-                results[idx] = out_path
+                continue
 
-    ordered = [results[i] for i in sorted(results)]
+            out_file = Path(out_path)
+            if not out_file.exists() or out_file.stat().st_size <= 0:
+                err_msg = f"Chunk output không hợp lệ: {out_path}"
+                failed_chunks[idx] = err_msg
+                logger.error(f"Chunk {idx} lỗi: {err_msg}")
+                continue
+
+            results[idx] = out_path
+
+    if failed_chunks:
+        failed_summary = "; ".join(
+            f"#{idx}: {msg.replace(chr(10), ' ')[:200]}"
+            for idx, msg in sorted(failed_chunks.items())
+        )
+        raise RuntimeError(
+            f"{len(failed_chunks)}/{len(chunk_tasks)} chunk bị lỗi, hủy concat. Chi tiết: {failed_summary}"
+        )
+
+    if len(results) != len(chunk_tasks):
+        missing = sorted(set(range(len(chunk_tasks))) - set(results.keys()))
+        raise RuntimeError(f"Thiếu chunk output cho các index: {missing}. Hủy concat.")
+
+    ordered = [results[i] for i in range(len(chunk_tasks))]
+    if not ordered:
+        raise RuntimeError("Không có chunk hợp lệ để concat.")
+
     output_video = str(Path(output_dir) / "video_stretched.mp4")
     _concat_chunks(ordered, output_video)
     return output_video
