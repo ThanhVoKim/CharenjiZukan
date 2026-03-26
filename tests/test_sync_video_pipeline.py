@@ -16,6 +16,7 @@ Cách chạy từng layer:
 import sys
 import shutil
 import argparse
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -54,31 +55,39 @@ def synthetic_video(tmp_path_factory) -> Path:
     writer.release()
     return path
 
-@pytest.fixture(scope="module")
-def synthetic_inputs(tmp_path_factory):
-    """Tạo SRT, TTS clips."""
-    tmp_dir = tmp_path_factory.mktemp("inputs")
-    
-    # subtitle.srt (1 đoạn, 1->2s)
+def _make_synthetic_inputs(tmp_dir: Path, tts_duration_ms: int):
+    """Tạo SRT + 1 TTS clip với độ dài tùy chỉnh."""
     srt_path = tmp_dir / "sub.srt"
     srt_path.write_text(
         "1\n00:00:01,000 --> 00:00:02,000\nHello\n",
         encoding="utf-8"
     )
-    
-    # tts_dir
+
     tts_dir = tmp_dir / "tts"
     tts_dir.mkdir()
     tts_path = tts_dir / "dubb-0.wav"
-    
-    # Tạo wav dài 2s (cần slow video)
-    silence = AudioSegment.silent(duration=2000, frame_rate=48000)
+
+    silence = AudioSegment.silent(duration=tts_duration_ms, frame_rate=48000)
     silence.set_channels(2).export(str(tts_path), format="wav")
-    
+
     return {
         "srt": str(srt_path),
         "tts_dir": str(tts_dir)
     }
+
+
+@pytest.fixture(scope="module")
+def synthetic_inputs_borrow_gap(tmp_path_factory):
+    """Case 1: TTS 2s, vừa đúng slot 1->3s nhờ mượn gap (không slow)."""
+    tmp_dir = tmp_path_factory.mktemp("inputs_borrow_gap")
+    return _make_synthetic_inputs(tmp_dir, tts_duration_ms=2000)
+
+
+@pytest.fixture(scope="module")
+def synthetic_inputs_force_slowdown(tmp_path_factory):
+    """Case 2: TTS 4s, vượt slot 1->3s nên bắt buộc slow video."""
+    tmp_dir = tmp_path_factory.mktemp("inputs_force_slowdown")
+    return _make_synthetic_inputs(tmp_dir, tts_duration_ms=4000)
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -87,11 +96,7 @@ def synthetic_inputs(tmp_path_factory):
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="FFmpeg không có trong PATH")
 class TestLayer3_SyncVideoPipeline:
-    def test_run_sync_pipeline(self, synthetic_video, synthetic_inputs, tmp_path):
-        """Test the end-to-end pipeline with synthetic data."""
-        output_dir = tmp_path / "output"
-        output_dir.mkdir()
-
+    def _run_pipeline(self, synthetic_video, synthetic_inputs, output_dir: Path, output_name: str) -> Path:
         args = argparse.Namespace(
             video=str(synthetic_video),
             subtitle=synthetic_inputs["srt"],
@@ -103,7 +108,7 @@ class TestLayer3_SyncVideoPipeline:
             ambient=None,
             slow_cap=0.5,
             output_dir=str(output_dir),
-            output_name="video_synced",
+            output_name=output_name,
             no_hardsub=False,
             workers=2,
             no_gpu=True,  # CPU mode for CI
@@ -111,34 +116,56 @@ class TestLayer3_SyncVideoPipeline:
             subtitle_fontsize=22,
             subtitle_color="&H00FFFFFF",
             subtitle_margin_v=6,
-            note_max_chars=15
+            note_max_chars=15,
         )
-        
-        # Sẽ sinh ra: video_synced.mp4, _tts_synced.srt, _synced.srt
+
         run_sync_pipeline(args)
-        
-        final_video = output_dir / "video_synced.mp4"
-        tts_srt = output_dir / "video_synced_tts_synced.srt"
-        full_srt = output_dir / "video_synced_synced.srt"
-        
+
+        final_video = output_dir / f"{output_name}.mp4"
+        tts_srt = output_dir / f"{output_name}_tts_synced.srt"
+        full_srt = output_dir / f"{output_name}_synced.srt"
+
         assert final_video.exists()
         assert tts_srt.exists()
         assert full_srt.exists()
-        
-        # Video gốc 3s. Sub 1-2s (slot 1s). TTS dài 2s. 
-        # Gap1: 0-1s
-        # Sub1: 1-3s (kéo giãn 0.5x, từ 1s thành 2s)
-        # Tail: 2-3s gốc -> 3-4s
-        # => Tổng 4s
-        
-        # Check output duration
-        import subprocess
+
+        return final_video
+
+    def _probe_duration(self, video_path: Path) -> float:
         cmd = [
             "ffprobe", "-v", "error", "-show_entries",
             "format=duration", "-of",
-            "default=noprint_wrappers=1:nokey=1", str(final_video)
+            "default=noprint_wrappers=1:nokey=1", str(video_path)
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        dur = float(result.stdout.strip())
-        
-        assert 3.5 <= dur <= 4.5
+        return float(result.stdout.strip())
+
+    def test_run_sync_pipeline_case1_borrow_gap(self, synthetic_video, synthetic_inputs_borrow_gap, tmp_path):
+        """Case 1 (plan): TTS vừa trong slot mở rộng 1->3s, không cần slow video."""
+        output_dir = tmp_path / "output_case1"
+        output_dir.mkdir()
+
+        final_video = self._run_pipeline(
+            synthetic_video,
+            synthetic_inputs_borrow_gap,
+            output_dir,
+            output_name="video_synced_case1",
+        )
+
+        dur = self._probe_duration(final_video)
+        assert 2.8 <= dur <= 3.3
+
+    def test_run_sync_pipeline_case2_force_slowdown(self, synthetic_video, synthetic_inputs_force_slowdown, tmp_path):
+        """Case 2 (plan): TTS vượt slot 1->3s, buộc pipeline slow video."""
+        output_dir = tmp_path / "output_case2"
+        output_dir.mkdir()
+
+        final_video = self._run_pipeline(
+            synthetic_video,
+            synthetic_inputs_force_slowdown,
+            output_dir,
+            output_name="video_synced_case2",
+        )
+
+        dur = self._probe_duration(final_video)
+        assert 4.5 <= dur <= 5.5
