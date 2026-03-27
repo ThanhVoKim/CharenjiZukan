@@ -34,11 +34,12 @@ merge-srt = "cli.merge_srt:main"
 srt-to-ass = "cli.srt_to_ass:main"
 demucs-audio = "cli.demucs_audio:main"
 media-speed = "cli.media_speed:main"
+sync-video = "cli.sync_video:main"
 video-ocr = "cli.video_ocr:main"
 video-ocr-native = "cli.video_ocr_native:main"
 
 [tool.setuptools.packages.find]
-include = ["cli*", "utils*", "video_subtitle_extractor*"]
+include = ["cli*", "utils*", "sync_engine*", "video_subtitle_extractor*"]
 
 [dependency-groups]
 dev = [
