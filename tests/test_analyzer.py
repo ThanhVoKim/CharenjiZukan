@@ -121,6 +121,14 @@ class TestLayer1_AnalyzerSpeedsAndTimeline:
         assert nd == 20000  # 10000 / 0.5
         assert as_ == 25000 / 20000  # 1.25
 
+    def test_compute_speeds_with_hard_limit(self):
+        """Hard limit nhỏ hơn slot → effective = hard_limit."""
+        vs, as_, nd = compute_speeds(tts_ms=9000, slot_ms=10000, hard_limit_ms=8000, cap=0.5)
+        # effective=8000, max_str=16000, tts=9000 > 8000 → Case 2
+        assert vs == pytest.approx(8000/9000, rel=1e-3)
+        assert as_ == 1.0
+        assert nd  == 9000
+
     def test_build_timeline_map(self):
         blocks = [
             SubBlock(type="gap", start_time=0, end_time=10000, slot_duration=10000, hard_limit_ms=None, tts_clip_path=None, tts_duration=0),

@@ -37,28 +37,19 @@ def build_ffmpeg_chunk_cmd(
     input_path: str,
     output_path: str,
     start_ms: float,
-    input_duration_ms: float,   # Duration của đoạn INPUT (không phải output)
+    input_duration_ms: float,
     video_speed: float,
     use_gpu: bool = True,
 ) -> List[str]:
     """
-    Sửa lỗi #2: setpts dùng (PTS-STARTPTS) thay vì PTS.
-    Sửa lỗi #3: -ss và -t đặt TRƯỚC -i (giới hạn input, không cắt output).
+    THAY ĐỔI:
+    - LUÔN dùng setpts=(1/speed)*(PTS-STARTPTS) kể cả speed=1.0 để reset PTS.
+    - -ss đặt SAU -i (slow seek) để seek chính xác, tránh frame thừa đầu chunk.
+    - Không dùng -c:v copy vì không thể reset PTS.
     """
-    start_s    = start_ms         / 1000.0
+    start_s    = start_ms          / 1000.0
     duration_s = input_duration_ms / 1000.0
-
-    if video_speed == 1.0:
-        return [
-            "ffmpeg", "-y",
-            "-ss", f"{start_s:.6f}",    # Trước -i → giới hạn input đọc
-            "-t",  f"{duration_s:.6f}",
-            "-i",  input_path,
-            "-c:v", "copy", "-an",
-            output_path,
-        ]
-
-    pts_factor = 1.0 / video_speed   # 0.7x → 1/0.7 = 1.4286
+    pts_factor = 1.0 / video_speed  # speed=1.0 → pts_factor=1.0
 
     encoder = "h264_nvenc" if use_gpu else "libx264"
     preset  = "p4"         if use_gpu else "fast"
@@ -66,10 +57,10 @@ def build_ffmpeg_chunk_cmd(
 
     return [
         "ffmpeg", "-y",
-        "-ss", f"{start_s:.6f}",    # ← BUG FIX #3: trước -i
+        "-i", input_path,
+        # -ss SAU -i: slow seek, decode-from-keyframe nhưng exact timestamp
+        "-ss", f"{start_s:.6f}",
         "-t",  f"{duration_s:.6f}",
-        "-i",  input_path,
-        # BUG FIX #2: (PTS-STARTPTS) reset về zero-based trước khi nhân
         "-filter:v", f"setpts={pts_factor:.6f}*(PTS-STARTPTS)",
         "-an",
         "-c:v", encoder,
@@ -164,48 +155,43 @@ def process_video_chunks_parallel(
 
 def _concat_chunks(chunk_paths: List[str], output_path: str) -> None:
     """
-    Concat bằng FFmpeg concat demuxer.
-    Sửa lỗi #6: as_posix() tránh backslash trên Windows.
-
-    Khi FFmpeg concat lỗi, log đầy đủ stderr/stdout để debug nhanh.
+    THAY ĐỔI: Dùng filter_complex concat thay vì concat demuxer.
+    filter_complex concat tự xử lý PTS discontinuity giữa các chunk.
     """
-    list_file = output_path + ".txt"
-    with open(list_file, "w", encoding="utf-8") as f:
-        for p in chunk_paths:
-            # BUG FIX #6: forward slashes
-            f.write(f"file '{Path(p).resolve().as_posix()}'\n")
+    if not chunk_paths:
+        raise RuntimeError("Không có chunk nào để concat")
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0",
-        "-i", list_file,
-        "-c:v", "copy", "-an",
-        output_path,
-    ]
+    # Validate tất cả chunks tồn tại
+    for p in chunk_paths:
+        if not Path(p).exists() or Path(p).stat().st_size == 0:
+            raise RuntimeError(f"Chunk không hợp lệ hoặc rỗng: {p}")
+
+    n = len(chunk_paths)
+    input_args = []
+    for p in chunk_paths:
+        input_args += ["-i", str(Path(p).resolve())]
+
+    # Build filter: [0:v][1:v][2:v]...concat=n=N:v=1[outv]
+    stream_labels = "".join(f"[{i}:v]" for i in range(n))
+    filter_str    = f"{stream_labels}concat=n={n}:v=1:a=0[outv]"
 
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        subprocess.run([
+            "ffmpeg", "-y",
+            *input_args,
+            "-filter_complex", filter_str,
+            "-map", "[outv]",
+            "-an",
+            "-c:v", "libx264",  # Re-encode để đảm bảo stream clean cho render phase 5
+            "-preset", "fast",
+            "-crf", "23",
+            output_path,
+        ], check=True, capture_output=True, text=True)
+        logger.info(f"Concat {n} chunks → {output_path}")
     except subprocess.CalledProcessError as e:
         logger.error("FFmpeg concat failed (returncode=%s)", e.returncode)
-        logger.error("Concat command: %s", " ".join(cmd))
-        logger.error("Concat list file: %s", list_file)
-
-        if chunk_paths:
-            logger.error("Chunk count: %d", len(chunk_paths))
-        else:
-            logger.error("Chunk list is empty before concat.")
-
-        try:
-            list_content = Path(list_file).read_text(encoding="utf-8", errors="ignore")
-            logger.error("Concat list content:\n%s", list_content)
-        except Exception as read_err:
-            logger.error("Cannot read concat list file %s: %s", list_file, read_err)
-
         if e.stdout:
             logger.error("FFmpeg concat stdout:\n%s", e.stdout[-8000:])
         if e.stderr:
             logger.error("FFmpeg concat stderr:\n%s", e.stderr[-8000:])
-
         raise
-    finally:
-        Path(list_file).unlink(missing_ok=True)

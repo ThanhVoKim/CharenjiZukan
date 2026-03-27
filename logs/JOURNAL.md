@@ -1,5 +1,52 @@
 # Project Journal
 
+## 2026-03-27: Sửa 5 lỗi cốt lõi trong `sync_engine` sau lần chạy đầu tiên
+
+### Yêu cầu
+
+- Giải quyết các lỗi nghiêm trọng được phát hiện sau lần chạy đầu tiên của `sync_engine`.
+- Lỗi 1: Duplicate frame ở điểm cắt chunk do `-ss` trước `-i` và concat demuxer không reset PTS.
+- Lỗi 2: `--tts-dir` bị bỏ qua do truyền tham số bị sai vị trí trong `classify_and_compute_slots`.
+- Lỗi 3: Thuật toán speed tính sai vì `hard_limit_ms` bị nhầm vào tham số `cap`.
+- Lỗi 4: Render black-bg và subtitle strip gặp lỗi khi không có `note_overlay_ass`.
+- Lỗi 5: Quoted audio bị lệch timecode do `-ss` trước `-i` khi extract.
+
+### Thay đổi đã thực hiện
+
+1. **`sync_engine/analyzer.py`**:
+   - Thay đổi signature của `classify_and_compute_slots` để hỗ trợ keyword argument `tts_dir`.
+   - Thêm helper `_get_wav_duration_ms` (ưu tiên `pydub`, fallback về `wave`) để đọc đúng duration.
+   - Thêm `hard_limit_ms` vào signature `compute_speeds` và update logic tính slot effective limit.
+2. **`cli/sync_video.py`**:
+   - Sửa các lời gọi hàm `classify_and_compute_slots` và `compute_speeds` truyền đúng keyword arguments.
+3. **`sync_engine/video_processor.py`**:
+   - Sửa `build_ffmpeg_chunk_cmd`: Bỏ hoàn toàn `-c:v copy`, LUÔN dùng `setpts=(1/speed)*(PTS-STARTPTS)` để reset PTS.
+   - Di chuyển `-ss` SAU `-i` để FFmpeg seek chính xác.
+   - Sửa `_concat_chunks`: Dùng filter_complex concat thay vì concat demuxer nhằm xử lý triệt để PTS discontinuity.
+4. **`sync_engine/audio_assembler.py`**:
+   - Tối ưu `extract_quoted_audio`: Sử dụng 2-pass `-ss` (rough seek trước `-i`, fine seek sau `-i`) để extract timecode chính xác mà không tốn nhiều CPU.
+5. **`sync_engine/renderer.py`**:
+   - Tách làm 3 trường hợp render rõ ràng: có note (PNG + ASS), chỉ black-bg strip, và chỉ subtitle (như cấu hình gốc).
+   - Sửa `ensure_black_bg`: Hỗ trợ cả `.jpg` user cung cấp hoặc tạo `PNG` mới.
+6. **`tests/test_analyzer.py`**:
+   - Thêm `test_compute_speeds_with_hard_limit` để cover tính năng vừa fix.
+
+### Trạng thái hiện tại
+
+- ✅ Tất cả unit tests (Layer 1) liên quan đến Analyzer đều đã pass.
+- ✅ Kiến trúc `sync_engine` đã ổn định hơn về mặt FFmpeg command generation, tránh các lỗi phổ biến về timecode và PTS.
+- ✅ Timeline map đã được ánh xạ chính xác.
+
+### Outstanding / Pending
+
+- Cần chạy lại end-to-end test (Layer 3/4) với file thực tế độ dài 30s trở lên trên phần cứng có GPU để xác nhận quá trình ghép nối filter_complex không bị tràn bộ nhớ hay lỗi timing.
+
+### Đối chiếu Data Flow
+
+- Việc thay đổi FFmpeg commands (chuyển sang filter_complex, dùng setpts) không làm thay đổi luồng Data Flow tổng quan của hệ thống, nhưng thay đổi phương pháp giao tiếp với FFmpeg để đảm bảo metadata và timestamp liền mạch.
+
+---
+
 ## 2026-03-22: Ổn định đường dẫn report của run_colab_tests.py trên Colab
 
 ### Yêu cầu

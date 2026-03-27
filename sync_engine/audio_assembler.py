@@ -25,14 +25,17 @@ def extract_quoted_audio(
     output_path: str,
 ) -> None:
     """
-    Sửa lỗi #8: Đọc thẳng từ video.mp4 theo timecode gốc.
-    Không dùng pre-extracted file để tránh lệch timecode.
+    THAY ĐỔI: Dùng 2 pass -ss (rough seek trước -i, fine seek sau -i) để extract chính xác.
     """
+    rough_start_s = max(0.0, orig_start_ms / 1000.0 - 5.0)
+    exact_offset_s = orig_start_ms / 1000.0 - rough_start_s
+    
     subprocess.run([
         "ffmpeg", "-y",
-        "-ss", f"{orig_start_ms/1000:.6f}",
-        "-t",  f"{(orig_end_ms - orig_start_ms)/1000:.6f}",
-        "-i",  video_path,
+        "-ss", f"{rough_start_s:.6f}",
+        "-i", video_path,
+        "-ss", f"{exact_offset_s:.6f}",
+        "-t",  f"{(orig_end_ms - orig_start_ms) / 1000:.6f}",
         "-vn", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
         output_path,
     ], check=True, capture_output=True)

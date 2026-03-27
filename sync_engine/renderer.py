@@ -29,11 +29,14 @@ def ensure_black_bg(path: str, w: int = 1920, h: int = 80, alpha: int = 255) -> 
     Tạo ảnh nền đen có độ trong suốt (Alpha).
     alpha: 0 (trong suốt hoàn toàn) đến 255 (đen đặc).
     """
-    if not Path(path).exists():
-        from PIL import Image
-        # Đổi "RGB" thành "RGBA" và truyền tuple 4 giá trị (R, G, B, A)
-        Image.new("RGBA", (w, h), (0, 0, 0, alpha)).save(path, format="PNG")
-    return path
+    if Path(path).exists():
+        return path
+        
+    out_path = path if path.endswith(".png") else str(Path(path).with_suffix(".png"))
+    from PIL import Image
+    # Đổi "RGB" thành "RGBA" và truyền tuple 4 giá trị (R, G, B, A)
+    Image.new("RGBA", (w, h), (0, 0, 0, alpha)).save(out_path, format="PNG")
+    return out_path
 
 def render_final_video(
     stretched_video: str,
@@ -70,13 +73,13 @@ def render_final_video(
                note_overlay_synced_ass and Path(note_overlay_synced_ass).exists()
 
     if has_note:
-        if not black_bg_path:
-            black_bg_path = ensure_black_bg("black_bg.png")
-            
+        bg = ensure_black_bg(black_bg_path or "tmp_black_bg.png")
         note_overlay_synced_ass_esc = note_overlay_synced_ass.replace('\\', '/')
+        bg_esc = bg.replace('\\', '/')
+        png_esc = note_overlay_png.replace('\\', '/')
             
         cmd.extend([
-            "-loop", "1", "-i", black_bg_path,      # 2: dải đen 1920×80
+            "-loop", "1", "-i", bg,      # 2: dải đen 1920×80
             "-loop", "1", "-i", note_overlay_png,   # 3: PNG note tĩnh
         ])
         
@@ -92,6 +95,22 @@ def render_final_video(
             # Subtitle SRT (burn hardsub)
             f"[v_ass]subtitles='{subtitle_synced_srt_esc}':force_style='{subtitle_style}'[v_out]"
         ])
+    elif black_bg_path and Path(black_bg_path).exists():
+        bg = ensure_black_bg(black_bg_path)
+        bg_esc = bg.replace('\\', '/')
+            
+        cmd.extend([
+            "-loop", "1", "-i", bg,      # 2: dải đen 1920×80
+        ])
+        
+        filter_cx = "".join([
+            # Scale dải đen 1920×80
+            "[2:v]scale=1920:80[bg_scaled];",
+            # Overlay dải đen
+            "[0:v][bg_scaled]overlay=x=0:y=980:shortest=1[v_strip];",
+            # Subtitle SRT (burn hardsub)
+            f"[v_strip]subtitles='{subtitle_synced_srt_esc}':force_style='{subtitle_style}'[v_out]"
+        ])
     else:
         filter_cx = (
             f"[0:v]subtitles='{subtitle_synced_srt_esc}'"
@@ -105,7 +124,7 @@ def render_final_video(
         "-c:a", "aac", "-b:a", "192k",
     ])
     
-    if has_note:
+    if has_note or (black_bg_path and Path(black_bg_path).exists()):
         cmd.append("-shortest")
         
     cmd.append(output_path)

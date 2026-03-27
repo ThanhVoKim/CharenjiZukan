@@ -61,13 +61,18 @@ def run_sync_pipeline(args):
         # PHASE 1: ANALYSIS
         logger.info("\n--- PHASE 1: ANALYSIS ---")
         blocks = classify_and_compute_slots(
-            subtitle_segments, mute_segments, video_duration_ms, args.tts_dir
+            subtitle_segments, mute_segments, video_duration_ms, tts_dir=args.tts_dir
         )
         logger.info(f"Tìm thấy {len(blocks)} blocks (bao gồm tts, mute, gap).")
         
         speeds = []
         for b in blocks:
-            vs, as_, new_dur = compute_speeds(b.tts_duration, b.slot_duration, b.hard_limit_ms, cap=args.slow_cap)
+            vs, as_, new_dur = compute_speeds(
+                tts_ms=b.tts_duration,
+                slot_ms=b.slot_duration,
+                hard_limit_ms=b.hard_limit_ms,
+                cap=args.slow_cap
+            )
             speeds.append((vs, as_, new_dur))
             
         timeline = build_timeline_map(blocks, speeds, video_duration_ms)

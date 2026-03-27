@@ -1,8 +1,11 @@
 import wave
+import logging
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 
 from sync_engine.models import SubBlock, TimelineSegment
+
+logger = logging.getLogger(__name__)
 
 def filter_tts_subtitles(
     subtitle_segments: List[dict],
@@ -27,13 +30,22 @@ def filter_tts_subtitles(
         seg["line"] = i
     return tts_blocks
 
-def get_wav_duration_ms(wav_path: str) -> float:
-    if not Path(wav_path).exists():
+def _get_wav_duration_ms(wav_path: str) -> float:
+    """Đọc duration của WAV file (ms), không cần ffprobe."""
+    try:
+        from pydub import AudioSegment
+        return float(len(AudioSegment.from_file(wav_path)))
+    except ImportError:
+        # Fallback to wave if pydub is not available
+        if not Path(wav_path).exists():
+            return 0.0
+        with wave.open(wav_path, "rb") as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate()
+            return (frames / float(rate)) * 1000.0
+    except Exception as e:
+        logger.warning(f"Không đọc được duration {wav_path}: {e}")
         return 0.0
-    with wave.open(wav_path, "rb") as wf:
-        frames = wf.getnframes()
-        rate = wf.getframerate()
-        return (frames / float(rate)) * 1000.0
 
 def classify_and_compute_slots(
     subtitle_segments: List[dict],
@@ -56,7 +68,9 @@ def classify_and_compute_slots(
             clip_path = Path(tts_dir) / f"dubb-{i}.wav"
             if clip_path.exists():
                 tts_clip = str(clip_path)
-                tts_dur = get_wav_duration_ms(tts_clip)
+                tts_dur = _get_wav_duration_ms(tts_clip)
+            else:
+                logger.warning(f"Không tìm thấy TTS clip: {clip_path}")
         
         events.append({
             "type": "tts",
