@@ -114,9 +114,20 @@ def process_video_chunks_parallel(
     results: Dict[int, str] = {}
     failed_chunks: Dict[int, str] = {}
 
+    try:
+        from tqdm import tqdm
+        has_tqdm = True
+    except ImportError:
+        has_tqdm = False
+
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_run_chunk, t): t[0] for t in chunk_tasks}
-        for f in as_completed(futures):
+        
+        future_iter = as_completed(futures)
+        if has_tqdm:
+            future_iter = tqdm(future_iter, total=len(chunk_tasks), desc="Processing chunks", unit="chunk")
+            
+        for f in future_iter:
             idx, out_path, err = f.result()
             if err:
                 failed_chunks[idx] = err
