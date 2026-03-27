@@ -774,7 +774,7 @@ CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS the
 !uv run sync-video \
     --video /content/video.mp4 \
     --subtitle /content/subtitle_translated.srt \
-    --tts-dir /content/tts_clips \
+    --tts-voice ja-JP-KeitaNeural \
     --output-dir /content/output_sync
 ```
 
@@ -784,7 +784,7 @@ CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS the
 !uv run sync-video \
     --video /content/video.mp4 \
     --subtitle /content/subtitle_translated.srt \
-    --tts-dir /content/tts_clips \
+    --tts-voice ja-JP-KeitaNeural \
     --mute /content/mute.srt \
     --note-overlay-png /content/note-overlay.png \
     --note-overlay-ass /content/note_overlay.ass \
@@ -809,7 +809,7 @@ CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS the
 | --------------------- | --------------------------------------------------------- | -------------------- |
 | `--video`             | File video gốc (`.mp4`, `.mkv`)                           | (bắt buộc)           |
 | `--subtitle`          | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có) | (bắt buộc)           |
-| `--tts-dir`           | Thư mục chứa TTS clips (`dubb-0.wav`, `dubb-1.wav`, ...)  | (bắt buộc)           |
+| `--tts-voice`         | Giọng đọc EdgeTTS (ví dụ: ja-JP-KeitaNeural)              | `ja-JP-KeitaNeural`  |
 | `--mute`              | File mute `.srt` cho vùng quoted (không TTS)              | (không dùng)         |
 | `--note-overlay-png`  | Ảnh PNG tĩnh nền note                                     | (không dùng)         |
 | `--note-overlay-ass`  | File ASS text cho note overlay                            | (không dùng)         |
@@ -829,7 +829,7 @@ CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS the
 
 #### Quy ước input/output quan trọng
 
-- `--tts-dir` phải map đúng thứ tự clip theo subtitle TTS đã lọc mute: `dubb-0.wav ↔ block TTS #1`, `dubb-1.wav ↔ block TTS #2`, ...
+- Chương trình tự động sinh audio theo `--tts-voice`.
 - Khi chạy đủ pipeline (không bật `--no-hardsub`), output chính bao gồm:
   - `<output-name>.mp4`
   - `<output-name>_tts_synced.srt`
@@ -988,7 +988,7 @@ gemini_key = userdata.get('gemini_key')
 
 # Chạy trực tiếp với python (đường dẫn từ thư mục project)
 !python cli/translate_srt.py --input video.srt --keys "{gemini_key}"
-!python cli/tts_srt.py --input video_vi.srt --voice vi-VN-HoaiMyNeural
+!python cli/tts_srt.py --input video_vi.srt --voice ja-JP-KeitaNeural
 ```
 
 ---

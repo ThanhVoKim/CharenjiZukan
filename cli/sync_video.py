@@ -36,7 +36,7 @@ def run_sync_pipeline(args):
         logger.info("=== BẮT ĐẦU TTS-VIDEO SYNC ===")
         logger.info(f"Video: {args.video}")
         logger.info(f"Subtitle: {args.subtitle}")
-        logger.info(f"TTS Dir: {args.tts_dir}")
+        logger.info(f"TTS Voice: {args.tts_voice}")
         
         # Parse inputs
         if not Path(args.subtitle).exists():
@@ -58,10 +58,45 @@ def run_sync_pipeline(args):
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         video_duration_ms = float(result.stdout.strip()) * 1000.0
         
+        # PHASE 0: AUTO GENERATE TTS
+        logger.info("\n--- PHASE 0: AUTO GENERATE TTS ---")
+        tts_dir = str(Path(tmp_dir) / "tts_clips")
+        Path(tts_dir).mkdir(parents=True, exist_ok=True)
+        
+        from sync_engine.analyzer import filter_tts_subtitles
+        from tts_edgetts import EdgeTTSEngine
+        
+        tts_only = filter_tts_subtitles(subtitle_segments, mute_segments)
+        queue_tts = []
+        for i, it in enumerate(tts_only):
+            queue_tts.append({
+                "text":       it["text"],
+                "line":       it["line"],
+                "start_time": it["start_time"],
+                "end_time":   it["end_time"],
+                "role":       args.tts_voice,
+                "filename":   str(Path(tts_dir) / f"dubb-{i}.wav"),
+            })
+            
+        logger.info(f"Đang sinh {len(queue_tts)} audio clips bằng EdgeTTS (voice={args.tts_voice})...")
+        engine = EdgeTTSEngine(
+            queue_tts=queue_tts,
+            voice=args.tts_voice,
+            rate=args.tts_rate,
+            volume=args.tts_volume,
+            pitch=args.tts_pitch,
+            strip_silence=True,
+            max_concurrent=10,
+        )
+        tts_stats = engine.run()
+        if tts_stats["ok"] == 0 and len(queue_tts) > 0:
+            raise RuntimeError("EdgeTTS thất bại hoàn toàn — không có audio nào được tạo")
+        logger.info(f"Tạo TTS hoàn tất: {tts_stats['ok']} thành công, {tts_stats['err']} lỗi")
+        
         # PHASE 1: ANALYSIS
         logger.info("\n--- PHASE 1: ANALYSIS ---")
         blocks = classify_and_compute_slots(
-            subtitle_segments, mute_segments, video_duration_ms, tts_dir=args.tts_dir
+            subtitle_segments, mute_segments, video_duration_ms, tts_dir=tts_dir
         )
         logger.info(f"Tìm thấy {len(blocks)} blocks (bao gồm tts, mute, gap).")
         
@@ -183,7 +218,12 @@ def main():
     # Bắt buộc
     parser.add_argument("--video", required=True, help="File video gốc (.mp4, .mkv)")
     parser.add_argument("--subtitle", required=True, help="File subtitle.srt đầy đủ (kể cả vùng mute)")
-    parser.add_argument("--tts-dir", required=True, help="Thư mục chứa TTS clips (dubb-0.wav, ...)")
+    
+    # TTS Settings
+    parser.add_argument("--tts-voice", default="vi-VN-HoaiMyNeural", help="Giọng đọc EdgeTTS (ví dụ: vi-VN-HoaiMyNeural)")
+    parser.add_argument("--tts-rate", default="+0%", help="Tốc độ giọng đọc EdgeTTS")
+    parser.add_argument("--tts-volume", default="+0%", help="Âm lượng EdgeTTS")
+    parser.add_argument("--tts-pitch", default="+0Hz", help="Pitch EdgeTTS")
     
     # Tùy chọn - Input
     parser.add_argument("--mute", help="File mute.srt")

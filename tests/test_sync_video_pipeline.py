@@ -72,7 +72,7 @@ def _make_synthetic_inputs(tmp_dir: Path, tts_duration_ms: int):
 
     return {
         "srt": str(srt_path),
-        "tts_dir": str(tts_dir)
+        "tts_path": str(tts_path)
     }
 
 
@@ -96,11 +96,28 @@ def synthetic_inputs_force_slowdown(tmp_path_factory):
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="FFmpeg không có trong PATH")
 class TestLayer3_SyncVideoPipeline:
-    def _run_pipeline(self, synthetic_video, synthetic_inputs, output_dir: Path, output_name: str) -> Path:
+    def _run_pipeline(self, synthetic_video, synthetic_inputs, output_dir: Path, output_name: str, monkeypatch) -> Path:
+        
+        # Mock EdgeTTSEngine để không gọi network
+        def mock_engine_init(self_obj, *args, **kwargs):
+            self_obj.queue_tts = kwargs.get('queue_tts', [])
+            pass
+            
+        def mock_engine_run(self_obj):
+            for q in self_obj.queue_tts:
+                shutil.copy(synthetic_inputs["tts_path"], q['filename'])
+            return {"ok": len(self_obj.queue_tts), "err": 0}
+            
+        monkeypatch.setattr("cli.sync_video.EdgeTTSEngine.__init__", mock_engine_init)
+        monkeypatch.setattr("cli.sync_video.EdgeTTSEngine.run", mock_engine_run)
+
         args = argparse.Namespace(
             video=str(synthetic_video),
             subtitle=synthetic_inputs["srt"],
-            tts_dir=synthetic_inputs["tts_dir"],
+            tts_voice="test-voice",
+            tts_rate="+0%",
+            tts_volume="+0%",
+            tts_pitch="+0Hz",
             mute=None,
             note_overlay_png=None,
             note_overlay_ass=None,
@@ -140,7 +157,7 @@ class TestLayer3_SyncVideoPipeline:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return float(result.stdout.strip())
 
-    def test_run_sync_pipeline_case1_borrow_gap(self, synthetic_video, synthetic_inputs_borrow_gap, tmp_path):
+    def test_run_sync_pipeline_case1_borrow_gap(self, synthetic_video, synthetic_inputs_borrow_gap, tmp_path, monkeypatch):
         """Case 1 (plan): TTS vừa trong slot mở rộng 1->3s, không cần slow video."""
         output_dir = tmp_path / "output_case1"
         output_dir.mkdir()
@@ -150,12 +167,13 @@ class TestLayer3_SyncVideoPipeline:
             synthetic_inputs_borrow_gap,
             output_dir,
             output_name="video_synced_case1",
+            monkeypatch=monkeypatch
         )
 
         dur = self._probe_duration(final_video)
         assert 2.8 <= dur <= 3.3
 
-    def test_run_sync_pipeline_case2_force_slowdown(self, synthetic_video, synthetic_inputs_force_slowdown, tmp_path):
+    def test_run_sync_pipeline_case2_force_slowdown(self, synthetic_video, synthetic_inputs_force_slowdown, tmp_path, monkeypatch):
         """Case 2 (plan): TTS vượt slot 1->3s, buộc pipeline slow video."""
         output_dir = tmp_path / "output_case2"
         output_dir.mkdir()
@@ -165,6 +183,7 @@ class TestLayer3_SyncVideoPipeline:
             synthetic_inputs_force_slowdown,
             output_dir,
             output_name="video_synced_case2",
+            monkeypatch=monkeypatch
         )
 
         dur = self._probe_duration(final_video)
