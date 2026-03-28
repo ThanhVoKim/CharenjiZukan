@@ -29,7 +29,11 @@ def run_sync_pipeline(args):
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    tmp_dir = tempfile.mkdtemp(prefix="sync_video_tmp_")
+    # Create local tmp directory inside the project instead of system /tmp
+    local_tmp_base = PROJECT_ROOT / "tmp"
+    local_tmp_base.mkdir(parents=True, exist_ok=True)
+    
+    tmp_dir = tempfile.mkdtemp(prefix="sync_video_tmp_", dir=str(local_tmp_base))
     
     try:
         start_time = time.time()
