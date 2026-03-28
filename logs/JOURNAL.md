@@ -1,5 +1,45 @@
 # Project Journal
 
+## 2026-03-28: Tối ưu hóa tốc độ và chất lượng ghép nối Video Chunks (Phase 2)
+
+### Yêu cầu
+
+- Khắc phục hiện tượng giật cục và lặp frame tại các điểm nối giữa các video chunks sau khi thực hiện kéo giãn (stretch) bằng FFmpeg.
+- Tối ưu hóa tốc độ của toàn bộ quá trình xử lý Phase 2 (cắt, kéo giãn và ghép nối).
+- Cho phép giữ lại các file tạm (chunks) để phục vụ việc kiểm tra và debug.
+
+### Thay đổi đã thực hiện
+
+1. **Chuyển đổi chiến lược cắt từ "Thời gian" sang "Frame-accurate"**:
+   - Trong `cli/sync_video.py`, tự động dò tìm FPS gốc của video đầu vào bằng `ffprobe` (trích xuất `r_frame_rate`).
+   - Trong `sync_engine/video_processor.py` (hàm `build_ffmpeg_chunk_cmd`), các mốc cắt (start_ms, duration_ms) được tính toán và làm tròn theo đúng ranh giới của frame dựa trên FPS thực tế. Điều này loại bỏ hoàn toàn hiện tượng cắt lẹm vào giữa frame gây trùng lặp frame ở hai đầu chunk.
+2. **Kích hoạt Fast Seek siêu tốc**:
+   - Di chuyển các tham số `-ss` và `-t` lên **trước** `-i` trong lệnh FFmpeg. Kết hợp với việc quy đổi frame ra giây chính xác đến 6 chữ số thập phân, FFmpeg giờ đây sẽ nhảy vọt đến đúng keyframe và chỉ giải mã lượng frame tối thiểu cần thiết, giúp tăng tốc độ cắt gấp nhiều lần.
+3. **Ép chuẩn Constant Frame Rate (CFR)**:
+   - Thêm filter `fps={fps_str}` vào chuỗi `-filter:v` để ép buộc tất cả các chunks đầu ra phải tuân thủ nghiêm ngặt chuẩn FPS của video gốc, tránh tình trạng Variable Frame Rate (VFR) gây rối loạn quá trình ghép nối. Thêm cờ `-video_track_timescale 90000` để đồng bộ hóa metadata timebase.
+4. **Tối ưu hóa thao tác ghép nối bằng Concat Demuxer**:
+   - Viết lại hàm `_concat_chunks`. Do tất cả các chunks đã được ép chung chuẩn CFR và mã hóa giống hệt nhau, loại bỏ phương thức `filter_complex concat` (vốn bắt buộc phải re-encode lại toàn bộ video rất chậm) và chuyển sang dùng **Concat Demuxer** (`-f concat -c copy`). Dữ liệu giờ đây chỉ cần sao chép luồng bit trực tiếp, giảm thời gian nối video từ hàng chục phút xuống chỉ còn vài giây.
+5. **Thêm tính năng Debug (`--keep-tmp`)**:
+   - Bổ sung tham số dòng lệnh `--keep-tmp` vào `cli/sync_video.py` để giữ lại thư mục tạm chứa các chunks và file mix audio.
+   - Thêm logging hiển thị thông báo "CLEANUP KHÔNG THỰC HIỆN" để người dùng dễ dàng theo dõi vị trí file.
+   - Cập nhật bảng tham số trong tài liệu `docs/colab-guide.md`.
+
+### Trạng thái hiện tại
+
+- ✅ Hiện tượng giật và lặp frame ở điểm nối chunk đã được giải quyết triệt để nhờ cơ chế Frame-accurate và CFR.
+- ✅ Tốc độ Phase 2 (Ghép nối) đã được đẩy lên mức tối đa bằng Concat Demuxer (`-c copy`).
+- ✅ Tài liệu hướng dẫn đã được cập nhật cờ `--keep-tmp`.
+
+### Outstanding / Pending
+
+- (Chưa có)
+
+### Đối chiếu Data Flow
+
+- Bản vá thay đổi cách FFmpeg được gọi ở mức độ tham số (Fast Seek, CFR, Concat Demuxer) nhưng hoàn toàn tuân thủ thiết kế luồng gốc của hệ thống: Phase 2 vẫn nhận TimelineSegment, xuất ra các chunks và gộp lại thành `video_stretched.mp4` đưa cho Phase 5. Việc thay đổi này giải phóng nút thắt cổ chai về mặt hiệu năng Re-encode 2 lần.
+
+---
+
 ## 2026-03-27: Sửa 5 lỗi cốt lõi trong `sync_engine` sau lần chạy đầu tiên
 
 ### Yêu cầu

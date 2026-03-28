@@ -821,6 +821,7 @@ CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS the
 | `--no-hardsub`        | Bỏ render MP4 hardsub, chỉ xuất các file đã remap         | (tắt)                |
 | `--workers`           | Số worker FFmpeg chạy song song khi xử lý chunk video     | `4`                  |
 | `--no-gpu`            | Dùng `libx264` thay `h264_nvenc` (CPU mode)               | (tắt)                |
+| `--keep-tmp`          | Giữ lại thư mục tạm chứa các chunks video để debug        | (tắt)                |
 | `--subtitle-fontname` | Font subtitle dùng khi burn hardsub                       | `Noto Sans CJK JP`   |
 | `--subtitle-fontsize` | Cỡ chữ subtitle                                           | `22`                 |
 | `--subtitle-color`    | Màu chữ subtitle (ASS hex format)                         | `&H00EEF5FF`         |

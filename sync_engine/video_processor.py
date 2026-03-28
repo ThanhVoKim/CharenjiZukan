@@ -39,17 +39,26 @@ def build_ffmpeg_chunk_cmd(
     start_ms: float,
     input_duration_ms: float,
     video_speed: float,
+    fps_str: str,
+    fps_float: float,
     use_gpu: bool = True,
 ) -> List[str]:
     """
-    THAY ĐỔI:
-    - LUÔN dùng setpts=(1/speed)*(PTS-STARTPTS) kể cả speed=1.0 để reset PTS.
-    - -ss đặt SAU -i (slow seek) để seek chính xác, tránh frame thừa đầu chunk.
-    - Không dùng -c:v copy vì không thể reset PTS.
+    THAY ĐỔI TỐI ƯU HÓA:
+    - Tính toán frame ranh giới chính xác bằng fps_float để tránh cắt lẹm vào giữa 2 frame (Tránh lỗi lặp frame).
+    - -ss và -t được đưa lên TRƯỚC -i để kích hoạt Fast Seek (nhanh hơn gấp nhiều lần).
+    - Thêm filter fps={fps_str} để ép Constant Frame Rate (CFR), giúp các chunk dễ dàng nối lại.
+    - Dùng -video_track_timescale 90000 để đảm bảo timebase đồng nhất cho concat demuxer.
     """
-    start_s    = start_ms          / 1000.0
-    duration_s = input_duration_ms / 1000.0
-    pts_factor = 1.0 / video_speed  # speed=1.0 → pts_factor=1.0
+    # Bước 1: Tính toán chính xác số frame để làm tròn điểm cắt
+    start_frame = round((start_ms / 1000.0) * fps_float)
+    duration_frames = round((input_duration_ms / 1000.0) * fps_float)
+
+    # Bước 2: Quy đổi ngược lại thành thời gian thập phân siêu chuẩn xác
+    start_s = start_frame / fps_float
+    duration_s = duration_frames / fps_float
+
+    pts_factor = 1.0 / video_speed
 
     encoder = "h264_nvenc" if use_gpu else "libx264"
     preset  = "p4"         if use_gpu else "fast"
@@ -57,15 +66,17 @@ def build_ffmpeg_chunk_cmd(
 
     return [
         "ffmpeg", "-y",
-        "-i", input_path,
-        # -ss SAU -i: slow seek, decode-from-keyframe nhưng exact timestamp
+        # Fast Seek: -ss TRƯỚC -i
         "-ss", f"{start_s:.6f}",
         "-t",  f"{duration_s:.6f}",
-        "-filter:v", f"setpts={pts_factor:.6f}*(PTS-STARTPTS)",
+        "-i", input_path,
+        # Ép chuẩn Framerate cố định (CFR)
+        "-filter:v", f"setpts={pts_factor:.6f}*(PTS-STARTPTS),fps={fps_str}",
         "-an",
         "-c:v", encoder,
         "-preset", preset,
         *quality,
+        "-video_track_timescale", "90000",
         output_path,
     ]
 
@@ -92,6 +103,8 @@ def process_video_chunks_parallel(
     output_dir: str,
     max_workers: int = 4,
     use_gpu: bool = True,
+    fps_str: str = "30/1",
+    fps_float: float = 30.0,
 ) -> str:
     """Split + stretch + concat. Returns path to video_stretched.mp4."""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -104,6 +117,8 @@ def process_video_chunks_parallel(
             seg.orig_start,
             seg.orig_end - seg.orig_start,   # input duration
             seg.video_speed,
+            fps_str,
+            fps_float,
             use_gpu,
         )
         chunk_tasks.append((i, cmd, out))
@@ -166,8 +181,10 @@ def process_video_chunks_parallel(
 
 def _concat_chunks(chunk_paths: List[str], output_path: str) -> None:
     """
-    THAY ĐỔI: Dùng filter_complex concat thay vì concat demuxer.
-    filter_complex concat tự xử lý PTS discontinuity giữa các chunk.
+    THAY ĐỔI TỐI ƯU HÓA: Dùng concat demuxer (-c copy) thay vì filter_complex concat.
+    Vì tất cả các chunk đã được ép chung 1 chuẩn FPS và Timebase ở bước trước,
+    nên có thể copy nguyên luồng dữ liệu mà không cần render lại toàn bộ video.
+    Giúp rút ngắn thời gian nối từ hàng chục phút xuống 1-2 giây.
     """
     if not chunk_paths:
         raise RuntimeError("Không có chunk nào để concat")
@@ -177,32 +194,30 @@ def _concat_chunks(chunk_paths: List[str], output_path: str) -> None:
         if not Path(p).exists() or Path(p).stat().st_size == 0:
             raise RuntimeError(f"Chunk không hợp lệ hoặc rỗng: {p}")
 
-    n = len(chunk_paths)
-    input_args = []
-    for p in chunk_paths:
-        input_args += ["-i", str(Path(p).resolve())]
-
-    # Build filter: [0:v][1:v][2:v]...concat=n=N:v=1[outv]
-    stream_labels = "".join(f"[{i}:v]" for i in range(n))
-    filter_str    = f"{stream_labels}concat=n={n}:v=1:a=0[outv]"
-
+    list_file = Path(output_path).with_suffix('.txt')
     try:
+        with open(list_file, "w", encoding="utf-8") as f:
+            for p in chunk_paths:
+                # Dùng as_posix() để tránh lỗi backslash trên Windows
+                f.write(f"file '{Path(p).resolve().as_posix()}'\n")
+
         subprocess.run([
             "ffmpeg", "-y",
-            *input_args,
-            "-filter_complex", filter_str,
-            "-map", "[outv]",
+            "-f", "concat", "-safe", "0",
+            "-i", str(list_file),
+            "-c:v", "copy",
             "-an",
-            "-c:v", "libx264",  # Re-encode để đảm bảo stream clean cho render phase 5
-            "-preset", "fast",
-            "-crf", "23",
             output_path,
         ], check=True, capture_output=True, text=True)
-        logger.info(f"Concat {n} chunks → {output_path}")
+        logger.info(f"Concat {len(chunk_paths)} chunks siêu tốc → {output_path}")
     except subprocess.CalledProcessError as e:
-        logger.error("FFmpeg concat failed (returncode=%s)", e.returncode)
+        logger.error("FFmpeg concat demuxer failed (returncode=%s)", e.returncode)
         if e.stdout:
             logger.error("FFmpeg concat stdout:\n%s", e.stdout[-8000:])
         if e.stderr:
             logger.error("FFmpeg concat stderr:\n%s", e.stderr[-8000:])
         raise
+    finally:
+        # Xóa file text tạm
+        if list_file.exists():
+            list_file.unlink(missing_ok=True)

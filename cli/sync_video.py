@@ -58,6 +58,23 @@ def run_sync_pipeline(args):
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         video_duration_ms = float(result.stdout.strip()) * 1000.0
         
+        cmd_fps = [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=r_frame_rate", "-of",
+            "default=noprint_wrappers=1:nokey=1", args.video
+        ]
+        result_fps = subprocess.run(cmd_fps, capture_output=True, text=True, check=True)
+        fps_str = result_fps.stdout.strip()
+        
+        # Parse fps to float
+        if "/" in fps_str:
+            num, den = fps_str.split("/")
+            fps_float = float(num) / float(den)
+        else:
+            fps_float = float(fps_str)
+            
+        logger.info(f"Video FPS detected: {fps_str} ({fps_float:.2f})")
+        
         # PHASE 0: AUTO GENERATE TTS
         logger.info("\n--- PHASE 0: AUTO GENERATE TTS ---")
         tts_dir = str(Path(tmp_dir) / "tts_clips")
@@ -122,7 +139,9 @@ def run_sync_pipeline(args):
             timeline=timeline,
             output_dir=tmp_dir, # put chunks in tmp
             max_workers=args.workers,
-            use_gpu=not args.no_gpu
+            use_gpu=not args.no_gpu,
+            fps_str=fps_str,
+            fps_float=fps_float
         )
         
         stretched_video_chunked = str(Path(tmp_dir) / "video_stretched.mp4")
@@ -210,7 +229,14 @@ def run_sync_pipeline(args):
 
     finally:
         # Cleanup
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if args.keep_tmp:
+            logger.info("\n--- CLEANUP KHÔNG THỰC HIỆN ---")
+            logger.info(f"Đã giữ lại thư mục tạm chứa video chunks và audio mix: {tmp_dir}")
+        else:
+            logger.info("\n--- CLEANUP ---")
+            logger.info(f"Đang xóa thư mục tạm: {tmp_dir}...")
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            logger.info("Hoàn tất dọn dẹp thư mục tạm.")
 
 def main():
     parser = argparse.ArgumentParser(description="TTS-Video Sync - Chunk-Based Stretch")
@@ -239,6 +265,7 @@ def main():
     parser.add_argument("--output-dir", default="./sync_output/", help="Thư mục output")
     parser.add_argument("--output-name", default="video_synced", help="Base name output")
     parser.add_argument("--no-hardsub", action="store_true", help="Chỉ output recalculated files")
+    parser.add_argument("--keep-tmp", action="store_true", help="Giữ lại thư mục tạm chứa các chunks")
     
     # Performance
     parser.add_argument("--workers", type=int, default=4, help="FFmpeg workers song song")
