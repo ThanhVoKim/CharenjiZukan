@@ -108,6 +108,7 @@ def run_sync_pipeline(args):
             pitch=args.tts_pitch,
             strip_silence=True,
             max_concurrent=10,
+            min_silence_len_ms=150
         )
         tts_stats = engine.run()
         if tts_stats["ok"] == 0 and len(queue_tts) > 0:
@@ -131,8 +132,8 @@ def run_sync_pipeline(args):
             )
             speeds.append((vs, as_, new_dur))
             
-        timeline = build_timeline_map(blocks, speeds, video_duration_ms)
-        logger.info(f"Timeline map đã tạo với {len(timeline)} segments.")
+        timeline = build_timeline_map(blocks, speeds, video_duration_ms, fps_float=fps_float)
+        logger.info(f"Timeline map đã tạo với {len(timeline)} segments (đã được Snap to Frames chuẩn xác).")
         
         # PHASE 2: VIDEO PROCESSING
         logger.info("\n--- PHASE 2: VIDEO PROCESSING ---")
@@ -205,8 +206,8 @@ def run_sync_pipeline(args):
                 f"\\,FontSize={args.subtitle_fontsize}",
                 f"\\,PrimaryColour={args.subtitle_color}",
                 r"\,OutlineColour=&H00FFFFFF",
-                r"\,Outline=0",
-                r"\,Shadow=0",
+                r"\,Outline=1",
+                r"\,Shadow=1.5",
                 r"\,BackColour=0xE6000000",
                 r"\,Alignment=2",
                 f"\\,MarginV={args.subtitle_margin_v}"
@@ -277,10 +278,10 @@ def main():
     
     # Subtitle Style
     parser.add_argument("--subtitle-fontname", default="Noto Sans CJK JP")
-    parser.add_argument("--subtitle-fontsize", type=int, default=22)
+    parser.add_argument("--subtitle-fontsize", type=int, default=24)
     parser.add_argument("--subtitle-color", default="&H00EEF5FF")
-    parser.add_argument("--subtitle-margin-v", type=int, default=6)
-    parser.add_argument("--note-max-chars", type=int, default=15)
+    parser.add_argument("--subtitle-margin-v", type=int, default=7)
+    parser.add_argument("--note-max-chars", type=int, default=16)
     
     args = parser.parse_args()
     

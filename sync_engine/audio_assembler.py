@@ -7,10 +7,15 @@ from sync_engine.models import TimelineSegment
 from utils.media_utils import _build_atempo_filter
 
 def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str) -> None:
-    if audio_speed <= 1.0:
-        shutil.copy(wav_path, output_path)
-        return
-    filter_str = _build_atempo_filter(audio_speed)  # Reuse từ media_utils.py
+    # Luôn áp dụng filter tăng âm lượng và limiter cho TTS audio
+    base_filter = "volume=1.5,alimiter=limit=0.95:level_in=1:level_out=1"
+    
+    if audio_speed > 1.01:
+        atempo_str = _build_atempo_filter(audio_speed)  # Reuse từ media_utils.py
+        filter_str = f"{atempo_str},{base_filter}"
+    else:
+        filter_str = base_filter
+        
     subprocess.run([
         "ffmpeg", "-y", "-i", wav_path,
         "-filter:a", filter_str,
@@ -86,6 +91,10 @@ def assemble_audio_track(
     # ── Layer 1: Ambient (tĩnh, không stretch, tắt ở mute) ──────────
     if ambient_path and Path(ambient_path).exists():
         ambient_src = AudioSegment.from_file(ambient_path)
+        
+        # Giảm âm lượng nhạc nền xuống (ví dụ: -10 dB) theo yêu cầu
+        ambient_src = ambient_src - 10
+        
         if len(ambient_src) > 0:
             # Loop đủ dài
             while len(ambient_src) < total_ms:
@@ -110,15 +119,12 @@ def assemble_audio_track(
     for seg in timeline:
         if seg.block_type != "tts" or not seg.tts_clip_path:
             continue
-        if seg.audio_speed > 1.01:
-            tmp_c = str(Path(tmp_dir) / f"compressed_{int(seg.new_start)}.wav")
-            compress_tts_clip(seg.tts_clip_path, seg.audio_speed, tmp_c)
-            if Path(tmp_c).exists():
-                clip = AudioSegment.from_file(tmp_c)
-                result = result.overlay(clip, position=int(seg.new_start))
-        else:
-            if Path(seg.tts_clip_path).exists():
-                clip = AudioSegment.from_file(seg.tts_clip_path)
-                result = result.overlay(clip, position=int(seg.new_start))
+            
+        # Luôn chạy qua compress_tts_clip để áp dụng volume & alimiter filter
+        tmp_c = str(Path(tmp_dir) / f"processed_{int(seg.new_start)}.wav")
+        compress_tts_clip(seg.tts_clip_path, seg.audio_speed, tmp_c)
+        if Path(tmp_c).exists():
+            clip = AudioSegment.from_file(tmp_c)
+            result = result.overlay(clip, position=int(seg.new_start))
 
     result.set_frame_rate(sample_rate).set_channels(2).export(output_path, format="wav")

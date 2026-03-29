@@ -1,5 +1,36 @@
 # Project Journal
 
+## 2026-03-28: Điều chỉnh Flow Index, Âm lượng Ambient và TTS Audio Filter
+
+### Yêu cầu
+
+- **Sửa đổi Flow Index**: Thay đổi thứ tự overlay trong video cuối cùng để chữ ASS (ASS Subtitle) đè lên dải đen nền (Strip Black Background). Trình tự mong muốn: `Base Video -> Strip Black Background -> Note PNG -> ASS Subtitle -> SRT Subtitle`.
+- **Thêm filter cho TTS Audio**: Áp dụng hiệu ứng tăng âm lượng và limiter (`volume=1.5,alimiter=limit=0.95:level_in=1:level_out=1`) cho tất cả các đoạn audio TTS, thực hiện hardcode, không yêu cầu thêm tham số CLI.
+- **Giảm âm lượng Ambient**: Giảm âm lượng nhạc nền (ambient) đi một mức mặc định (ví dụ: -10 dB) bằng Pydub, cũng thực hiện hardcode, không thêm tham số CLI.
+
+### Kế hoạch Thay đổi
+
+1. **`sync_engine/renderer.py`**:
+   - Sửa chuỗi `filter_complex` trong hàm `render_final_video`.
+   - Di chuyển lệnh overlay dải nền đen lên trước lệnh overlay Note PNG và ASS Subtitle.
+   - Điều này đảm bảo chữ ASS sẽ được hiển thị rõ ràng trên nền đen thay vì bị che lấp.
+
+2. **`sync_engine/audio_assembler.py`**:
+   - Trong hàm `assemble_audio_track`, ở đoạn xử lý Layer 1 (Ambient), chèn thêm code Pydub: `ambient_src = ambient_src - 10`.
+   - Ở đoạn xử lý Layer 3 (TTS clips), thay đổi logic để luôn gọi `subprocess.run(["ffmpeg", ...])` nhằm tạo file `tmp_c` (processed wav) cho tất cả các TTS clip.
+   - Truyền chuỗi filter `volume=1.5,alimiter=limit=0.95:level_in=1:level_out=1` (kết hợp với `atempo` nếu `audio_speed > 1.01`) vào tham số `-filter:a`.
+
+### Trạng thái hiện tại
+
+- ⏳ Lên kế hoạch xong, chuẩn bị chuyển sang Code mode để thực hiện.
+
+### Đối chiếu Data Flow
+
+- Việc thay đổi thứ tự overlay không ảnh hưởng tới workflow tổng thể, chỉ thay đổi luồng FFmpeg filter graph cục bộ trong Bước 5 (Render Final Video).
+- Việc chèn thêm audio filter và giảm ambient diễn ra độc lập trong nội bộ bước Mix Audio (Phase 3), tuân thủ đúng kiến trúc `audio_assembler.py` đã có.
+
+---
+
 ## 2026-03-28: Tối ưu hóa tốc độ và chất lượng ghép nối Video Chunks (Phase 2)
 
 ### Yêu cầu

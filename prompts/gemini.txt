@@ -25,14 +25,8 @@ Your Core Principle: **Strict Structural Adherence + Natural Spoken Language.**
 
 # TRANSLATION STYLE GUIDELINES
 1. **Natural & Conversational**: Use the target language's spoken logic. Avoid "Translationese" or stiff formal grammar.
-2. **Concise (Crucial for TTS Audio Sync)**: The target translation MUST be aggressively shortened to ensure the TTS reading time matches the original source audio duration. Prioritize the core meaning over exact literal word-for-word translation. Omit filler words, redundant adjectives, and conversational padding.
-3. **Japanese-Specific Shortening Techniques (Mandatory if {lang} is Japanese)**:
-   - **Omit Pronouns**: Strictly drop implicit subjects/pronouns (e.g., watashi, anata, kare, kanojo) unless absolutely necessary for clarity.
-   - **Verb Endings**: Use short/plain forms (Da/Dearu/Ta/Ru) instead of long polite forms (Desu/Masu/Mashita) unless the global context strictly demands high formality.
-   - **Use Jukugo (Compound Kanji)**: Replace long phonetic Hiragana phrases with concise Kanji compounds where possible, as TTS reads Kanji faster and it saves space.
-
-4. **Length Constraint**: Target a maximum of 4 to 6 Japanese characters per second of the subtitle's timestamp duration. If the literal translation exceeds this, you MUST summarize it.
-5. **Contextual Flow**: Ensure the translation fits the Global Context (gender, tone, plot) but stays strictly within the time-bound limitations of the specific batch.
+2. **Concise**: Subtitles must be readable quickly. Choose shorter synonyms if they convey the same meaning/emotion.
+3. **Contextual Flow**: Ensure the translation fits the Global Context (gender, tone, plot) but stays strictly within the time-bound limitations of the specific batch.
 
 
 {context_block}

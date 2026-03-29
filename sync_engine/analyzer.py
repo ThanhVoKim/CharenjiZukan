@@ -182,6 +182,7 @@ def build_timeline_map(
     all_blocks: List[SubBlock],
     speeds: List[Tuple[float, float, float]],  # Per block: (vs, as_, new_dur)
     video_duration_ms: float,
+    fps_float: float = 30.0,
 ) -> List[TimelineSegment]:
 
     segments: List[TimelineSegment] = []
@@ -192,41 +193,53 @@ def build_timeline_map(
         head = all_blocks[0].start_time
         # Tuy nhiên nếu block đầu là gap thì không cần xử lý thêm vì classify đã thêm gap rồi
         if all_blocks[0].type != "gap":
+            head_frames = round((head / 1000.0) * fps_float)
+            head_dur_snapped = (head_frames / fps_float) * 1000.0
             segments.append(TimelineSegment(
                 orig_start=0.0, orig_end=head,
-                new_start=0.0,  new_end=head,
-                video_speed=1.0, audio_speed=1.0, new_chunk_dur=head,
+                new_start=0.0,  new_end=head_dur_snapped,
+                video_speed=1.0, audio_speed=1.0, new_chunk_dur=head_dur_snapped,
                 block_type="gap", tts_clip_path=None, tts_duration=0.0,
             ))
-            cursor = head
+            cursor = head_dur_snapped
 
     # ── Các block chính ──────────────────────────────────────────────
     for i, block in enumerate(all_blocks):
-        vs, as_, new_dur = speeds[i]
+        vs, as_, _ = speeds[i]  # Bỏ qua new_dur cũ chưa làm tròn
         orig_end = block.start_time + block.slot_duration
+        
+        # Snap time của block này thành chuẩn frame giống hệt lúc tạo chunk video
+        duration_frames = round((block.slot_duration / 1000.0) * fps_float)
+        pts_factor = 1.0 / vs
+        new_duration_frames = round(duration_frames * pts_factor)
+        new_dur_snapped = (new_duration_frames / fps_float) * 1000.0
+        
         segments.append(TimelineSegment(
             orig_start=block.start_time,
             orig_end=orig_end,
             new_start=cursor,
-            new_end=cursor + new_dur,
+            new_end=cursor + new_dur_snapped,
             video_speed=vs,
             audio_speed=as_,
-            new_chunk_dur=new_dur,
+            new_chunk_dur=new_dur_snapped,
             block_type=block.type,
             tts_clip_path=block.tts_clip_path,
             tts_duration=block.tts_duration,
         ))
-        cursor += new_dur
+        cursor += new_dur_snapped
 
     # ── Tail: phần video sau block cuối cùng ← BUG FIX #1 ───────────
     if all_blocks:
         tail_start = all_blocks[-1].start_time + all_blocks[-1].slot_duration
         if tail_start < video_duration_ms:
             tail_dur = video_duration_ms - tail_start
+            tail_frames = round((tail_dur / 1000.0) * fps_float)
+            tail_dur_snapped = (tail_frames / fps_float) * 1000.0
+            
             segments.append(TimelineSegment(
                 orig_start=tail_start, orig_end=video_duration_ms,
-                new_start=cursor,      new_end=cursor + tail_dur,
-                video_speed=1.0, audio_speed=1.0, new_chunk_dur=tail_dur,
+                new_start=cursor,      new_end=cursor + tail_dur_snapped,
+                video_speed=1.0, audio_speed=1.0, new_chunk_dur=tail_dur_snapped,
                 block_type="tail", tts_clip_path=None, tts_duration=0.0,
             ))
 
