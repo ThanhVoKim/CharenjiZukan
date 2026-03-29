@@ -6,14 +6,14 @@ import os
 DEFAULT_SUBTITLE_STYLE = (
     "Fontname=Noto Sans CJK JP"
     r"\,Bold=1"
-    r"\,FontSize=22"
+    r"\,FontSize=24"
     r"\,PrimaryColour=&H00EEF5FF"
-    r"\,OutlineColour=&H00FFFFFF"
-    r"\,Outline=0"
-    r"\,Shadow=0"
+    r"\,OutlineColour=&H00000000"
+    r"\,Outline=1"
+    r"\,Shadow=1.5"
     r"\,BackColour=0xE6000000"
     r"\,Alignment=2"
-    r"\,MarginV=6"
+    r"\,MarginV=7"
 )
 
 def detect_gpu_encoder() -> Tuple[bool, str, str]:
@@ -40,7 +40,7 @@ def ensure_black_bg(path: str, w: int = 1920, h: int = 1080, alpha: int = 255) -
 
 def _build_ass_enable_expr(ass_path: str) -> str:
     """Đọc file ASS và tạo biểu thức enable cho filter overlay của FFmpeg."""
-    from utils.ass_utils import parse_ass_timestamp_to_ms
+    from utils.media_utils import parse_ass_timestamp_to_ms
     
     with open(ass_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -122,9 +122,9 @@ def render_final_video(
             # 2. Draw watermark_text
             f"[v_wm_img]drawtext=fontfile='{TITLE_FONT_PATH}':text='@CharenjiZukan':fontsize=25:fontcolor=white:alpha=0.7:x=w-text_w-30:y=8[v_wm_txt];",
             # 3. Overlay note overlay (PNG tĩnh)
-            f"[v_wm_txt][4:v]overlay=x=(main_w-overlay_w)/2:y=980:shortest=1:enable='{enable_expr}'[v_note];",
-            # 4. Overlay black strip
-            "[v_note][bg_scaled]overlay=x=0:y=968:shortest=1[v_strip];",
+            f"[v_wm_txt][4:v]overlay=shortest=1:enable='{enable_expr}'[v_note];",
+            # 4. Overlay black strip (căn giữa trục x, đặt ở y=968)
+            "[v_note][bg_scaled]overlay=x=(main_w-overlay_w)/2:y=968:shortest=1[v_strip];",
             # 5. ASS text (đè lên black strip)
             f"[v_strip]ass='{note_overlay_synced_ass_esc}'[v_ass];",
             # 6. Subtitle SRT (burn hardsub)
@@ -140,13 +140,13 @@ def render_final_video(
         
         filter_cx = "".join([
             # Scale dải đen 1920×h
-            "[3:v]scale=1920:80[bg_scaled];",
+            "[3:v]scale=1920:94[bg_scaled];",
             # 1. Overlay watermark_img
             "[0:v][2:v]overlay=x=1680:y=39[v_wm_img];",
             # 2. Draw watermark_text
             f"[v_wm_img]drawtext=fontfile='{TITLE_FONT_PATH}':text='@CharenjiZukan':fontsize=25:fontcolor=white:alpha=0.7:x=w-text_w-30:y=8[v_wm_txt];",
-            # 3. Overlay black strip
-            "[v_wm_txt][bg_scaled]overlay=x=0:y=980:shortest=1[v_strip];",
+            # 3. Overlay black strip (căn giữa trục x, đặt ở y=968)
+            "[v_wm_txt][bg_scaled]overlay=x=(main_w-overlay_w)/2:y=968:shortest=1[v_strip];",
             # 4. Subtitle SRT (burn hardsub)
             f"[v_strip]subtitles='{subtitle_synced_srt_esc}':force_style='{subtitle_style}'[v_out]"
         ])
