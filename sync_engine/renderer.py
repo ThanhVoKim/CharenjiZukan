@@ -115,10 +115,12 @@ def render_final_video(
         ])
         
         filter_cx = "".join([
+            # Scale video gốc về Full HD
+            "[0:v]scale=1920:1080[v_base];",
             # Scale dải đen 1920×h
             "[3:v]scale=1920:94[bg_scaled];",
             # 1. Overlay watermark_img
-            "[0:v][2:v]overlay=x=1680:y=39[v_wm_img];",
+            "[v_base][2:v]overlay=x=1680:y=39[v_wm_img];",
             # 2. Draw watermark_text
             f"[v_wm_img]drawtext=fontfile='{TITLE_FONT_PATH}':text='@CharenjiZukan':fontsize=25:fontcolor=white:alpha=0.7:x=w-text_w-30:y=8[v_wm_txt];",
             # 3. Overlay note overlay (PNG tĩnh)
@@ -139,10 +141,12 @@ def render_final_video(
         ])
         
         filter_cx = "".join([
+            # Scale video gốc về Full HD
+            "[0:v]scale=1920:1080[v_base];",
             # Scale dải đen 1920×h
             "[3:v]scale=1920:94[bg_scaled];",
             # 1. Overlay watermark_img
-            "[0:v][2:v]overlay=x=1680:y=39[v_wm_img];",
+            "[v_base][2:v]overlay=x=1680:y=39[v_wm_img];",
             # 2. Draw watermark_text
             f"[v_wm_img]drawtext=fontfile='{TITLE_FONT_PATH}':text='@CharenjiZukan':fontsize=25:fontcolor=white:alpha=0.7:x=w-text_w-30:y=8[v_wm_txt];",
             # 3. Overlay black strip (căn giữa trục x, đặt ở y=968)
@@ -152,8 +156,10 @@ def render_final_video(
         ])
     else:
         filter_cx = "".join([
+            # Scale video gốc về Full HD
+            "[0:v]scale=1920:1080[v_base];",
             # 1. Overlay watermark_img
-            "[0:v][2:v]overlay=x=1680:y=39[v_wm_img];",
+            "[v_base][2:v]overlay=x=1680:y=39[v_wm_img];",
             # 2. Draw watermark_text
             f"[v_wm_img]drawtext=fontfile='{TITLE_FONT_PATH}':text='@CharenjiZukan':fontsize=25:fontcolor=white:alpha=0.7:x=w-text_w-30:y=8[v_wm_txt];",
             # 3. Subtitle SRT

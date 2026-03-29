@@ -205,7 +205,7 @@ def run_sync_pipeline(args):
                 r"\,Bold=1",
                 f"\\,FontSize={args.subtitle_fontsize}",
                 f"\\,PrimaryColour={args.subtitle_color}",
-                r"\,OutlineColour=&H00FFFFFF",
+                r"\,OutlineColour=&H00000000",
                 r"\,Outline=1",
                 r"\,Shadow=1.5",
                 r"\,BackColour=0xE6000000",
