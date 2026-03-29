@@ -108,7 +108,7 @@ def run_sync_pipeline(args):
             pitch=args.tts_pitch,
             strip_silence=True,
             max_concurrent=10,
-            min_silence_len_ms=150
+            min_silence_len_ms=200
         )
         tts_stats = engine.run()
         if tts_stats["ok"] == 0 and len(queue_tts) > 0:
