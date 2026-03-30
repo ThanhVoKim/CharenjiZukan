@@ -1,1 +1,1 @@
-subtitle 370 984 1180 80
+subtitle 0 984 1920 80
