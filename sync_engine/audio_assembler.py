@@ -93,7 +93,7 @@ def assemble_audio_track(
         ambient_src = AudioSegment.from_file(ambient_path)
         
         # Giảm âm lượng nhạc nền xuống (ví dụ: -10 dB) theo yêu cầu
-        ambient_src = ambient_src - 20
+        ambient_src = ambient_src - 25
         
         if len(ambient_src) > 0:
             # Loop đủ dài
