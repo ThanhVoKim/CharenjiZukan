@@ -1,5 +1,42 @@
 # Project Journal
 
+## 2026-03-30: Cập nhật cơ chế Batch Inference cho Video Subtitle Extractor
+
+### Yêu cầu
+
+- Khắc phục lỗi tham số `--batch-size` không có tác dụng thực tế trong `VideoSubtitleExtractor` (Image-to-Text OCR).
+- Thay đổi cấu trúc hàm `ocr_batch` để đẩy nguyên mảng `images` xuống AI model xử lý song song thay vì gọi tuần tự từng ảnh bằng vòng lặp.
+- Thay đổi mặc định `batch_size` từ `8` thành `4` để phù hợp với phần lớn cấu hình VRAM tiêu chuẩn, tránh lỗi OOM.
+- Bảo toàn được thứ tự ảnh đưa vào và kết quả trả về, đồng thời giữ nguyên tính đúng đắn của logic tính toán `start_time` và `end_time` cho SubtitleEntry.
+
+### Thay đổi đã thực hiện
+
+1. **`cli/video_ocr.py` và `video_subtitle_extractor/extractor.py`**:
+   - Thay đổi tham số mặc định của `--batch-size` thành `4`.
+
+2. **`video_subtitle_extractor/extractor.py`**:
+   - Sửa hàm `ocr_batch`: Gọi trực tiếp `self._ocr_model.recognize_batch(images)` thay vì dùng vòng lặp gọi `ocr_image`. Xử lý exception trả về mảng chuỗi rỗng nếu lỗi.
+   - Thay đổi vòng lặp trong hàm `extract()`:
+     - Thay vì gom ảnh của 1 frame rồi OCR ngay, tạo biến `pending_ocr_tasks = []` để tích lũy các yêu cầu OCR qua nhiều frame.
+     - Khi phát hiện Scene Change cần OCR, lập tức tạo ra một `SubtitleEntry` rỗng (placeholder `text=""`) chèn vào `state.entries`. Điều này đảm bảo thuật toán kéo giãn `end_time` (khi không có scene change) vẫn hoạt động đúng trên object entry đó.
+     - Đưa ảnh và object entry vào hàng đợi `pending_ocr_tasks`.
+     - Khi `len(pending_ocr_tasks) >= self.batch_size`, tiến hành trích xuất mảng `images`, gọi `ocr_batch`, lọc tiếng Trung/Hallucination, và điền kết quả `text` ngược lại vào object `entry` tương ứng.
+   - Thêm phần dọn dẹp ở cuối luồng:
+     - Gọi `ocr_batch` cho các phần tử còn sót lại trong `pending_ocr_tasks` khi video kết thúc.
+     - Duyệt lại toàn bộ `state.entries` của tất cả các box để xóa bỏ các entry rỗng (do AI ảo giác hoặc qua bộ lọc không còn text), và đánh lại `index` cho phụ đề liên tục.
+
+### Trạng thái hiện tại
+
+- ✅ Chuyển đổi thành công sang cơ chế Batch Inference thực thụ cho Image-to-Text OCR.
+- ✅ Logic tính toán timestamp (start_time, end_time) hoàn toàn tương thích và chính xác.
+- ✅ Các class Backend (như `Qwen3VLOCR`) sẽ tự động tận dụng được `recognize_batch` để xử lý song song trên GPU.
+
+### Đối chiếu Data Flow
+
+- Việc tích lũy frame thành batch không làm thay đổi workflow ở cấp độ module, mà chỉ trì hoãn việc lấy text (deferred text population) trong khi vẫn duy trì mạch thời gian của thuật toán Scene Change Detection.
+
+---
+
 ## 2026-03-28: Điều chỉnh Flow Index, Âm lượng Ambient và TTS Audio Filter
 
 ### Yêu cầu

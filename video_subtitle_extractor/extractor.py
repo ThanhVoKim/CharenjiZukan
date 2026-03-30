@@ -87,7 +87,7 @@ class VideoSubtitleExtractor:
         # OCR settings
         ocr_model: str = "deepseek-ai/DeepSeek-OCR-2",
         device: str = "cuda",
-        batch_size: int = 8,
+        batch_size: int = 4,
         hf_token: Optional[str] = None,
         qwen_max_new_tokens: int = 256,
         qwen_min_pixels: int = 256 * 28 * 28,
@@ -195,17 +195,17 @@ class VideoSubtitleExtractor:
             return ""
     
     def ocr_batch(self, images: List[np.ndarray]) -> List[str]:
-        """OCR một list các images"""
+        """OCR một list các images theo batch"""
         if not images:
             return []
         if not self._model_loaded:
             self.load_ocr_model()
             
-        results = []
-        for i, image in enumerate(images):
-            text = self.ocr_image(image)
-            results.append(text)
-        return results
+        try:
+            return self._ocr_model.recognize_batch(images)
+        except Exception as e:
+            logger.error(f"Batch OCR error: {e}")
+            return [""] * len(images)
     
     def extract(
         self, 
@@ -258,6 +258,8 @@ class VideoSubtitleExtractor:
         processed_frames_count = 0
         ocr_total_calls = 0
         
+        pending_ocr_tasks = []
+        
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
@@ -270,9 +272,6 @@ class VideoSubtitleExtractor:
                 
             timestamp = frame_number / fps
             processed_frames_count += 1
-            
-            ocr_needed_images = []
-            ocr_needed_boxes = []
             
             # 2. Xử lý từng box độc lập
             for box_name, state in self.box_states.items():
@@ -304,8 +303,20 @@ class VideoSubtitleExtractor:
                         )
 
                     if prefilter_passed:
-                        ocr_needed_images.append(curr_roi)
-                        ocr_needed_boxes.append(box_name)
+                        # Đưa vào danh sách chờ xử lý batch
+                        entry = SubtitleEntry(
+                            index=len(state.entries) + 1,
+                            start_time=timestamp,
+                            end_time=timestamp + self.default_subtitle_duration,
+                            text=""  # Placeholder
+                        )
+                        state.entries.append(entry)
+                        
+                        pending_ocr_tasks.append({
+                            "image": curr_roi,
+                            "box_name": box_name,
+                            "entry": entry
+                        })
                     else:
                         # Nếu bỏ qua OCR vì không có dấu hiệu text,
                         # kéo nhẹ end_time để tránh tạo gap nhỏ không cần thiết
@@ -319,28 +330,20 @@ class VideoSubtitleExtractor:
                     
                 state.prev_roi = curr_roi.copy()
             
-            # 3. Selective OCR - Gọi batch OCR cho các vùng thay đổi
-            if ocr_needed_images:
-                results = self.ocr_batch(ocr_needed_images)
-                ocr_total_calls += len(ocr_needed_images)
+            # 3. Thực thi Batch OCR khi đủ số lượng
+            if len(pending_ocr_tasks) >= self.batch_size:
+                images = [task["image"] for task in pending_ocr_tasks]
+                results = self.ocr_batch(images)
+                ocr_total_calls += len(images)
                 
-                for box_name, text in zip(ocr_needed_boxes, results):
-                    state = self.box_states[box_name]
-                    
+                for task, text in zip(pending_ocr_tasks, results):
                     if self.enable_chinese_filter:
                         processed_text = self.chinese_filter.filter_text(text)
                     else:
                         processed_text = text.strip() if text else ""
-                        
-                    if processed_text:
-                        # Thêm entry mới
-                        entry = SubtitleEntry(
-                            index=len(state.entries) + 1,
-                            start_time=timestamp,
-                            end_time=timestamp + self.default_subtitle_duration,
-                            text=processed_text
-                        )
-                        state.entries.append(entry)
+                    task["entry"].text = processed_text
+                    
+                pending_ocr_tasks.clear()
             
             # Progress callback
             if progress_callback and processed_frames_count % 10 == 0:
@@ -349,6 +352,28 @@ class VideoSubtitleExtractor:
             frame_number += 1
             
         cap.release()
+        
+        # Xử lý nốt các task còn đọng lại khi kết thúc video
+        if pending_ocr_tasks:
+            images = [task["image"] for task in pending_ocr_tasks]
+            results = self.ocr_batch(images)
+            ocr_total_calls += len(images)
+            
+            for task, text in zip(pending_ocr_tasks, results):
+                if self.enable_chinese_filter:
+                    processed_text = self.chinese_filter.filter_text(text)
+                else:
+                    processed_text = text.strip() if text else ""
+                task["entry"].text = processed_text
+                
+            pending_ocr_tasks.clear()
+            
+        # Dọn dẹp các entry rỗng (do OCR không ra chữ hoặc bị filter)
+        for box_name, state in self.box_states.items():
+            state.entries = [entry for entry in state.entries if entry.text]
+            # Đánh lại index
+            for i, entry in enumerate(state.entries):
+                entry.index = i + 1
         
         # 4. Ghi file output
         logger.info(f"\n📝 Writing outputs...")

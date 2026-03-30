@@ -194,7 +194,7 @@ Examples:
         "--batch-size",
         type=int,
         default=argparse.SUPPRESS,
-        help="Batch size cho OCR (mặc định: 8)"
+        help="Batch size cho OCR (mặc định: 4)"
     )
     
     # Output format
@@ -377,7 +377,7 @@ def main():
         # OCR
         ocr_model=get_param("ocr_model", ("ocr", "model"), "deepseek-ai/DeepSeek-OCR-2"),
         device=get_param("device", ("ocr", "device"), "cuda"),
-        batch_size=get_param("batch_size", ("ocr", "batch_size"), 8),
+        batch_size=get_param("batch_size", ("ocr", "batch_size"), 4),
         hf_token=get_param("hf_token", ("ocr", "hf_token"), None),
         qwen_max_new_tokens=get_param("qwen_max_new_tokens", ("ocr", "qwen_max_new_tokens"), 256),
         qwen_min_pixels=get_param("qwen_min_pixels", ("ocr", "qwen_min_pixels"), 256),
