@@ -55,7 +55,7 @@ class Qwen3VLOCR(BaseOCR):
         self.processor = None
         
         # Prompt đơn giản để bắt text từ image
-        self.prompt = "Read and transcribe all visible text in this image exactly as it appears. Output only the text, nothing else."
+        self.prompt = "Read and transcribe all visible text in this image exactly as it appears. Output only the text, nothing else. If there is no text, reply strictly with the word 'EMPTY'."
         
         self._load_model()
         
@@ -134,8 +134,9 @@ class Qwen3VLOCR(BaseOCR):
         if not text_result:
             return ""
 
-        # Tránh lỗi trả về chuỗi "None" (từ str(None))
-        if text_result.strip().lower() == "none":
+        # Tránh lỗi trả về chuỗi "None" (từ str(None)) hoặc từ khóa "EMPTY" từ prompt
+        stripped_lower = text_result.strip().lower()
+        if stripped_lower == "none" or stripped_lower == "empty":
             return ""
 
         empty_phrases = [
@@ -167,10 +168,19 @@ class Qwen3VLOCR(BaseOCR):
             return ""
 
         # 3. Ảo giác sinh ra 1 con số vô nghĩa (vd: "1")
-        if text_result.strip().isdigit() and len(text_result.strip()) <= 2:
+        clean_text = text_result.strip()
+        if clean_text.isdigit() and len(clean_text) <= 2:
+            return ""
+            
+        # 4. Ảo giác chuỗi lặp lại duy nhất một ký tự quá dài (ví dụ: 111111111..., 00000...)
+        if re.fullmatch(r'(.)\1{8,}', clean_text):
+            return ""
+            
+        # 5. Ảo giác chuỗi chỉ chứa 1 ký tự alphabet (ví dụ: "d", "a")
+        if len(clean_text) == 1 and re.fullmatch(r'[a-zA-Z]', clean_text):
             return ""
 
-        return text_result.strip()
+        return clean_text
 
     # Backward compatibility aliases
     _strip_thinking = strip_thinking

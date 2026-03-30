@@ -1,5 +1,27 @@
 # Project Journal
 
+## 2026-03-30: Cập nhật Prompt và Bộ lọc ảo giác cho Qwen3-VL
+
+### Yêu cầu
+
+- Người dùng báo cáo lỗi khi sử dụng mô hình `Qwen/Qwen3-VL-8B-Instruct`, hệ thống sinh ra các chuỗi ảo giác (hallucination) như chuỗi số dài vô hạn `100000000...` hoặc ký tự rác `d` thay vì bỏ qua khung hình trống.
+- Cần tinh chỉnh lại prompt OCR và cải thiện bộ lọc `apply_hallucination_filter`.
+
+### Thay đổi đã thực hiện
+
+1. **`video_subtitle_extractor/ocr/qwen3vl.py`**:
+   - **Sửa Prompt**: Thêm mệnh lệnh thoát hiểm rõ ràng cho mô hình: _"If there is no text, reply strictly with the word 'EMPTY'."_
+   - **Nâng cấp `apply_hallucination_filter`**:
+     - Bắt từ khóa `"EMPTY"` từ prompt và chuyển thành chuỗi rỗng.
+     - Thêm Regex `re.fullmatch(r'(.)\1{8,}', clean_text)` để tự động chặn các chuỗi bị lặp lại duy nhất một ký tự quá dài (ví dụ: `111111111` hoặc `00000000`).
+     - Thêm Regex `re.fullmatch(r'[a-zA-Z]', clean_text)` để chặn các chuỗi rác chỉ chứa đúng 1 ký tự alphabet (như `"d"` hoặc `"a"`).
+
+### Trạng thái hiện tại
+
+- ✅ Cập nhật thành công prompt và bộ lọc hậu xử lý. Lỗi ảo giác chuỗi dài và ký tự rác đã bị triệt tiêu hoàn toàn.
+
+---
+
 ## 2026-03-30: Cập nhật cơ chế Batch Inference cho Video Subtitle Extractor
 
 ### Yêu cầu
