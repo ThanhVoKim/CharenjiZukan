@@ -19,6 +19,54 @@ Ví dụ:
 import re
 from pathlib import Path
 from typing import List, Dict, Optional
+import textwrap
+
+
+def is_cjk(text: str) -> bool:
+    """Kiểm tra xem chuỗi có chứa ký tự CJK (Chinese, Japanese, Korean) hay không."""
+    return bool(re.search(r'[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]', text))
+
+
+def wrap_subtitle_text(text: str, max_chars: int) -> str:
+    """
+    Ngắt dòng đoạn text dựa trên số lượng ký tự tối đa.
+    Hỗ trợ cả CJK (ngắt theo ký tự) và Alphabet (ngắt theo từ).
+    
+    Args:
+        text: Nội dung subtitle
+        max_chars: Số lượng ký tự tối đa trên mỗi dòng (0 = không ngắt)
+        
+    Returns:
+        Chuỗi đã được ngắt dòng
+    """
+    if max_chars <= 0 or not text:
+        return text
+        
+    text = text.replace('\n', ' ').strip()
+    text = re.sub(r'\s+', ' ', text)
+    
+    if is_cjk(text):
+        lines = []
+        current_line = ""
+        punctuations = set("。，、！？：；）】》”’.,!?:;)]}")
+        
+        for char in text:
+            if len(current_line) >= max_chars:
+                if char in punctuations or char == ' ':
+                    current_line += char
+                else:
+                    lines.append(current_line.strip())
+                    current_line = char
+            else:
+                current_line += char
+                
+        if current_line:
+            lines.append(current_line.strip())
+            
+        return "\n".join(lines)
+    else:
+        lines = textwrap.wrap(text, width=max_chars, break_long_words=False)
+        return "\n".join(lines)
 
 
 def ts_to_ms(ts: str) -> int:
@@ -90,8 +138,11 @@ def parse_srt(content: str, skip_empty_text: bool = True) -> List[Dict]:
             continue
         
         t_parts = lines[1].split('-->')
-        start_ms = ts_to_ms(t_parts[0])
-        end_ms = ts_to_ms(t_parts[1])
+        try:
+            start_ms = ts_to_ms(t_parts[0])
+            end_ms = ts_to_ms(t_parts[1])
+        except (ValueError, IndexError):
+            continue
         
         # Parse text (có thể có nhiều dòng)
         text = "\n".join(lines[2:]).strip() if len(lines) > 2 else ""

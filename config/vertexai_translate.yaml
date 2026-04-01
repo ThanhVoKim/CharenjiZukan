@@ -1,0 +1,19 @@
+# Cấu hình cho Google Vertex AI Translation Provider
+project_id: "gemini-main-484617"
+location: "global"
+model: "gemini-3.1-pro-preview"
+generation_config:
+  temperature: 0.2
+  max_output_tokens: 65536
+  candidate_count: 1
+safety_settings:
+  HARM_CATEGORY_HATE_SPEECH: "BLOCK_NONE"
+  HARM_CATEGORY_HARASSMENT: "BLOCK_NONE"
+  HARM_CATEGORY_SEXUALLY_EXPLICIT: "BLOCK_NONE"
+  HARM_CATEGORY_DANGEROUS_CONTENT: "BLOCK_NONE"
+system_prompt: "You are a top-tier Subtitle Translation Engine."
+prompt_file: "prompts/gemini.txt"
+request_timeout: 180
+retry_attempts: 3
+retry_wait_seconds: 10
+max_chars: 0

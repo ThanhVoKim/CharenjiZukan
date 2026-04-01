@@ -1,5 +1,86 @@
 # Project Journal
 
+## 2026-04-01: Thêm tính năng ngắt dòng tự động (word wrap) cho dịch phụ đề SRT
+
+### Yêu cầu
+
+- Thêm tính năng ngắt dòng tự động (`--max-chars`) cho kết quả dịch phụ đề SRT.
+- Hỗ trợ phân biệt cách ngắt dòng giữa ngôn ngữ Alphabet (ngắt theo từ) và ngôn ngữ CJK (ngắt theo ký tự, tránh rớt dấu câu).
+- Tích hợp vào bước cuối cùng của pipeline `translate_srt_file`.
+- Cho phép truyền tham số qua CLI và cấu hình YAML.
+
+### Thay đổi đã thực hiện
+
+1. **`utils/srt_parser.py`**:
+   - Thêm hàm `is_cjk(text)` để nhận diện chữ Trung, Nhật, Hàn.
+   - Thêm hàm `wrap_subtitle_text(text, max_chars)`:
+     - Nếu là CJK: ngắt chính xác theo số lượng ký tự, đảm bảo các dấu câu (`。，、！？：；’”）】》`) không bị rớt xuống đầu dòng mới.
+     - Nếu là Alphabet: sử dụng `textwrap.wrap` ngắt theo từ để không bị đứt giữa từ.
+   - Sửa lỗi bắt `ValueError` trong `parse_srt` khi gặp timestamp không hợp lệ.
+
+2. **`translation/translator.py`**:
+   - Sửa signature `translate_srt_file` nhận thêm tham số `max_chars: int = 0`.
+   - Áp dụng `wrap_subtitle_text` cho toàn bộ `translated_srt` ngay trước khi lưu kết quả ra file SRT.
+   - Sửa tên import hàm `srt_list_to_string` thành `segments_to_srt` để trỏ đúng vào module `utils/srt_parser.py`.
+
+3. **CLI & Cấu hình**:
+   - Thêm tham số `--max-chars` vào `cli/translate_srt.py`. Ưu tiên giá trị CLI, fallback về config YAML nếu CLI = 0.
+   - Thêm `max_chars: 0` vào 2 file cấu hình `config/openai_compat_translate.yaml` và `config/vertexai_translate.yaml`.
+
+4. **Tài liệu & Unit Test**:
+   - Cập nhật tài liệu `docs/colab-guide.md` để giải thích tính năng `--max-chars` trong bảng tham số của lệnh `translate-srt`.
+   - Viết Unit Test `TestWrapSubtitleText` trong `tests/test_srt_parser.py` để kiểm thử logic ngắt dòng CJK và Alphabet.
+
+### Trạng thái hiện tại
+
+- ✅ Tính năng ngắt dòng tự động đã được triển khai và pass tất cả unit test.
+- ✅ CLI, cấu hình YAML và tài liệu hướng dẫn đã đồng bộ.
+
+---
+
+## 2026-04-01: Triển khai hệ thống Multi-Provider Translation cho phụ đề SRT
+
+### Yêu cầu
+
+- Refactor module dịch phụ đề hiện tại (`translator.py` dùng Gemini) sang kiến trúc Multi-Provider linh hoạt hơn.
+- Hỗ trợ thêm các Provider mới: OpenAI-Compatible (DeepSeek, Groq, LM Studio) và Google Vertex AI.
+- Tách riêng cấu hình secret (API key qua CLI/env var) và non-secret (model, temperature, system prompt qua file YAML).
+- Sử dụng `tenacity` để xử lý Retry Error hiệu quả, đặc biệt fail-fast với lỗi xác thực (401) hoặc request sai (400).
+- Giữ nguyên luồng CLI cũ, 100% backward-compatible đối với lệnh `--keys` cho Gemini.
+
+### Thay đổi đã thực hiện
+
+1. **Kiến trúc Provider Abstraction**:
+   - Tạo thư mục `translation/` với lớp trừu tượng `BaseTranslationProvider` (`translation/base.py`).
+   - Refactor Gemini thành `GeminiProvider` (`translation/gemini_provider.py`).
+   - Tích hợp thêm `OpenAICompatibleProvider` (`translation/openai_provider.py`) dùng thư viện `openai`.
+   - Tích hợp thêm `VertexAIProvider` (`translation/vertexai_provider.py`) dùng thư viện `vertexai`.
+   - Xây dựng `factory.py` để khởi tạo provider từ CLI args và YAML config.
+
+2. **Dọn dẹp code `translator.py`**:
+   - Di chuyển core pipeline (`translate_srt_file`) vào `translation/translator.py`.
+   - Xóa các hàm parse trùng lặp (`parse_srt`, `srt_list_to_string`) và dùng chung hàm từ `utils.srt_parser`.
+   - Hàm `translate_srt_file()` giờ nhận tham số `provider` thay vì nhận cứng `api_keys` và khởi tạo `GeminiCaller` bên trong.
+
+3. **Cập nhật CLI và Config**:
+   - Chỉnh sửa `cli/translate_srt.py`: thêm các cờ `--provider`, `--provider-config`, và `--base-url`.
+   - Thêm 2 file config mặc định: `config/openai_compat_translate.yaml` và `config/vertexai_translate.yaml`.
+
+4. **Quản lý Dependencies**:
+   - Sửa `pyproject.toml`: khai báo thư mục `translation*` trong gói.
+   - Thêm optional dependencies: `openai-provider` và `vertexai-provider`.
+
+5. **Tài liệu**:
+   - Cập nhật tài liệu CLI trong `docs/colab-guide.md` để hướng dẫn sử dụng các provider mới.
+
+### Trạng thái hiện tại
+
+- ✅ Chuyển đổi thành công sang kiến trúc Multi-Provider.
+- ✅ CLI cũ với Gemini vẫn hoạt động mà không bị gián đoạn.
+- ✅ Sẵn sàng để test độc lập các provider (OpenAI, Vertex AI) với cấu hình YAML và CLI args mới.
+
+---
+
 ## 2026-04-01: Thay đổi logic Scene Detection để chống "nuốt chữ"
 
 ### Yêu cầu

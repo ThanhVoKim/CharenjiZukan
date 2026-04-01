@@ -242,10 +242,38 @@ tests:
     tags: ["unit", "sync_engine"]
     enabled: true
 
-  - name: "Sync Engine — Sync Video Pipeline (Layer 3 Integration)"
-    file: "tests/test_sync_video_pipeline.py"
-    keyword: "Layer3"
-    timeout_sec: 300
+  # ──────────────────────────────────────────────
+  # MULTI-PROVIDER TRANSLATE TESTS
+  # ──────────────────────────────────────────────
+
+  - name: "Translation — Layer 1: Unit Tests (ResponseParser, Factory)"
+    file: "tests/test_translation_providers.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Translation — Layer 2: Pipeline Component with Mock"
+    file: "tests/test_translation_providers.py"
+    keyword: "Layer2"
+    timeout_sec: 60
     pytest_args: ["-v", "-s"]
-    tags: ["integration", "ffmpeg", "sync_engine"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Translation — Layer 3: Integration (Retry Logic)"
+    file: "tests/test_translation_providers.py"
+    keyword: "Layer3"
+    timeout_sec: 60
+    pytest_args: ["-v"]
+    tags: ["integration", "api"]
+    enabled: true
+
+  - name: "Translation — Layer 4: Real APIs"
+    file: "tests/test_translation_providers.py"
+    keyword: "Layer4"
+    timeout_sec: 120
+    pytest_args: ["-v", "-s"]
+    tags: ["api"]
     enabled: true

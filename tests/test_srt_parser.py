@@ -99,6 +99,44 @@ Valid text"""
         assert len(segments) == 1
 
 
+from utils.srt_parser import wrap_subtitle_text, is_cjk
+
+class TestWrapSubtitleText:
+    """Tests for wrap_subtitle_text function."""
+    
+    def test_is_cjk(self):
+        assert is_cjk("Đây là tiếng Việt") == False
+        assert is_cjk("Hello world") == False
+        assert is_cjk("你好") == True
+        assert is_cjk("こんにちは") == True
+        assert is_cjk("안녕하세요") == True
+        assert is_cjk("Mixed text 漢字") == True
+        
+    def test_wrap_alphabet(self):
+        text = "This is a very long text that needs to be wrapped properly."
+        wrapped = wrap_subtitle_text(text, 15)
+        # Should wrap by words
+        assert "This is a very" in wrapped
+        
+    def test_wrap_cjk(self):
+        text = "これは日本語のテキストです。とても長いので、改行する必要があります。"
+        wrapped = wrap_subtitle_text(text, 10)
+        lines = wrapped.split('\n')
+        # Check first line length is 10
+        assert len(lines[0]) == 10
+        # Check punctuation stays on same line
+        # 'です。' should be together, 'ので、' should be together
+        assert '。' not in [line[0] for line in lines]
+        assert '、' not in [line[0] for line in lines]
+
+    def test_wrap_no_max_chars(self):
+        text = "Short text"
+        assert wrap_subtitle_text(text, 0) == "Short text"
+        
+    def test_wrap_empty(self):
+        assert wrap_subtitle_text("", 20) == ""
+
+
 class TestSegmentsToSrt:
     """Tests for segments_to_srt function."""
     

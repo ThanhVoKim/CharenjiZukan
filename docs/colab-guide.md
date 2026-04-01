@@ -275,7 +275,7 @@ Merge 2 file SRT thành 1 file hoàn chỉnh, sắp xếp theo timestamp.
 
 ### 2.4. Dịch SRT (translate-srt)
 
-#### Dịch nhanh (với Secrets)
+#### Dịch nhanh (Gemini - Mặc định)
 
 ```colab
 from google.colab import userdata
@@ -284,6 +284,27 @@ gemini_key = userdata.get('gemini_key')
 !uv run translate-srt \
     --input /content/video.srt \
     --keys  "{gemini_key}"
+```
+
+#### Dịch với OpenAI-Compatible (DeepSeek)
+
+```colab
+!uv run translate-srt \
+    --input /content/video.srt \
+    --provider openai \
+    --provider-config config/openai_compat_translate.yaml \
+    --keys "sk-deepseek-xxx" \
+    --lang "Japanese"
+```
+
+#### Dịch với Vertex AI (Application Default Credentials)
+
+```colab
+!uv run translate-srt \
+    --input /content/video.srt \
+    --provider vertexai \
+    --provider-config config/vertexai_translate.yaml \
+    --lang "Japanese"
 ```
 
 #### Đầy đủ tham số
@@ -295,9 +316,10 @@ gemini_key = userdata.get('gemini_key')
 !uv run translate-srt \
     --input     /content/video.srt \
     --output    /content/video_ja.srt \
+    --provider  gemini \
     --lang      "Japanese" \
     --keys      "{gemini_key}" \
-    --model     "gemini-2.5-flash" \
+    --model     "gemini-3-flash-preview" \
     --prompt    /content/prompts/gemini.txt \
     --batch     30 \
     --budget    24576 \
@@ -308,19 +330,23 @@ gemini_key = userdata.get('gemini_key')
 
 #### Tham số
 
-| Tham số           | Mô tả                                      | Mặc định             |
-| ----------------- | ------------------------------------------ | -------------------- |
-| `--input`, `-i`   | File .srt đầu vào                          | (bắt buộc)           |
-| `--keys`, `-k`    | Gemini API key(s), phân cách bằng dấu phẩy | (bắt buộc)           |
-| `--output`, `-o`  | File .srt đầu ra                           | `<input>_<lang>.srt` |
-| `--lang`, `-l`    | Ngôn ngữ đích (tên tiếng Anh đầy đủ)       | `Vietnamese`         |
-| `--model`, `-m`   | Model Gemini                               | `gemini-2.5-flash`   |
-| `--prompt`        | Đường dẫn tới file prompt gemini.txt       | `prompts/gemini.txt` |
-| `--batch`, `-b`   | Số dòng dịch mỗi lần                       | `30`                 |
-| `--budget`        | Thinking budget tokens (0 để tắt)          | `24576`              |
-| `--wait`          | Giây chờ giữa mỗi batch                    | `0`                  |
-| `--no-context`    | Tắt global context                         | (mặc định bật)       |
-| `--verbose`, `-v` | Hiển thị log chi tiết                      | (tắt)                |
+| Tham số             | Mô tả                                   | Mặc định                 |
+| ------------------- | --------------------------------------- | ------------------------ |
+| `--input`, `-i`     | File .srt đầu vào                       | (bắt buộc)               |
+| `--provider`, `-p`  | Provider (gemini/openai/vertexai)       | `gemini`                 |
+| `--provider-config` | Đường dẫn file config YAML              | (tuỳ provider)           |
+| `--base-url`        | Override base URL cho OpenAI provider   | `None`                   |
+| `--keys`, `-k`      | API key(s), phân cách bằng dấu phẩy     | (bắt buộc gemini/openai) |
+| `--output`, `-o`    | File .srt đầu ra                        | `<input>_<lang>.srt`     |
+| `--lang`, `-l`      | Ngôn ngữ đích (tên tiếng Anh đầy đủ)    | `Vietnamese`             |
+| `--model`, `-m`     | Model Gemini (nếu dùng gemini provider) | `gemini-3-flash-preview` |
+| `--prompt`          | Đường dẫn tới file prompt gemini.txt    | `prompts/gemini.txt`     |
+| `--batch`, `-b`     | Số dòng dịch mỗi lần                    | `30`                     |
+| `--budget`          | Thinking budget tokens (Gemini only)    | `24576`                  |
+| `--wait`            | Giây chờ giữa mỗi batch                 | `0`                      |
+| `--max-chars`       | Số ký tự tối đa mỗi dòng (0 = tắt)      | `0`                      |
+| `--no-context`      | Tắt global context                      | (mặc định bật)           |
+| `--verbose`, `-v`   | Hiển thị log chi tiết                   | (tắt)                    |
 
 ---
 

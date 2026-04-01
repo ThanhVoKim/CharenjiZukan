@@ -41,7 +41,19 @@ video-ocr = "cli.video_ocr:main"
 video-ocr-native = "cli.video_ocr_native:main"
 
 [tool.setuptools.packages.find]
-include = ["cli*", "utils*", "sync_engine*", "video_subtitle_extractor*"]
+include = ["cli*", "utils*", "sync_engine*", "video_subtitle_extractor*", "translation*"]
+
+[project.optional-dependencies]
+openai-provider = [
+    "openai>=1.35.0",
+]
+vertexai-provider = [
+    "google-cloud-aiplatform>=1.60.0",
+]
+all-providers = [
+    "openai>=1.35.0",
+    "google-cloud-aiplatform>=1.60.0",
+]
 
 [dependency-groups]
 dev = [
