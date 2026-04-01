@@ -31,7 +31,7 @@ def create_provider(
             api_key=secrets.get("api_key", ""),
             base_url=cfg.get("base_url", "https://api.openai.com/v1"),
             model=cfg.get("model", "gpt-4o-mini"),
-            temperature=cfg.get("temperature", 0.2),
+            temperature=cfg.get("temperature", 1),
             max_tokens=cfg.get("max_tokens", 8192),
             system_prompt=cfg.get("system_prompt", ""),
             request_timeout=cfg.get("request_timeout", 120),

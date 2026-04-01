@@ -52,7 +52,7 @@ class GeminiProvider(BaseTranslationProvider):
         ]
 
         gen_config = types.GenerateContentConfig(
-            temperature=0.2,
+            temperature=1,
             max_output_tokens=65530,
             safety_settings=[
                 types.SafetySetting(
@@ -79,7 +79,7 @@ class GeminiProvider(BaseTranslationProvider):
         )
 
         if model.startswith("gemini-1.") or model.startswith("gemini-2.0"):
-            gen_config = types.GenerateContentConfig(temperature=0.2, max_output_tokens=65530)
+            gen_config = types.GenerateContentConfig(temperature=1, max_output_tokens=65530)
 
         result = ""
         for chunk in client.models.generate_content_stream(

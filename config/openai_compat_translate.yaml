@@ -1,11 +1,11 @@
 # Cấu hình cho OpenAI-Compatible Translation Provider
 base_url: "https://ramclouds.me/v1"
 model: "gpt-5.4"
-temperature: 0.2
+temperature: 1
 max_tokens: 8192
 system_prompt: "You are a top-tier Subtitle Translation Engine."
 prompt_file: "prompts/gemini.txt"
-request_timeout: 120
+request_timeout: 180
 retry_attempts: 3
 retry_wait_seconds: 5
 max_chars: 0

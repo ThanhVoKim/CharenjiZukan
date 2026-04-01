@@ -68,7 +68,7 @@ def sample_provider_config_path(tmp_path: Path) -> Path:
     """Tạo file YAML config runtime."""
     config_data = {
         "model": "gpt-mock",
-        "temperature": 0.5,
+        "temperature": 1,
         "max_tokens": 1000,
         "base_url": "https://api.mock.com/v1"
     }
@@ -136,7 +136,7 @@ class TestLayer1_Factory:
     def test_load_provider_config(self, sample_provider_config_path: Path):
         cfg = load_provider_config(str(sample_provider_config_path))
         assert cfg["model"] == "gpt-mock"
-        assert cfg["temperature"] == 0.5
+        assert cfg["temperature"] == 1
 
     def test_load_provider_config_not_found(self):
         with pytest.raises(FileNotFoundError):
@@ -167,7 +167,7 @@ class TestLayer1_Factory:
             {"model": "gemini-1.5-pro", "project_id": "test-project"}, 
             {}
         )
-        assert provider.name.startswith("VertexAI")
+        assert provider.name.startswith("Vertex AI")
 
     def test_create_invalid_provider(self):
         with pytest.raises(ValueError, match="Provider không hợp lệ"):

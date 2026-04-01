@@ -15,11 +15,14 @@ class OpenAICompatibleProvider(BaseTranslationProvider):
         retry_wait_seconds: int,
     ):
         try:
+            import httpx
             import openai
         except ImportError:
             raise ImportError("openai package chưa cài. Chạy: pip install openai>=1.35.0")
-            
-        self._client = openai.OpenAI(base_url=base_url, api_key=api_key, timeout=request_timeout)
+        
+        http_client = httpx.Client(headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+        self._client = openai.OpenAI(base_url=base_url, api_key=api_key, timeout=request_timeout, http_client=http_client
+)
         self._model = model
         self._base_url = base_url
         self._temperature = temperature
