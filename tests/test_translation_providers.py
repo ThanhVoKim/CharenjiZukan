@@ -319,11 +319,21 @@ class TestLayer4_RealAPIs:
         )
         
         prompt = "Vui lòng dịch câu sau sang tiếng Việt, phải nằm trong thẻ <TRANSLATE_TEXT>...</TRANSLATE_TEXT>:\nGood morning"
-        result = provider.call(prompt)
-        parsed = parse_translation_response(result)
-        
-        assert len(parsed) > 0
-        assert "chào buổi sáng" in parsed.lower() or "chào" in parsed.lower()
+        try:
+            result = provider.call(prompt)
+            parsed = parse_translation_response(result)
+            
+            assert len(parsed) > 0
+            assert "chào buổi sáng" in parsed.lower() or "chào" in parsed.lower()
+        except Exception as e:
+            import openai
+            if isinstance(e, openai.APIStatusError):
+                print(f"\n[LỖI OPENAI API] HTTP Status Code: {e.status_code}")
+                print(f"[LỖI OPENAI API] Response Body: {e.response.text}")
+                print(f"[LỖI OPENAI API] Headers: {e.response.headers}")
+            else:
+                print(f"\n[LỖI KHÁC] {type(e).__name__}: {str(e)}")
+            raise e
 
     def test_vertexai_real_api(self):
         """Test gửi request thực tế đến Vertex AI lấy cấu hình từ thư mục config/."""
@@ -332,13 +342,17 @@ class TestLayer4_RealAPIs:
         
         config_path = PROJECT_ROOT / "config" / "vertexai_translate.yaml"
         if not config_path.exists():
-            pytest.skip(f"Không tìm thấy file config thật tại {config_path}")
+            skip_msg = f"Không tìm thấy file config thật tại {config_path}"
+            print(f"\n[SKIPPED Vertex AI] Lý do: {skip_msg}")
+            pytest.skip(skip_msg)
             
         config = load_provider_config(str(config_path))
         
         # Bỏ qua nếu user chưa cấu hình project_id thật
         if config.get("project_id") in ["your-gcp-project-id", ""]:
-            pytest.skip("Chưa cấu hình 'project_id' thật trong file vertexai_translate.yaml. Vui lòng mở file và cập nhật.")
+            skip_msg = "Chưa cấu hình 'project_id' thật trong file vertexai_translate.yaml. Vui lòng mở file và cập nhật."
+            print(f"\n[SKIPPED Vertex AI] Lý do: {skip_msg}")
+            pytest.skip(skip_msg)
             
         try:
             # VertexAIProvider không yêu cầu truyền secrets/api_key vì dùng Application Default Credentials
@@ -356,5 +370,7 @@ class TestLayer4_RealAPIs:
             assert "chúc ngủ ngon" in parsed.lower() or "ngủ ngon" in parsed.lower()
         except Exception as e:
             # Nếu báo lỗi Authentication / PermissionDenied thì báo người dùng đăng nhập
-            pytest.skip(f"Không thể xác thực Vertex AI. Vui lòng chạy lệnh 'gcloud auth application-default login' trước. Chi tiết: {e}")
+            skip_msg = f"Không thể xác thực Vertex AI. Vui lòng chạy lệnh 'gcloud auth application-default login' trước. Chi tiết lỗi gốc: {type(e).__name__} - {e}"
+            print(f"\n[SKIPPED Vertex AI] Lý do: {skip_msg}")
+            pytest.skip(skip_msg)
 

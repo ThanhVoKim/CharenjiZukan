@@ -52,17 +52,22 @@ class VertexAIProvider(BaseTranslationProvider):
             reraise=True
         ):
             with attempt:
-                gen_config = GenerationConfig(**self._generation_config)
-                
-                response = self._model.generate_content(
-                    message,
-                    generation_config=gen_config,
-                    safety_settings=self._safety_settings if self._safety_settings else None,
-                )
-
-                if not response.candidates:
-                    raise RuntimeError(
-                        f"Vertex AI response bị block. Feedback: {response.prompt_feedback}"
+                try:
+                    gen_config = GenerationConfig(**self._generation_config)
+                    
+                    response = self._model.generate_content(
+                        message,
+                        generation_config=gen_config,
+                        safety_settings=self._safety_settings if self._safety_settings else None,
                     )
 
-                return response.text
+                    if not response.candidates:
+                        raise RuntimeError(
+                            f"Vertex AI response bị block. Feedback: {response.prompt_feedback}"
+                        )
+
+                    return response.text
+                except Exception as e:
+                    import logging
+                    logging.error(f"[VertexAI Provider] Lỗi API: {type(e).__name__} - {str(e)}")
+                    raise e

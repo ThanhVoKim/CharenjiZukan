@@ -81,12 +81,20 @@ class GeminiProvider(BaseTranslationProvider):
         if model.startswith("gemini-1.") or model.startswith("gemini-2.0"):
             gen_config = types.GenerateContentConfig(temperature=1, max_output_tokens=65530)
 
-        result = ""
-        for chunk in client.models.generate_content_stream(
-            model=model, contents=contents, config=gen_config
-        ):
-            result += chunk.text if chunk.text else ""
+        try:
+            result = ""
+            for chunk in client.models.generate_content_stream(
+                model=model, contents=contents, config=gen_config
+            ):
+                result += chunk.text if chunk.text else ""
 
-        if not result:
-            raise RuntimeError("[Gemini] Response rỗng — sẽ retry")
-        return result
+            if not result:
+                raise RuntimeError("[Gemini] Response rỗng — sẽ retry")
+            return result
+        except Exception as e:
+            from google.genai import errors
+            if isinstance(e, errors.APIError):
+                logger.error(f"[Gemini Provider] API Error {e.code}: {e.message}")
+            else:
+                logger.error(f"[Gemini Provider] Lỗi hệ thống: {type(e).__name__} - {str(e)}")
+            raise e

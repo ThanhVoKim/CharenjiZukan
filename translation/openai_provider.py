@@ -36,10 +36,10 @@ class OpenAICompatibleProvider(BaseTranslationProvider):
         return f"OpenAI-Compatible ({self._model} @ {self._base_url})"
 
     def call(self, message: str) -> str:
-        from openai import AuthenticationError, BadRequestError
+        from openai import AuthenticationError, BadRequestError, PermissionDeniedError
         from tenacity import Retrying, stop_after_attempt, wait_exponential, retry_if_not_exception_type
         
-        NO_RETRY_ERRORS = (AuthenticationError, BadRequestError)
+        NO_RETRY_ERRORS = (AuthenticationError, BadRequestError, PermissionDeniedError)
         
         for attempt in Retrying(
             retry=retry_if_not_exception_type(NO_RETRY_ERRORS),
@@ -61,6 +61,10 @@ class OpenAICompatibleProvider(BaseTranslationProvider):
                         max_tokens=self._max_tokens,
                     )
                     return response.choices[0].message.content or ""
-                except BadRequestError as e:
-                    logging.error(f"Lỗi 400. Nếu model không hỗ trợ 'system', hãy để trống system_prompt trong YAML. Chi tiết: {e}")
-                    raise
+                except Exception as e:
+                    import openai
+                    if isinstance(e, openai.APIStatusError):
+                        logging.error(f"[OpenAI Provider] HTTP Error {e.status_code}: {e.response.text}")
+                    else:
+                        logging.error(f"[OpenAI Provider] Lỗi hệ thống: {type(e).__name__} - {str(e)}")
+                    raise e
