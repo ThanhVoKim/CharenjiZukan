@@ -22,7 +22,9 @@ dependencies = [
     "einops",
     "PyMuPDF",
     "psutil",
-    "addict>=2.4.0"
+    "addict>=2.4.0",
+    "imagehash>=4.3.1",
+    "Pillow>=10.0.0"
 ]
 
 [project.scripts]

@@ -24,11 +24,17 @@ roi:
 # Scene detection settings
 # Phát hiện chuyển cảnh để tối ưu OCR
 scene_detection:
-  # Ngưỡng phát hiện (0-255). Mặc định 30.0
-  threshold: 20.0
+  # Ngưỡng phần trăm thay đổi pixel trên tổng diện tích box để phát hiện chuyển cảnh (mặc định: 1.5)
+  threshold: 1.5
 
-  # Số frame tối thiểu giữa 2 scene change để tránh OCR nhiễu. Mặc định 10
+  # Số frame tối thiểu giữa 2 scene change để tránh OCR nhiễu. Mặc định 3
   min_scene_frames: 3
+
+  # Ngưỡng Hamming distance cho perceptual hash (0-64, nhỏ hơn = nhạy hơn)
+  phash_threshold: 4
+
+  # Ngưỡng loại bỏ nhiễu nén video khi so sánh pixel
+  noise_threshold: 25
 
 # CV prefilter settings
 # Tiền lọc ROI bằng OpenCV Canny edge để giảm ảo giác khi frame không có chữ

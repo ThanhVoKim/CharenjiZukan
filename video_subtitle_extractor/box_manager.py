@@ -11,7 +11,7 @@ Hỗ trợ:
 import os
 import numpy as np
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 import sys
 from pathlib import Path
 
@@ -42,6 +42,7 @@ class BoxState:
     entries: List[SubtitleEntry] = field(default_factory=list)
     current_text: Optional[str] = None
     text_start_time: float = 0.0
+    prev_hash: Optional[Any] = None  # Dùng cho imagehash.dhash
 
 
 def parse_boxes_file(file_path: str) -> List[OcrBox]:

@@ -94,13 +94,25 @@ Examples:
         "--scene-threshold",
         type=float,
         default=argparse.SUPPRESS,
-        help="Ngưỡng phát hiện chuyển cảnh (mặc định: 30.0)"
+        help="Ngưỡng phần trăm thay đổi pixel để phát hiện chuyển cảnh (mặc định: 1.5)"
     )
     parser.add_argument(
         "--min-scene-frames",
         type=int,
         default=argparse.SUPPRESS,
-        help="Số frame tối thiểu giữa 2 lần chuyển cảnh (mặc định: 10)"
+        help="Số frame tối thiểu giữa 2 lần chuyển cảnh (mặc định: 3)"
+    )
+    parser.add_argument(
+        "--phash-threshold",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Ngưỡng Hamming distance cho perceptual hash (mặc định: 4). Giá trị nhỏ hơn = nhạy hơn với thay đổi nhỏ."
+    )
+    parser.add_argument(
+        "--noise-threshold",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Ngưỡng loại bỏ nhiễu nén video khi so sánh pixel (mặc định: 25)"
     )
     parser.add_argument(
         "--no-scene-detection",
@@ -360,8 +372,10 @@ def main():
         
         # Frame processing
         frame_interval=get_param("frame_interval", ("video", "frame_interval"), 30),
-        scene_threshold=0 if hasattr(args, "no_scene_detection") else get_param("scene_threshold", ("scene_detection", "threshold"), 30.0),
-        min_scene_frames=get_param("min_scene_frames", ("scene_detection", "min_scene_frames"), 10),
+        scene_threshold=0 if hasattr(args, "no_scene_detection") else get_param("scene_threshold", ("scene_detection", "threshold"), 1.5),
+        min_scene_frames=get_param("min_scene_frames", ("scene_detection", "min_scene_frames"), 3),
+        phash_threshold=get_param("phash_threshold", ("scene_detection", "phash_threshold"), 4),
+        noise_threshold=get_param("noise_threshold", ("scene_detection", "noise_threshold"), 25),
 
         # CV pre-filtering
         cv_prefilter=get_param("cv_prefilter", ("cv_prefilter", "enabled"), False),

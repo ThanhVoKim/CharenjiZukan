@@ -11,7 +11,7 @@ Bao gồm:
 import cv2
 import numpy as np
 import hashlib
-from typing import Optional, Iterator, Tuple
+from typing import Optional, Iterator, Tuple, Any
 import sys
 from pathlib import Path
 
@@ -39,13 +39,17 @@ class FrameProcessor:
     def __init__(
         self,
         frame_interval: int = 30,
-        scene_threshold: float = 30.0,
+        scene_threshold: float = 1.5,
+        phash_threshold: int = 4,
+        noise_threshold: int = 25,
     ):
         self.frame_interval = frame_interval
         self.scene_threshold = scene_threshold
+        self.phash_threshold = phash_threshold
+        self.noise_threshold = noise_threshold
         
         logger.info(f"FrameProcessor initialized: interval={frame_interval}, "
-                   f"threshold={scene_threshold}")
+                   f"scene_threshold={scene_threshold}%, phash_threshold={phash_threshold}, noise_threshold={noise_threshold}")
     
     def should_process_frame(self, frame_number: int) -> bool:
         """
@@ -87,32 +91,65 @@ class FrameProcessor:
     def detect_scene_change_for_box(
         self, 
         curr_roi: np.ndarray,
-        prev_roi: Optional[np.ndarray]
-    ) -> bool:
+        prev_roi: Optional[np.ndarray],
+        prev_hash: Optional[Any] = None
+    ) -> Tuple[bool, Optional[Any]]:
         """
         Phát hiện chuyển cảnh giữa 2 ROI (của cùng 1 box qua 2 frame)
-        Sử dụng hash-based comparison kết hợp pixel diff nếu cần,
-        hoặc đơn giản tính pixel diff.
+        Sử dụng cấu trúc 3 lớp: Exact match (MD5) -> Perceptual Hash (DHash) -> Diff Threshold
         
         Args:
             curr_roi: ROI hiện tại
             prev_roi: ROI trước đó
+            prev_hash: Hash của ROI trước đó (nếu có)
             
         Returns:
-            True nếu có chuyển cảnh, False nếu không
+            Tuple(True/False: có chuyển cảnh không, curr_hash: hash của frame hiện tại)
         """
         if prev_roi is None:
-            return True
+            return True, None
             
         try:
-            # 1. Fast check bằng Hash (nếu ROI hoàn toàn giống nhau từng pixel)
-            # Tối ưu cho trường hợp video tĩnh hoàn toàn tại vùng box
-            curr_hash = hashlib.md5(curr_roi.tobytes()).hexdigest()
-            prev_hash = hashlib.md5(prev_roi.tobytes()).hexdigest()
-            if curr_hash == prev_hash:
-                return False
+            # ── LAYER 1: Fast exact-match (MD5) ──────────────────────────
+            # Giữ lại: nếu frame giống 100% pixel thì chắc chắn không đổi
+            if curr_roi.tobytes() == prev_roi.tobytes():
+                return False, prev_hash
                 
-            # 2. Chuyển sang grayscale để so sánh
+            # Tính hash của current ROI
+            curr_hash = None
+            try:
+                import imagehash
+                from PIL import Image
+                
+                # Resize nhỏ trước khi hash để tăng tốc
+                h_curr = imagehash.dhash(
+                    Image.fromarray(cv2.cvtColor(curr_roi, cv2.COLOR_BGR2RGB))
+                )
+                curr_hash = h_curr
+                
+                # Nếu không truyền prev_hash vào, tính lại
+                if prev_hash is None:
+                    h_prev = imagehash.dhash(
+                        Image.fromarray(cv2.cvtColor(prev_roi, cv2.COLOR_BGR2RGB))
+                    )
+                else:
+                    h_prev = prev_hash
+                    
+                # ── LAYER 2: Perceptual Hash (dhash) ─────────────────────────
+                hamming_dist = h_curr - h_prev
+                # Hamming distance = 0: giống hệt về cấu trúc
+                # Hamming distance > phash_threshold: cấu trúc thay đổi đáng kể (chữ đổi)
+                if hamming_dist <= self.phash_threshold:
+                    return False, curr_hash
+                # Nếu hash đã khác → bỏ qua layer 3, xác nhận thay đổi luôn
+                return True, curr_hash
+                
+            except ImportError:
+                # imagehash chưa cài → fallback xuống layer 3
+                pass
+
+            # ── LAYER 3: Threshold + Non-zero count (fix root cause) ─────
+            # Thay thế np.mean(diff) để tránh bị loãng trên box lớn
             curr_gray = cv2.cvtColor(curr_roi, cv2.COLOR_BGR2GRAY)
             prev_gray = cv2.cvtColor(prev_roi, cv2.COLOR_BGR2GRAY)
             
@@ -123,14 +160,25 @@ class FrameProcessor:
             # Tính độ khác biệt tuyệt đối
             diff = cv2.absdiff(prev_gray, curr_gray)
             
-            # Tính trung bình độ khác biệt
-            mean_diff = np.mean(diff)
+            # Loại nhiễu nén video (JPEG artifact, codec noise)
+            _, diff_bin = cv2.threshold(diff, self.noise_threshold, 255, cv2.THRESH_BINARY)
             
-            return mean_diff > self.scene_threshold
+            # Tỉ lệ % pixel thực sự thay đổi trên tổng diện tích box
+            changed_pixels = np.count_nonzero(diff_bin)
+            percentage_change = (changed_pixels / diff_bin.size) * 100
+            
+            logger.debug(
+                "Scene change box: changed=%.2f%% threshold=%.2f%% noise_threshold=%d",
+                percentage_change,
+                self.scene_threshold,
+                self.noise_threshold
+            )
+            
+            return percentage_change > self.scene_threshold, curr_hash
             
         except Exception as e:
             logger.error(f"Error in per-box scene detection: {e}")
-            return True  # Mặc định xử lý nếu có lỗi
+            return True, None  # Mặc định xử lý nếu có lỗi
 
     def has_text_content(
         self,

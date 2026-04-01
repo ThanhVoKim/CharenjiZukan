@@ -1,5 +1,47 @@
 # Project Journal
 
+## 2026-04-01: Thay đổi logic Scene Detection để chống "nuốt chữ"
+
+### Yêu cầu
+
+- Khắc phục lỗi OCR bỏ sót nhiều câu phụ đề trong các cảnh tĩnh (camera không di chuyển, box OCR lớn) hoặc khi phụ đề xuất hiện liên tục quá nhanh.
+- Tránh hiện tượng `mean_diff` bị pha loãng khi diện tích vùng box lớn nhưng lượng pixel chữ thay đổi nhỏ.
+- Áp dụng cấu trúc Hash Layer để tăng tốc, và Threshold Layer mới để lọc nhiễu nén video tốt hơn.
+
+### Thay đổi đã thực hiện
+
+1. **`video_subtitle_extractor/frame_processor.py`**:
+   - Viết lại hàm `detect_scene_change_for_box` theo kiến trúc 3 lớp:
+     - **Layer 1 (Exact Match)**: So sánh byte thô (`tobytes()`) cực nhanh.
+     - **Layer 2 (Perceptual Hash)**: Sử dụng thư viện `imagehash` (DHash) để đo độ tương đồng về mặt cấu trúc (bỏ qua khác biệt màu sắc siêu nhỏ), cấu hình bằng tham số `phash_threshold` (mặc định = 4).
+     - **Layer 3 (Diff Threshold)**: Đổi `np.mean(diff)` thành `np.count_nonzero(diff_bin)` qua hàm `cv2.threshold` để đếm chính xác TỶ LỆ phần trăm pixel thay đổi. Sử dụng `noise_threshold` (mặc định = 25) để gạt bỏ nhiễu codec/nén video.
+   - Thêm các tham số cấu hình: `phash_threshold` và `noise_threshold` vào constructor.
+
+2. **`video_subtitle_extractor/extractor.py`**:
+   - Truyền cấu hình ngưỡng mới vào `FrameProcessor`.
+   - Cập nhật quản lý `state.prev_hash` ở mức box (vòng lặp extractor) để truyền cho frame kế tiếp, tránh tính lại Hash cho ảnh cũ.
+
+3. **`video_subtitle_extractor/box_manager.py`**:
+   - Thêm thuộc tính `prev_hash` (kiểu `Any`) vào `BoxState` dataclass.
+
+4. **`cli/video_ocr.py` & `config/extractor_config.yaml`**:
+   - Cập nhật tham số `--scene-threshold` từ mặc định 30.0 sang **1.5** (bây giờ đại diện cho 1.5% diện tích box).
+   - Đổi giá trị `--min-scene-frames` từ 10 thành **3** để bắt nhạy hơn các đoạn text đổi liên tục.
+   - Thêm các cấu hình mới: `--phash-threshold` và `--noise-threshold`.
+
+5. **`pyproject.toml`**:
+   - Khai báo thêm `imagehash>=4.3.1` và `Pillow>=10.0.0` vào dependencies.
+
+6. **Tài liệu**:
+   - Cập nhật các bảng tham số và ví dụ dòng lệnh ở `docs/colab-guide.md`.
+
+### Trạng thái hiện tại
+
+- ✅ Đã nâng cấp thành công kiến trúc nhận diện chuyển cảnh (Scene Detection) lên bản 2.0 đa lớp.
+- ✅ Cải thiện độ nhạy và triệt tiêu vấn đề "nuốt chữ" khi gặp Box to hoặc đoạn Quote.
+
+---
+
 ## 2026-03-30: Cập nhật Prompt và Bộ lọc ảo giác cho Qwen3-VL
 
 ### Yêu cầu

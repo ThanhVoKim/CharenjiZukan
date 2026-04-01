@@ -70,8 +70,10 @@ class VideoSubtitleExtractor:
         
         # Frame processing
         frame_interval: int = 30,
-        scene_threshold: float = 30.0,
+        scene_threshold: float = 1.5,
         min_scene_frames: int = 10,
+        phash_threshold: int = 4,
+        noise_threshold: int = 25,
 
         # CV pre-filtering
         cv_prefilter: bool = False,
@@ -110,7 +112,9 @@ class VideoSubtitleExtractor:
         # Initialize components
         self.frame_processor = FrameProcessor(
             frame_interval=frame_interval,
-            scene_threshold=scene_threshold
+            scene_threshold=scene_threshold,
+            phash_threshold=phash_threshold,
+            noise_threshold=noise_threshold
         )
         self.min_scene_frames = min_scene_frames
 
@@ -277,7 +281,9 @@ class VideoSubtitleExtractor:
             for box_name, state in self.box_states.items():
                 curr_roi = self.frame_processor.crop_roi(frame, state.box)
                 
-                is_changed = self.frame_processor.detect_scene_change_for_box(curr_roi, state.prev_roi)
+                is_changed, curr_hash = self.frame_processor.detect_scene_change_for_box(
+                    curr_roi, state.prev_roi, state.prev_hash
+                )
                 
                 # Bỏ qua scene change nếu chưa đủ số frame tối thiểu kể từ lần cuối thay đổi (nhưng luôn ưu tiên frame đầu tiên)
                 frames_since_last = frame_number - state.last_scene_frame
@@ -329,6 +335,7 @@ class VideoSubtitleExtractor:
                         )
                     
                 state.prev_roi = curr_roi.copy()
+                state.prev_hash = curr_hash
             
             # 3. Thực thi Batch OCR khi đủ số lượng
             if len(pending_ocr_tasks) >= self.batch_size:
@@ -420,6 +427,7 @@ class VideoSubtitleExtractor:
         # Reset state để chuẩn bị cho video tiếp theo (nếu có)
         for state in self.box_states.values():
             state.prev_roi = None
+            state.prev_hash = None
             state.last_scene_frame = 0
             state.entries = []
             
