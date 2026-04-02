@@ -1,18 +1,16 @@
 {
-	"mcpServers": {
-		"context7": {
-			"command": "npx",
-			"args": [
-				"-y",
-				"@upstash/context7-mcp"
-			],
-			"env": {
-				"DEFAULT_MINIMUM_TOKENS": ""
-			},
-			"alwaysAllow": [
-				"query-docs",
-				"resolve-library-id"
-			]
-		}
-	}
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"],
+      "env": {
+        "DEFAULT_MINIMUM_TOKENS": ""
+      },
+      "alwaysAllow": ["query-docs", "resolve-library-id"]
+    },
+    "gitnexus": {
+      "command": "npx",
+      "args": ["-y", "gitnexus@latest", "mcp"]
+    }
+  }
 }

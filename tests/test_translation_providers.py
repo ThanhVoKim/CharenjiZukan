@@ -24,12 +24,44 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-yaml = pytest.importorskip("yaml")
-
 from translation.base import BaseTranslationProvider
 from translation.response_parser import parse_translation_response
-from translation.factory import create_provider, load_provider_config
-from translation.translator import translate_srt_file
+
+
+def _import_yaml_or_skip():
+    return pytest.importorskip("yaml", reason="pyyaml required")
+
+
+def _import_tenacity_or_skip():
+    return pytest.importorskip("tenacity", reason="tenacity required")
+
+
+def _import_translate_modules_or_skip():
+    _import_tenacity_or_skip()
+    try:
+        from translation.translator import translate_srt_file as _translate_srt_file
+        return _translate_srt_file
+    except ImportError as exc:
+        if "google" in str(exc).lower() or "genai" in str(exc).lower():
+            pytest.skip(f"google-genai required: {exc}")
+        raise
+
+
+def create_provider(*args, **kwargs):
+    _import_yaml_or_skip()
+    from translation.factory import create_provider as _create_provider
+    return _create_provider(*args, **kwargs)
+
+
+def load_provider_config(*args, **kwargs):
+    _import_yaml_or_skip()
+    from translation.factory import load_provider_config as _load_provider_config
+    return _load_provider_config(*args, **kwargs)
+
+
+def translate_srt_file(*args, **kwargs):
+    _translate_srt_file = _import_translate_modules_or_skip()
+    return _translate_srt_file(*args, **kwargs)
 
 # ═════════════════════════════════════════════════════════════════════
 # SHARED FIXTURES
@@ -66,6 +98,7 @@ START:
 @pytest.fixture()
 def sample_provider_config_path(tmp_path: Path) -> Path:
     """Tạo file YAML config runtime."""
+    yaml_lib = _import_yaml_or_skip()
     config_data = {
         "model": "gpt-mock",
         "temperature": 1,
@@ -74,7 +107,7 @@ def sample_provider_config_path(tmp_path: Path) -> Path:
     }
     path = tmp_path / "openai_config.yaml"
     with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(config_data, f)
+        yaml_lib.dump(config_data, f)
     return path
 
 
@@ -386,8 +419,7 @@ class TestLayer4_RealAPIs:
     def test_openai_real_api(self):
         """Test gửi request thực tế đến một endpoint OpenAI-Compatible lấy từ cấu hình YAML."""
         pytest.importorskip("openai")
-        from translation.factory import load_provider_config
-        
+
         api_key = os.getenv("OPENAI_API_KEY")
         config_path = PROJECT_ROOT / "config" / "openai_compat_translate.yaml"
         
@@ -422,8 +454,7 @@ class TestLayer4_RealAPIs:
     def test_vertexai_real_api(self):
         """Test gửi request thực tế đến Vertex AI lấy cấu hình từ thư mục config/."""
         pytest.importorskip("google.genai")
-        from translation.factory import load_provider_config
-        
+
         config_path = PROJECT_ROOT / "config" / "vertexai_translate.yaml"
         if not config_path.exists():
             skip_msg = f"Không tìm thấy file config thật tại {config_path}"
