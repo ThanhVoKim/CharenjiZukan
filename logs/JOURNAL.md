@@ -1,5 +1,88 @@
 # Project Journal
 
+## 2026-04-02: Bổ sung retry cho lỗi "nuốt block" trong pipeline dịch SRT
+
+### Yêu cầu
+
+- Khi model trả về thiếu block dịch (ví dụ gốc 70, dịch 69), hệ thống không được im lặng giữ nguyên batch ngay lập tức.
+- Cần tự động retry lại batch, và số lần retry phải đồng bộ với tham số `retry_attempts` của provider.
+
+### Thay đổi đã thực hiện
+
+1. **`translation/translator.py`**:
+   - Thêm exception chuyên biệt `BatchIntegrityError` để đánh dấu lỗi phản hồi không toàn vẹn.
+   - Refactor `merge_translated_batch(...)`:
+     - Nếu parse lỗi hoặc lệch số block thì **raise** `BatchIntegrityError`.
+     - Chỉ merge khi số block khớp hoàn toàn.
+   - Thêm `_get_retry_attempts(provider)` để đọc số lần retry từ provider (`_retry_attempts`), fallback an toàn về 3.
+   - Cập nhật vòng lặp xử lý từng batch trong `translate_srt_file(...)`:
+     - Retry lỗi integrity theo đúng `retry_attempts` của provider.
+     - In log retry theo từng lần thử.
+     - Chỉ đánh dấu failed khi đã hết số lần retry.
+     - Lỗi khác (network/API ngoài integrity) vẫn fail batch ngay như cũ.
+
+### Trạng thái hiện tại
+
+- ✅ Lỗi lệch block ("nuốt dòng") đã có retry tự động theo `retry_attempts`.
+- ✅ Không còn hành vi mặc định "giữ nguyên batch ngay lập tức" ở lần lỗi đầu cho mismatch.
+- ✅ File `translation/translator.py` đã pass kiểm tra cú pháp.
+
+### Bước tiếp theo đề xuất
+
+1. Chạy lại pipeline thực tế với batch lớn để quan sát log retry integrity.
+2. Nếu tỷ lệ mismatch còn cao, giảm `batch_size` hoặc tăng hướng dẫn output format trong prompt để giảm xác suất mất block.
+
+---
+
+## 2026-04-02: Refactor ưu tiên tham số CLI > YAML > Default cho `translate-srt`
+
+### Yêu cầu
+
+- Đảm bảo toàn bộ tham số cấu hình chạy theo thứ tự ưu tiên thống nhất: **CLI > file config > mặc định**.
+- Mở rộng `--model` để dùng cho mọi provider (`gemini`, `openai`, `vertexai`), không giới hạn riêng Gemini.
+
+### Thay đổi đã thực hiện
+
+1. **`cli/translate_srt.py` — parser**:
+   - Chuyển các tham số runtime sang `default=None` để phân biệt rõ "user có truyền CLI" hay không:
+     - `--model`
+     - `--batch`
+     - `--budget`
+     - `--max-chars`
+     - `--wait`
+   - Đổi `--no-context` sang `--context/--no-context` bằng `argparse.BooleanOptionalAction`, `default=None` để áp dụng đúng thứ tự ưu tiên với YAML.
+
+2. **`cli/translate_srt.py` — resolve config**:
+   - Thêm hàm `resolve_by_priority(...)` để chuẩn hóa cơ chế fallback: **CLI > config > default**.
+   - Áp dụng resolve cho các tham số chính:
+     - `model`
+     - `thinking_budget` (gemini)
+     - `batch_size`
+     - `wait_sec`
+     - `max_chars`
+     - `use_full_context`
+
+3. **Mở rộng `--model` cho mọi provider**:
+   - Bỏ ràng buộc model chỉ override trong nhánh `gemini`.
+   - Đưa `provider_config["model"]` về một điểm resolve chung theo `provider_type`.
+
+4. **Đồng bộ hiển thị cấu hình và pipeline runtime**:
+   - Bảng summary in ra giá trị đã resolve cuối cùng (`batch_size`, `max_chars`, `use_full_context`).
+   - Hàm `translate_srt_file(...)` nhận đúng các biến runtime đã resolve, tránh dùng trực tiếp `args.*` chưa qua fallback.
+
+### Trạng thái hiện tại
+
+- ✅ Cơ chế ưu tiên tham số đã được chuẩn hóa theo yêu cầu.
+- ✅ `--model` dùng được cho mọi provider.
+- ⏳ Chưa chạy test tích hợp end-to-end trong môi trường hiện tại; cần xác nhận lại bằng lệnh CLI thực tế.
+
+### Bước tiếp theo đề xuất
+
+1. Chạy smoke test cho từng provider để xác nhận ưu tiên hoạt động đúng.
+2. Cập nhật tài liệu `docs/colab-guide.md` về semantics mới của `--context/--no-context` và thứ tự ưu tiên tham số.
+
+---
+
 ## 2026-04-01: Thêm tính năng ngắt dòng tự động (word wrap) cho dịch phụ đề SRT
 
 ### Yêu cầu

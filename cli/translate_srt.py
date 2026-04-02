@@ -104,9 +104,9 @@ Ví dụ đầy đủ:
     )
     parser.add_argument(
         "--model", "-m",
-        default="gemini-3-flash-preview",
+        default=None,
         metavar="MODEL",
-        help="Gemini model (mặc định: gemini-3-flash-preview)",
+        help="Model name cho provider (ưu tiên: CLI > config > default provider)",
     )
     parser.add_argument(
         "--prompt",
@@ -117,35 +117,36 @@ Ví dụ đầy đủ:
     parser.add_argument(
         "--batch", "-b",
         type=int,
-        default=30,
+        default=None,
         metavar="N",
-        help="Số SRT block mỗi batch (mặc định: 30)",
+        help="Số SRT block mỗi batch (ưu tiên: CLI > config > mặc định 30)",
     )
     parser.add_argument(
         "--budget",
         type=int,
-        default=24576,
+        default=None,
         metavar="TOKENS",
-        help="Thinking budget tokens, 0 để tắt (mặc định: 24576)",
+        help="Thinking budget tokens (gemini), ưu tiên: CLI > config > mặc định 24576",
     )
     parser.add_argument(
         "--max-chars",
         type=int,
-        default=0,
+        default=None,
         metavar="CHARS",
-        help="Số lượng ký tự tối đa trên mỗi dòng (0 để tắt). Hỗ trợ ngắt chuẩn CJK và Alphabet.",
+        help="Số ký tự tối đa trên mỗi dòng (ưu tiên: CLI > config > mặc định 0=tắt)",
     )
     parser.add_argument(
-        "--no-context",
-        action="store_true",
-        help="Tắt full-context: không gửi toàn bộ SRT làm context nền",
+        "--context",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Bật/tắt full-context (ưu tiên: CLI > config > mặc định bật). Dùng --no-context để tắt.",
     )
     parser.add_argument(
         "--wait",
         type=float,
-        default=0.0,
+        default=None,
         metavar="SEC",
-        help="Giây chờ giữa mỗi batch (mặc định: 0)",
+        help="Giây chờ giữa mỗi batch (ưu tiên: CLI > config > mặc định 0)",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -154,6 +155,18 @@ Ví dụ đầy đủ:
     )
 
     return parser
+
+
+def resolve_by_priority(cli_value, config: dict, config_keys: list[str], default_value):
+    """Ưu tiên giá trị: CLI > YAML config > default."""
+    if cli_value is not None:
+        return cli_value
+
+    for key in config_keys:
+        if key in config and config.get(key) is not None:
+            return config.get(key)
+
+    return default_value
 
 
 # ─────────────────────────────────────────────────────────────
@@ -220,24 +233,48 @@ def main():
     elif provider_type == "vertexai":
         config_path = config_path or "config/vertexai_translate.yaml"
 
-    if provider_type in ["openai", "vertexai"]:
+    if config_path:
         from translation.factory import load_provider_config
         try:
             provider_config = load_provider_config(config_path)
         except Exception as e:
             logger.warning(f"Không thể tải config {config_path}: {e}")
-        if base_url and provider_type == "openai":
-            provider_config["base_url"] = base_url
+
+    if base_url and provider_type == "openai":
+        provider_config["base_url"] = base_url
+
+    default_model_by_provider = {
+        "gemini": "gemini-3-flash-preview",
+        "openai": "gpt-5.4",
+        "vertexai": "gemini-3-flash-preview",
+    }
+
+    provider_config["model"] = resolve_by_priority(
+        args.model,
+        provider_config,
+        ["model"],
+        default_model_by_provider.get(provider_type, "gemini-3-flash-preview"),
+    )
 
     if provider_type == "gemini":
-        provider_config["model"] = args.model
-        provider_config["thinking_budget"] = args.budget
+        provider_config["thinking_budget"] = resolve_by_priority(
+            args.budget,
+            provider_config,
+            ["thinking_budget", "budget"],
+            24576,
+        )
+
+    batch_size = resolve_by_priority(args.batch, provider_config, ["batch", "batch_size"], 30)
+    wait_sec = resolve_by_priority(args.wait, provider_config, ["wait", "wait_sec"], 0.0)
+    max_chars = resolve_by_priority(args.max_chars, provider_config, ["max_chars"], 0)
+    use_full_context = resolve_by_priority(
+        args.context,
+        provider_config,
+        ["use_full_context", "full_context"],
+        True,
+    )
 
     provider = create_provider(provider_type, provider_config, secrets)
-
-    max_chars = args.max_chars
-    if max_chars == 0 and "max_chars" in provider_config:
-        max_chars = provider_config.get("max_chars", 0)
 
     # In tóm tắt cấu hình
     print("=" * 55)
@@ -247,9 +284,9 @@ def main():
     print(f"  Output   : {output_file}")
     print(f"  Provider : {provider.name}")
     print(f"  Lang     : {args.lang}")
-    print(f"  Batch    : {args.batch}")
+    print(f"  Batch    : {batch_size}")
     print(f"  Max chars: {max_chars}")
-    print(f"  Context  : {'OFF' if args.no_context else 'ON'}")
+    print(f"  Context  : {'ON' if use_full_context else 'OFF'}")
     print("=" * 55)
 
     # Gọi pipeline dịch
@@ -260,9 +297,9 @@ def main():
             prompt_file     = prompt_file,
             provider        = provider,
             target_language = args.lang,
-            batch_size      = args.batch,
-            use_full_context= not args.no_context,
-            wait_sec        = args.wait,
+            batch_size      = batch_size,
+            use_full_context= use_full_context,
+            wait_sec        = wait_sec,
             max_chars       = max_chars,
         )
         sys.exit(0)

@@ -1,7 +1,7 @@
 # Cấu hình cho Google Vertex AI Translation Provider
 project_id: "gemini-main-484617"
 location: "global"
-model: "gemini-3.1-pro-preview"
+model: "gemini-3-flash-preview"
 generation_config:
   temperature: 1
   max_output_tokens: 65536

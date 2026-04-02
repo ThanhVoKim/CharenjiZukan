@@ -921,10 +921,10 @@ OPTIONS:
 !python run_colab_tests.py --tags integration ffmpeg
 ```
 
-**Chạy tests cần GPU**:
+**Chạy test 1 hàm**:
 
 ```colab
-!python run_colab_tests.py --tags gpu
+!python -m pytest tests/test_translation_providers.py::TestLayer4_RealAPIs::test_vertexai_real_api
 ```
 
 **Chạy tất cả tests liên quan 1 feature**:

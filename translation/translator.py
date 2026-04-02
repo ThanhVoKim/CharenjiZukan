@@ -33,21 +33,45 @@ def load_prompt(prompt_file: str, target_language: str) -> str:
     content = Path(prompt_file).read_text(encoding='utf-8', errors='ignore')
     return content.replace('{lang}', target_language)
 
+
+class BatchIntegrityError(RuntimeError):
+    """Lỗi dữ liệu phản hồi không toàn vẹn (thiếu block/sai format)."""
+
+
 def merge_translated_batch(translated_str: str, original_batch: List[dict]) -> List[dict]:
-    result = copy.deepcopy(original_batch)
     try:
         translated_blocks = parse_srt(translated_str)
-        if len(translated_blocks) == len(original_batch):
-            for i, block in enumerate(translated_blocks):
-                result[i]['text'] = block['text']
-            return result
-        logger.warning(
-            f"Block mismatch: gốc={len(original_batch)}, dịch={len(translated_blocks)} "
-            "→ giữ nguyên batch này"
-        )
     except Exception as e:
-        logger.warning(f"Lỗi parse translated batch: {e} → giữ nguyên batch này")
+        raise BatchIntegrityError(f"Lỗi parse translated batch: {e}") from e
+
+    if len(translated_blocks) != len(original_batch):
+        raise BatchIntegrityError(
+            f"Block mismatch: gốc={len(original_batch)}, dịch={len(translated_blocks)}"
+        )
+
+    result = copy.deepcopy(original_batch)
+    for i, block in enumerate(translated_blocks):
+        result[i]['text'] = block['text']
     return result
+
+
+def _get_retry_attempts(provider: BaseTranslationProvider) -> int:
+    raw_retry_attempts = getattr(provider, "_retry_attempts", 3)
+    try:
+        retry_attempts = int(raw_retry_attempts)
+    except (TypeError, ValueError):
+        retry_attempts = 3
+    return max(1, retry_attempts)
+
+
+def _get_retry_wait_seconds(provider: BaseTranslationProvider) -> float:
+    raw_retry_wait_seconds = getattr(provider, "_retry_wait_seconds", 0)
+    try:
+        retry_wait_seconds = float(raw_retry_wait_seconds)
+    except (TypeError, ValueError):
+        retry_wait_seconds = 0.0
+    return max(0.0, retry_wait_seconds)
+
 
 def translate_srt_file(
     input_file: str,
@@ -82,6 +106,13 @@ def translate_srt_file(
         logger.info(f"📝 Full context: {len(full_text)} ký tự")
 
     caller = provider
+    batch_retry_attempts = _get_retry_attempts(provider)
+    batch_retry_wait_seconds = _get_retry_wait_seconds(provider)
+    logger.info(
+        f"🔁 Batch integrity retry config: attempts={batch_retry_attempts}, "
+        f"wait={batch_retry_wait_seconds}s"
+    )
+
     translated_srt = copy.deepcopy(srt_list)
     batches = [srt_list[i : i + batch_size] for i in range(0, total, batch_size)]
     total_batches = len(batches)
@@ -109,24 +140,48 @@ def translate_srt_file(
             flush=True,
         )
 
-        try:
-            t0 = time.time()
-            raw_result = caller.call(prompt_message)
-            translated_text = parse_translation_response(raw_result)
-            elapsed_batch = time.time() - t0
+        for attempt in range(1, batch_retry_attempts + 1):
+            try:
+                t0 = time.time()
+                raw_result = caller.call(prompt_message)
+                try:
+                    translated_text = parse_translation_response(raw_result)
+                except Exception as e:
+                    raise BatchIntegrityError(f"Không parse được <TRANSLATE_TEXT>: {e}") from e
 
-            offset = idx * batch_size
-            translated_batch = merge_translated_batch(translated_text, batch)
-            for j, item in enumerate(translated_batch):
-                translated_srt[offset + j]["text"] = item["text"]
+                elapsed_batch = time.time() - t0
 
-            success_count += 1
-            print(f"✅  {elapsed_batch:.1f}s")
+                offset = idx * batch_size
+                translated_batch = merge_translated_batch(translated_text, batch)
+                for j, item in enumerate(translated_batch):
+                    translated_srt[offset + j]["text"] = item["text"]
 
-        except Exception as e:
-            failed_count += 1
-            print(f"❌  {e}")
-            logger.error(f"Batch {idx + 1} thất bại: {e}")
+                success_count += 1
+                print(f"✅  {elapsed_batch:.1f}s")
+                break
+
+            except BatchIntegrityError as e:
+                if attempt < batch_retry_attempts:
+                    print(f"⚠️  retry {attempt}/{batch_retry_attempts}: {e}")
+                    logger.warning(
+                        f"Batch {idx + 1} phản hồi không hợp lệ (lần {attempt}/{batch_retry_attempts}): {e}"
+                    )
+                    if batch_retry_wait_seconds > 0:
+                        print(f"   ⏳ chờ {batch_retry_wait_seconds:g}s trước khi retry...")
+                        time.sleep(batch_retry_wait_seconds)
+                    continue
+
+                failed_count += 1
+                print(f"❌  {e}")
+                logger.error(
+                    f"Batch {idx + 1} thất bại sau {batch_retry_attempts} lần retry do lỗi phản hồi: {e}"
+                )
+
+            except Exception as e:
+                failed_count += 1
+                print(f"❌  {e}")
+                logger.error(f"Batch {idx + 1} thất bại: {e}")
+                break
 
         if wait_sec > 0:
             time.sleep(wait_sec)
