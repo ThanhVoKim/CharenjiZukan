@@ -47,12 +47,9 @@ include = ["cli*", "utils*", "sync_engine*", "video_subtitle_extractor*", "trans
 openai-provider = [
     "openai>=1.35.0",
 ]
-vertexai-provider = [
-    "google-cloud-aiplatform>=1.60.0",
-]
+vertexai-provider = []
 all-providers = [
     "openai>=1.35.0",
-    "google-cloud-aiplatform>=1.60.0",
 ]
 
 [dependency-groups]

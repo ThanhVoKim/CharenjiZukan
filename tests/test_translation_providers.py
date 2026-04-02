@@ -146,7 +146,7 @@ class TestLayer1_Factory:
         gemini = pytest.importorskip("google.genai", reason="google-genai required")
         provider = create_provider(
             "gemini", 
-            {"model": "gemini-2.5"}, 
+            {"model": "gemini-3.1-flash-lite-preview"}, 
             {"api_keys": ["KEY_1"]}
         )
         assert provider.name.startswith("Gemini")
@@ -161,12 +161,14 @@ class TestLayer1_Factory:
         assert provider.name.startswith("OpenAI")
 
     def test_create_vertexai_provider(self):
-        vertexai = pytest.importorskip("vertexai", reason="google-cloud-aiplatform required")
-        provider = create_provider(
-            "vertexai", 
-            {"model": "gemini-1.5-pro", "project_id": "test-project"}, 
-            {}
-        )
+        pytest.importorskip("google.genai", reason="google-genai required")
+
+        with patch("google.genai.Client", return_value=MagicMock()):
+            provider = create_provider(
+                "vertexai",
+                {"model": "gemini-3.1-flash-lite-preview", "project_id": "test-project"},
+                {}
+            )
         assert provider.name.startswith("Vertex AI")
 
     def test_create_invalid_provider(self):
@@ -266,6 +268,88 @@ class TestLayer3_RetryLogic:
         assert result == "<TRANSLATE_TEXT>Success</TRANSLATE_TEXT>"
 
 
+class TestLayer3_VertexAICache:
+    """Test context cache integration cho Vertex AI provider bằng mock."""
+
+    def test_vertexai_set_global_context_creates_cache_and_call_uses_cached_content(self):
+        pytest.importorskip("google.genai", reason="google-genai required")
+
+        from translation import vertexai_provider as vertexai_provider_module
+
+        mock_client = MagicMock()
+        mock_cached = MagicMock()
+        mock_cached.name = "projects/p/locations/l/cachedContents/cache-001"
+        mock_client.caches.create.return_value = mock_cached
+
+        mock_response = MagicMock()
+        mock_response.candidates = [MagicMock()]
+        mock_response.text = "<TRANSLATE_TEXT>ok</TRANSLATE_TEXT>"
+        mock_client.models.generate_content.return_value = mock_response
+
+        with patch("google.genai.Client", return_value=mock_client):
+            provider = vertexai_provider_module.VertexAIProvider(
+                project_id="demo-project",
+                location="global",
+                model="gemini-3.1-flash-lite-preview",
+                generation_config={"temperature": 0.1, "max_output_tokens": 4096},
+                safety_settings={},
+                system_prompt="You are a translator",
+                request_timeout=60,
+                retry_attempts=1,
+                retry_wait_seconds=1,
+                cache_ttl_seconds=600,
+            )
+
+        captured_generate_cfg = {}
+
+        def fake_generate_content_config(**kwargs):
+            captured_generate_cfg.update(kwargs)
+            return kwargs
+
+        provider._types.GenerateContentConfig = fake_generate_content_config
+
+        long_context = "x" * 9000
+        used_cache = provider.set_global_context(long_context)
+
+        assert used_cache is True
+        assert provider._cached_content_name == "projects/p/locations/l/cachedContents/cache-001"
+        mock_client.caches.create.assert_called_once()
+
+        result = provider.call("Translate this")
+        assert result == "<TRANSLATE_TEXT>ok</TRANSLATE_TEXT>"
+
+        mock_client.models.generate_content.assert_called_once()
+        assert captured_generate_cfg.get("cached_content") == "projects/p/locations/l/cachedContents/cache-001"
+
+    def test_vertexai_set_global_context_fallback_when_context_too_short(self):
+        pytest.importorskip("google.genai", reason="google-genai required")
+
+        from translation import vertexai_provider as vertexai_provider_module
+
+        mock_client = MagicMock()
+        mock_client.caches.create.side_effect = RuntimeError(
+            "The minimum input token count for context caching is 2048 tokens"
+        )
+
+        with patch("google.genai.Client", return_value=mock_client):
+            provider = vertexai_provider_module.VertexAIProvider(
+                project_id="demo-project",
+                location="global",
+                model="gemini-3.1-flash-lite-preview",
+                generation_config={"temperature": 0.1},
+                safety_settings={},
+                system_prompt="",
+                request_timeout=60,
+                retry_attempts=1,
+                retry_wait_seconds=1,
+            )
+
+        used_cache = provider.set_global_context("too short")
+        assert used_cache is False
+        assert provider._cached_content_name is None
+        mock_client.caches.create.assert_called_once()
+
+
 # ═════════════════════════════════════════════════════════════════════
 # LAYER 4 — REAL MODEL TESTS
 # ═════════════════════════════════════════════════════════════════════
@@ -275,7 +359,7 @@ class TestLayer4_RealAPIs:
     """Test với API thật trên Colab. Tự động đọc cấu hình từ thư mục config/."""
     
     @pytest.mark.skipif(
-        not os.getenv("GEMINI_API_KEY"), 
+        not os.getenv("GEMINI_API_KEY"),
         reason="Không có GEMINI_API_KEY trong environment"
     )
     def test_gemini_real_api(self):
@@ -284,7 +368,7 @@ class TestLayer4_RealAPIs:
         api_key = os.getenv("GEMINI_API_KEY")
         provider = create_provider(
             "gemini", 
-            {"model": "gemini-3-flash-preview"}, 
+            {"model": "gemini-3.1-flash-lite-preview"}, 
             {"api_keys": [api_key]}
         )
         
@@ -296,7 +380,7 @@ class TestLayer4_RealAPIs:
         assert "chào" in parsed.lower()
     
     @pytest.mark.skipif(
-        not os.getenv("OPENAI_API_KEY"), 
+        not os.getenv("OPENAI_API_KEY"),
         reason="Không có OPENAI_API_KEY trong environment"
     )
     def test_openai_real_api(self):
@@ -337,7 +421,7 @@ class TestLayer4_RealAPIs:
 
     def test_vertexai_real_api(self):
         """Test gửi request thực tế đến Vertex AI lấy cấu hình từ thư mục config/."""
-        pytest.importorskip("google.cloud.aiplatform")
+        pytest.importorskip("google.genai")
         from translation.factory import load_provider_config
         
         config_path = PROJECT_ROOT / "config" / "vertexai_translate.yaml"

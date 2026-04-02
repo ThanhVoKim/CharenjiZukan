@@ -105,6 +105,10 @@ def translate_srt_file(
         context_block = _GLOBAL_CONTEXT_TEMPLATE.replace("{COMPLETE_SRT_TEXT}", full_text)
         logger.info(f"📝 Full context: {len(full_text)} ký tự")
 
+        if provider.set_global_context(context_block):
+            logger.info("🧠 Provider đã tiếp nhận global context nội bộ (cache mode)")
+            context_block = ""
+
     caller = provider
     batch_retry_attempts = _get_retry_attempts(provider)
     batch_retry_wait_seconds = _get_retry_wait_seconds(provider)

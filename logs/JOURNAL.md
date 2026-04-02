@@ -1,5 +1,60 @@
 # Project Journal
 
+## 2026-04-02: Tích hợp Vertex AI Context Cache cho Global Context
+
+### Yêu cầu
+
+- Với provider Vertex AI, tránh gửi lặp Global Context ở mỗi prompt batch để tiết kiệm token.
+- Tạo explicit cache cho Global Context và tái sử dụng qua `cached_content` trong các request batch.
+- Bổ sung test mock xác nhận cache được tạo và được gắn vào request.
+- Bổ sung test fallback cho trường hợp context quá ngắn / không đạt điều kiện token tối thiểu.
+
+### Thay đổi đã thực hiện
+
+1. **`translation/base.py`**
+   - Thêm API mở rộng `set_global_context(context: str) -> bool` vào `BaseTranslationProvider`.
+   - Mặc định trả `False` để các provider không hỗ trợ cache vẫn giữ hành vi cũ.
+
+2. **`translation/translator.py`**
+   - Khi `use_full_context=True`, pipeline gọi `provider.set_global_context(context_block)` trước vòng lặp batch.
+   - Nếu provider trả `True`, prompt batch sẽ không chèn lại `{context_block}` (tránh gửi lặp context).
+
+3. **`translation/vertexai_provider.py`**
+   - Migrate từ `vertexai.generative_models` sang `google-genai` SDK (`genai.Client(vertexai=True, ...)`).
+   - Implement explicit context cache:
+     - tạo cache qua `client.caches.create(...)`,
+     - lưu `cached_content` name nội bộ,
+     - dùng lại trong `GenerateContentConfig(cached_content=...)` khi gọi `models.generate_content(...)`.
+   - Thêm fallback an toàn trong `set_global_context`:
+     - nếu lỗi liên quan ngưỡng token tối thiểu (ví dụ 2048 token), trả `False` để pipeline quay lại chèn context inline.
+
+4. **`translation/factory.py` & `config/vertexai_translate.yaml`**
+   - Bổ sung tham số `cache_ttl_seconds` cho Vertex AI provider config (mặc định 3600s).
+
+5. **`tests/test_translation_providers.py`**
+   - Cập nhật test Vertex AI theo dependency `google-genai`.
+   - Thêm class test `TestLayer3_VertexAICache` với 2 case:
+     - xác nhận `set_global_context` tạo cache thành công và request call có dùng `cached_content`.
+     - xác nhận fallback `False` khi context quá ngắn và không gọi API tạo cache.
+
+### Trạng thái hiện tại
+
+- ✅ Hoàn thành integration cache theo luồng chính: Provider cache setup → Translator bỏ inline context → Call dùng cached content.
+- ✅ Đã thêm test case cho nhánh thành công và nhánh fallback context ngắn.
+- ⚠️ Môi trường hiện tại thiếu `PyYAML`, nên chưa chạy được test suite để xác nhận pass end-to-end trong local terminal.
+
+### Outstanding / Pending
+
+1. Cài dependency thiếu (`PyYAML`) để chạy lại các test liên quan `test_translation_providers.py`.
+2. Chạy lại smoke test CLI thực tế với `--provider vertexai --context` để xác nhận hành vi cache trên môi trường thật.
+
+### Đối chiếu Data Flow
+
+- Bản vá chỉ tối ưu cách cung cấp context ở bước dịch (Translation stage), không thay đổi thứ tự hay giao diện của workflow tổng thể trong `docs/workflow.md`.
+- Luồng dữ liệu vẫn giữ nguyên: parse SRT → build batch → gọi provider → merge output; chỉ thay cơ chế “đưa context” từ inline prompt sang cache reference cho Vertex AI.
+
+---
+
 ## 2026-04-02: Bổ sung retry cho lỗi "nuốt block" trong pipeline dịch SRT
 
 ### Yêu cầu

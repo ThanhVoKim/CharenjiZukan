@@ -914,11 +914,10 @@ OPTIONS:
 !python run_colab_tests.py --tags unit integration
 ```
 
-**Chạy tests cần FFmpeg**:
+**Tìm và chạy tất cả các hàm/class có chứa chữ "vertexai" trong tên**:
 
 ```colab
-!python run_colab_tests.py --tags ffmpeg
-!python run_colab_tests.py --tags integration ffmpeg
+!uv run pytest tests/test_translation_providers.py -k "vertexai" -v
 ```
 
 **Chạy test 1 hàm**:

@@ -44,13 +44,14 @@ def create_provider(
         return VertexAIProvider(
             project_id=cfg.get("project_id", ""),
             location=cfg.get("location", "us-central1"),
-            model=cfg.get("model", "gemini-1.5-pro"),
+            model=cfg.get("model", "gemini-3-flash-preview"),
             generation_config=cfg.get("generation_config", {}),
             safety_settings=cfg.get("safety_settings", {}),
             system_prompt=cfg.get("system_prompt", ""),
             request_timeout=cfg.get("request_timeout", 180),
             retry_attempts=cfg.get("retry_attempts", 3),
             retry_wait_seconds=cfg.get("retry_wait_seconds", 10),
+            cache_ttl_seconds=cfg.get("cache_ttl_seconds", 3600),
         )
 
     else:
