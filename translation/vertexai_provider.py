@@ -43,7 +43,7 @@ class VertexAIProvider(BaseTranslationProvider):
             vertexai=True,
             project=project_id,
             location=location,
-            http_options={"timeout": request_timeout},
+            http_options={"timeout": request_timeout * 1000.0},
         )
 
         self._safety_settings = self._parse_safety_settings(safety_settings)
@@ -105,8 +105,9 @@ class VertexAIProvider(BaseTranslationProvider):
 
         if self._cached_content_name:
             cfg["cached_content"] = self._cached_content_name
-
-        if self._system_prompt:
+        elif self._system_prompt:
+            # Chỉ được phép truyền system_instruction nếu KHÔNG dùng cached_content
+            # (vì Vertex API sẽ block nếu pass system_instruction lúc gọi generate có kèm cache)
             cfg["system_instruction"] = self._system_prompt
 
         return self._types.GenerateContentConfig(**cfg)
