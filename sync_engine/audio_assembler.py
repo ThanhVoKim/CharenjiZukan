@@ -255,8 +255,8 @@ def assemble_audio_track(
 
         # Tính toán số lượng worker dựa trên CPU thực tế
         cpu_count = os.cpu_count() or 2
-        # Dùng khoảng 75% số core hiện có, tối thiểu 1, tối đa không vượt quá số batch
-        optimal_workers = max(1, int(cpu_count * 0.75))
+        # Dùng khoảng 65% số core hiện có, tối thiểu 1, tối đa không vượt quá số batch
+        optimal_workers = max(1, int(cpu_count * 0.65))
         max_workers = min(optimal_workers, len(batches)) or 1
         
         logger.info(f"Chạy song song {len(batches)} batch với tối đa {max_workers} worker (CPU cores: {cpu_count})...")

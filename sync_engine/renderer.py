@@ -2,6 +2,10 @@ import subprocess
 from pathlib import Path
 from typing import Tuple, List, Optional
 import os
+import re
+import logging
+
+logger = logging.getLogger("sync_video")
 
 DEFAULT_SUBTITLE_STYLE = (
     "Fontname=Noto Sans CJK JP"
@@ -62,6 +66,14 @@ def _build_ass_enable_expr(ass_path: str) -> str:
         
     # Nối bằng phép cộng (+ là logical OR trong FFmpeg enable expression)
     return "+".join(intervals)
+
+def _get_video_duration(video_path: str) -> float:
+    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", video_path]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return float(result.stdout.strip())
+    except (subprocess.CalledProcessError, ValueError):
+        return 0.0
 
 def render_final_video(
     stretched_video: str,
@@ -178,4 +190,43 @@ def render_final_video(
         
     cmd.append(output_path)
     
-    subprocess.run(cmd, check=True)
+    logger.info(f"Lệnh FFmpeg render final video:\n{' '.join(cmd)}")
+    
+    total_duration = _get_video_duration(stretched_video)
+    
+    try:
+        from tqdm import tqdm
+        has_tqdm = True
+    except ImportError:
+        has_tqdm = False
+
+    process = subprocess.Popen(
+        cmd,
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        universal_newlines=True,
+        encoding='utf-8',
+        errors='replace'
+    )
+    
+    if has_tqdm and total_duration > 0:
+        pbar = tqdm(total=total_duration, desc="Rendering Final Video", unit="s", bar_format="{l_bar}{bar}| {n_fmt:.1f}/{total_fmt} [{elapsed}<{remaining}]")
+        time_pattern = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
+        
+        for line in process.stderr:
+            match = time_pattern.search(line)
+            if match:
+                h, m, s = match.groups()
+                current_time = int(h) * 3600 + int(m) * 60 + float(s)
+                pbar.n = min(current_time, total_duration)
+                pbar.refresh()
+                
+        pbar.close()
+    else:
+        # Fallback nếu không có tqdm
+        for line in process.stderr:
+            pass
+
+    process.wait()
+    if process.returncode != 0:
+        raise subprocess.CalledProcessError(process.returncode, cmd)
