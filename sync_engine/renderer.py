@@ -210,7 +210,7 @@ def render_final_video(
     )
     
     if has_tqdm and total_duration > 0:
-        pbar = tqdm(total=total_duration, desc="Rendering Final Video", unit="s", bar_format="{l_bar}{bar}| {n_fmt:.1f}/{total_fmt} [{elapsed}<{remaining}]")
+        pbar = tqdm(total=total_duration, desc="Rendering Final Video", unit="s", bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]")
         time_pattern = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
         
         for line in process.stderr:
