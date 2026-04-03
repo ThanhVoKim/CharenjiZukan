@@ -266,7 +266,12 @@ def assemble_audio_track(
             batch_data: List[Tuple[str, float]],
             batch_out_path: str,
         ) -> Tuple[int, str, bool]:
+            logger.info(f"[Worker] Bắt đầu xử lý batch {batch_index} ({len(batch_data)} files)...")
             success = _mix_audio_batch(batch_data, batch_out_path, sample_rate)
+            if success:
+                logger.info(f"[Worker] Hoàn thành batch {batch_index}.")
+            else:
+                logger.error(f"[Worker] Thất bại tại batch {batch_index}.")
             return batch_index, batch_out_path, success
 
         successful_batches: List[Tuple[int, str]] = []
