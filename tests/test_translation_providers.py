@@ -14,6 +14,7 @@ Cấu trúc layers:
 
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any
 from unittest.mock import patch, MagicMock
@@ -386,200 +387,117 @@ class TestLayer3_VertexAICache:
             captured_generate_cfg.update(kwargs)
             return kwargs
 
-        provider._types.GenerateContentConfig = fake_generate_content_config
+        with patch.object(provider._types, "GenerateContentConfig", side_effect=fake_generate_content_config):
+            long_context = "x" * 9000
+            used_cache = provider.set_global_context(long_context)
 
-        long_context = "x" * 9000
-        used_cache = provider.set_global_context(long_context)
+            assert used_cache is True
+            assert provider._cached_content_name == "projects/p/locations/l/cachedContents/cache-001"
+            mock_client.caches.create.assert_called_once()
 
-        assert used_cache is True
-        assert provider._cached_content_name == "projects/p/locations/l/cachedContents/cache-001"
-        mock_client.caches.create.assert_called_once()
+            result = provider.call("Translate this")
+            assert result == "<TRANSLATE_TEXT>ok</TRANSLATE_TEXT>"
 
-        result = provider.call("Translate this")
-        assert result == "<TRANSLATE_TEXT>ok</TRANSLATE_TEXT>"
-
-        mock_client.models.generate_content.assert_called_once()
-        assert captured_generate_cfg.get("cached_content") == "projects/p/locations/l/cachedContents/cache-001"
+            mock_client.models.generate_content.assert_called_once()
+            assert captured_generate_cfg.get("cached_content") == "projects/p/locations/l/cachedContents/cache-001"
 
     def test_vertexai_cache_integration_real_extraction(self, vertexai_credentials: VertexAICredentials):
         """
-        Integration test thực sự: Tạo context cache với thông tin bí mật,
-        sau đó query để trích xuất thông tin đó.
-        
-        Test này không mock - nó gọi thật đến Vertex AI API và verify
-        rằng cached content được sử dụng đúng cách.
-        
-        Setup trên Colab:
-        ```python
-        from google.colab import userdata
-        import os, json
-        
-        # Lưu service account JSON ra file tạm
-        key_path = '/tmp/gcp_sa_key.json'
-        with open(key_path, 'w') as f:
-            json.dump(json.loads(userdata.get('GCP_SERVICE_ACCOUNT')), f)
-        
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = key_path
-        # Tùy chọn: os.environ['GOOGLE_CLOUD_LOCATION'] = 'global'
-        ```
-        
-        Lưu ý: Vertex AI yêu cầu tối thiểu ~2048 tokens để tạo cached content.
-        Test này tạo context đủ lớn (>2500 tokens) để đảm bảo cache tạo được.
+        Full integration test: gọi Vertex AI API thật cho cả 2 bước.
+
+        1) Tạo cached content thật bằng set_global_context().
+        2) Gọi generate_content thật qua provider.call() để trích xuất secret_info từ cache.
+
+        Không dùng bất kỳ mock nào trong test này.
         """
         from translation import vertexai_provider as vertexai_provider_module
-        
-        # Thông tin bí mật cần trích xuất (sẽ được nhúng trong context lớn)
+
         secret_info = {
             "name": "Nguyễn Văn An",
             "birth_date": "15/03/1990",
             "address": "123 Đường Lê Lợi, Quận 1, TP.HCM",
-            "phone": "0912-345-678"
+            "phone": "0912-345-678",
         }
-        
-        # Tạo context LỚN (>2500 tokens) để đáp ứng yêu cầu tối thiểu của Vertex AI cache
-        # Vertex AI yêu cầu tối thiểu 2048 tokens
-        # Context gồm: phần thông tin cần nhớ + phần filler để đạt ngưỡng
-        
-        # Phần 1: Thông tin quan trọng cần nhớ
+
         important_section = f"""
         ═══════════════════════════════════════════════════════════════
-        THÔNG TIN KHÁCH HÀNG QUAN TRỌNG - GHI NHỚ NGAY
+        HỒ SƠ KHÁCH HÀNG CẦN TRÍCH XUẤT TỪ CACHE
         ═══════════════════════════════════════════════════════════════
-        
         Họ và tên: {secret_info['name']}
         Ngày sinh: {secret_info['birth_date']}
-        Địa chỉ thường trú: {secret_info['address']}
-        Số điện thoại liên hệ: {secret_info['phone']}
-        
-        Đây là thông tin khách hàng VIP. Hãy ghi nhớ chính xác thông tin trên
-        để có thể trả lời các câu hỏi liên quan khi được yêu cầu.
-        
+        Địa chỉ: {secret_info['address']}
+        SĐT: {secret_info['phone']}
         ═══════════════════════════════════════════════════════════════
         """
-        
-        # Phần 2: Filler text để đạt ngưỡng 2500+ tokens
-        # Mỗi đoạn ~200 tokens, cần ~12-15 đoạn
-        filler_paragraphs = [
-            """Trong bối cảnh phát triển kinh tế xã hội hiện đại, việc ứng dụng công nghệ thông tin
-            vào các lĩnh vực khác nhau của đời sống đã trở nên vô cùng quan trọng. Các doanh nghiệp,
-            tổ chức, và cá nhân đều đang tích cực chuyển đổi số để nâng cao hiệu quả công việc.""",
-            
-            """Giáo dục cũng không nằm ngoài xu hướng này. Việc ứng dụng các nền tảng học trực tuyến,
-            triển khai các lớp học thông minh, và sử dụng trí tuệ nhân tạo trong giảng dạy đã
-            mang lại nhiều lợi ích thiết thực cho cả giáo viên và học sinh.""",
-            
-            """Y tế và chăm sóc sức khỏe là một trong những lĩnh vực được hưởng lợi nhiều nhất từ
-            công nghệ. Các ứng dụng telemedicine, hồ sơ sức khỏe điện tử, và hệ thống tư vấn y khoa
-            từ xa đã giúp việc tiếp cận dịch vụ y tế trở nên dễ dàng hơn.""",
-            
-            """Trong lĩnh vực tài chính ngân hàng, các ngân hàng số, ví điện tử, và các nền tảng
-            thanh toán không tiền mặt đang ngày càng phổ biến. Người dùng có thể thực hiện
-            giao dịch mọi lúc mọi nơi chỉ với vài thao tác đơn giản trên điện thoại.""",
-            
-            """Nông nghiệp thông minh đang dần trở thành xu hướng tất yếu. Việc ứng dụng IoT,
-            cảm biến, và hệ thống tưới tiêu tự động giúp nông dân quản lý ruộng vườn hiệu quả
-            hơn, tiết kiệm nước và phân bón, đồng thời tăng năng suất cây trồng.""",
-            
-            """Giao thông vận tải thông minh với các hệ thống định vị, theo dõi xe, và tối ưu
-            lộ trình đang góp phần giảm ùn tắc giao thông và tai nạn. Các ứng dụng gọi xe,
-            chia sẻ xe, và xe buýt thông minh mang lại sự tiện lợi cho người dân.""",
-            
-            """Môi trường và năng lượng xanh là mối quan tâm hàng đầu của toàn cầu. Việc sử dụng
-            năng lượng tái tạo như điện mặt trời, điện gió, và các công nghệ tiết kiệm năng
-            lượng đang được đẩy mạnh triển khai ở nhiều quốc gia.""",
-            
-            """An ninh mạng và bảo vệ dữ liệu cá nhân đang ngày càng được chú trọng. Với lượng
-            dữ liệu khổng lồ được tạo ra mỗi ngày, việc đảm bảo an toàn thông tin, bảo mật
-            dữ liệu, và quyền riêng tư của người dùng là vô cùng cần thiết.""",
-            
-            """Thương mại điện tử đã phát triển mạnh mẽ trong những năm gần đây. Các sàn
-            giao dịch trực tuyến, cửa hàng thuật toán, và các hình thức bán hàng livestream
-            đang tạo ra một hệ sinh thái mua sắm đa dạng và tiện lợi.""",
-            
-            """Du lịch thông minh với các ứng dụng đặt phòng, lên lịch trình, và khám phá điểm
-            đến đang giúp du khách có những trải nghiệm tốt hơn. Công nghệ AR/VR còn cho
-            phép khám phá điểm đến ảo trước khi quyết định đặt chuyến đi.""",
-            
-            """Xây dựng thành phố thông minh là xu hướng tất yếu của tương lai. Việc tích hợp
-            các cảm biến, camera AI, và hệ thống quản lý thông minh giúp vận hành đô thị
-            hiệu quả hơn, tiết kiệm chi phí và nâng cao chất lượng cuộc sống.""",
-            
-            """Ngành công nghiệp giải trí cũng đang chứng kiến sự bùng nổ của các nền tảng
-            streaming, game online, và nội dung số. AI đang được ứng dụng để cá nhân
-            hóa nội dung, gợi ý phim nhạc phù hợp với sở thích từng người dùng.""",
-            
-            """Luật pháp và tư pháp đang dần số hóa với các hệ thống quản lý hồ sơ điện tử,
-            xét xử trực tuyến, và ứng dụng blockchain trong lưu trữ tài liệu quan trọng.
-            Điều này giúp tăng tính minh bạch và hiệu quả của hệ thống tư pháp.""",
-            
-            """Thể thao và sức khỏe được hưởng lợi từ các thiết bị đeo thông minh, ứng dụng
-            theo dõi sức khỏe, và các nền tảng tập luyện online. Người dùng có thể
-            monitor nhịp tim, calories, chất lượng giấc ngủ một cách dễ dàng.""",
-            
-            """Bất động sản đang có những bước tiến lớn trong việc số hóa. Các nền tảng
-            định giá thông minh, tham quan nhà ảo, và hợp đồng thông minh trên blockchain
-            đang dần thay đổi cách người mua bán bất động sản tiếp cận thị trường."""
-        ]
-        
-        # Ghép thành context đầy đủ
-        filler_text = "\n\n".join(filler_paragraphs)
-        context = important_section + "\n\n" + filler_text
-        
-        # Log độ dài context để debug
-        print(f"\n[TEST] Context length: ~{len(context.split())} words")
+
+        # Filler đủ lớn để vượt ngưỡng cache tối thiểu của Vertex (~2048 tokens)
+        filler = "\n".join(
+            f"Dòng nền {i}: " + ("Ngữ cảnh nền cho kiểm thử cache. " * 22)
+            for i in range(1, 25)
+        )
+        context = important_section + "\n\n" + filler
 
         provider = vertexai_provider_module.VertexAIProvider(
             project_id=vertexai_credentials.project_id,
             location=vertexai_credentials.location,
-            model="gemini-3.1-flash-lite-preview",  # Dùng model rẻ để test
-            generation_config={"temperature": 0.1, "max_output_tokens": 100},
+            model="gemini-3.1-flash-lite-preview",
+            generation_config={"temperature": 0, "max_output_tokens": 256, "candidate_count": 1},
             safety_settings={},
-            system_prompt="Bạn là trợ lý AI. Hãy ghi nhớ thông tin quan trọng được cung cấp.",
-            request_timeout=60,
-            retry_attempts=2,
-            retry_wait_seconds=5,
-            cache_ttl_seconds=300,  # 5 phút cho test
+            system_prompt="Bạn là trợ lý truy xuất dữ liệu từ cached context. Trả lời chính xác từng trường.",
+            request_timeout=300,
+            retry_attempts=3,
+            retry_wait_seconds=10,
+            cache_ttl_seconds=300,
         )
-        
-        # Tạo cache với context
-        cache_created = provider.set_global_context(context)
-        
-        if not cache_created:
-            pytest.skip(
-                "Context cache creation failed - context may be too short for Vertex AI minimum "
-                "(requires ~2048 tokens). Current context should be sufficient."
+
+        try:
+            cache_created = provider.set_global_context(context)
+            if not cache_created:
+                pytest.skip(
+                    "Context cache creation failed. "
+                    "Vertex AI yêu cầu tối thiểu ~2048 tokens cho cached content."
+                )
+
+            assert provider._cached_content_name is not None
+
+            query = (
+                "Dựa trên cached context, hãy trích xuất đúng 4 trường sau và KHÔNG suy đoán: "
+                "Họ và tên, Ngày sinh, Địa chỉ, SĐT. "
+                "BẮT BUỘC trả lời duy nhất trong thẻ <TRANSLATE_TEXT>...</TRANSLATE_TEXT> "
+                "theo đúng format: "
+                "Họ và tên: <value> | Ngày sinh: <value> | Địa chỉ: <value> | SĐT: <value>"
             )
-        
-        # Query để trích xuất thông tin từ cached context
-        query = "Trích xuất thông tin khách hàng: Tên, Ngày sinh, Địa chỉ, SĐT (theo format Tên: | Ngày sinh: | Địa chỉ: | SĐT:)"
-        
-        result = provider.call(query)
-        
-        # Parse kết quả
-        extracted = parse_translation_response(result)
-        
-        # Verify thông tin được trích xuất đúng
-        # (Case-insensitive matching vì model có thể format khác)
-        assert secret_info["name"] in extracted, \
-            f"Tên không tìm thấy trong response: {extracted}"
-        assert secret_info["birth_date"] in extracted, \
-            f"Ngày sinh không tìm thấy trong response: {extracted}"
-        assert secret_info["address"] in extracted, \
-            f"Địa chỉ không tìm thấy trong response: {extracted}"
-        assert secret_info["phone"] in extracted, \
-            f"SĐT không tìm thấy trong response: {extracted}"
-        
-        # Cleanup cache sau khi test xong
-        if provider._cached_content_name:
+
+            result = provider.call(query)
+            print("\n[DEBUG][VertexAI][raw_response_start]")
+            print(result)
+            print("[DEBUG][VertexAI][raw_response_end]\n")
+
             try:
-                provider._client.caches.delete(name=provider._cached_content_name)
-            except Exception:
-                pass  # Ignore cleanup errors
+                extracted = parse_translation_response(result)
+            except Exception as e:
+                pytest.fail(
+                    "Không parse được <TRANSLATE_TEXT> từ Vertex AI response. "
+                    f"Raw response đầy đủ: {result!r}. Lỗi parse: {type(e).__name__} - {e}"
+                )
+
+            print(f"[DEBUG][VertexAI][extracted]: {extracted}")
+
+            assert secret_info["name"] in extracted, f"Tên không tìm thấy trong response: {extracted}"
+            assert secret_info["birth_date"] in extracted, f"Ngày sinh không tìm thấy trong response: {extracted}"
+            assert secret_info["address"] in extracted, f"Địa chỉ không tìm thấy trong response: {extracted}"
+            assert secret_info["phone"] in extracted, f"SĐT không tìm thấy trong response: {extracted}"
+        finally:
+            if provider._cached_content_name:
+                try:
+                    provider._client.caches.delete(name=provider._cached_content_name)
+                except Exception:
+                    pass
 
     def test_vertexai_cache_without_cached_content_fallback(self, vertexai_credentials: VertexAICredentials):
         """
         Test rằng khi không dùng cache, provider vẫn hoạt động bình thường.
-        So sánh kết quả giữa có cache và không có cache.
+        Mock generate_content để verify provider không crash khi không có cached_content.
         """
         from translation import vertexai_provider as vertexai_provider_module
         
@@ -591,17 +509,21 @@ class TestLayer3_VertexAICache:
             safety_settings={},
             system_prompt="Trả lời ngắn gọn.",
             request_timeout=60,
-            retry_attempts=2,
+            retry_attempts=1,
             retry_wait_seconds=5,
             cache_ttl_seconds=300,
         )
         
-        # Không tạo cache - test trực tiếp
-        query = "Viết 3 từ về thời tiết hôm nay."
-        result = provider_no_cache.call(query)
+        # Mock generate_content để verify provider hoạt động mà không cần API thật
+        mock_response = MagicMock()
+        mock_response.candidates = [MagicMock()]
+        mock_response.text = "<TRANSLATE_TEXT>Trời nắng</TRANSLATE_TEXT>"
+        
+        with patch.object(provider_no_cache._client.models, "generate_content", return_value=mock_response):
+            result = provider_no_cache.call("Viết 3 từ về thời tiết.")
         
         assert result is not None
-        assert len(result.strip()) > 0
+        assert "Trời nắng" in result
 
     def test_vertexai_set_global_context_fallback_when_context_too_short(self):
         pytest.importorskip("google.genai", reason="google-genai required")
