@@ -17,6 +17,7 @@ Cách chạy từng layer:
 
 import sys
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -28,21 +29,24 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from sync_engine.models import TimelineSegment
 from sync_engine.audio_assembler import build_ambient_mask, assemble_audio_track
 
-pydub = pytest.importorskip("pydub", reason="pip install pydub")
-from pydub import AudioSegment
-
-
 # ═════════════════════════════════════════════════════════════════════
 # SHARED FIXTURES
 # ═════════════════════════════════════════════════════════════════════
 
 @pytest.fixture(scope="module")
 def synthetic_ambient_wav(tmp_path_factory) -> Path:
-    """WAV 1 giây silence."""
+    """WAV 1 giây silence tạo bằng FFmpeg."""
     tmp_dir = tmp_path_factory.mktemp("audio")
     path = tmp_dir / "ambient.wav"
-    silence = AudioSegment.silent(duration=1000, frame_rate=48000)
-    silence.set_channels(2).export(str(path), format="wav")
+
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-f", "lavfi",
+        "-i", "anullsrc=r=48000:cl=stereo",
+        "-t", "1.0",
+        str(path),
+    ], check=True, capture_output=True)
+
     return path
 
 
@@ -95,6 +99,13 @@ class TestLayer2_AudioAssemblerIntegration:
         assert out_path.exists()
         assert out_path.stat().st_size > 0
         
-        # Kiểm tra duration
-        result = AudioSegment.from_file(output_wav)
-        assert len(result) == 1000  # 1s
+        # Kiểm tra duration bằng ffprobe
+        probe_cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            output_wav,
+        ]
+        probe_res = subprocess.run(probe_cmd, check=True, capture_output=True, text=True)
+        duration_s = float(probe_res.stdout.strip())
+        assert abs(duration_s - 1.0) < 0.1

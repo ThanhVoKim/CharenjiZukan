@@ -1,5 +1,48 @@
 # Project Journal
 
+## 2026-04-03: Tối ưu hóa Phase 3 Audio Assembly bằng FFmpeg
+
+### Yêu cầu
+
+- Khắc phục tình trạng thắt cổ chai hiệu năng trong Phase 3 Audio Assembly khi xử lý số lượng lớn segments, ví dụ gần 3000 segments mất hơn 1 giờ.
+- Loại bỏ phụ thuộc pydub ở bước mix vì mô hình overlay tuần tự trên RAM gây chậm và tốn bộ nhớ.
+- Thay thế bằng kiến trúc FFmpeg giữ nguyên flow 3 lớp âm thanh: ambient → quoted → tts.
+
+### Thay đổi đã thực hiện
+
+1. **sync_engine/audio_assembler.py**
+   - Viết lại `assemble_audio_track` sang hướng FFmpeg-first, không còn dùng pydub cho mix tổng.
+   - Giữ nguyên thứ tự layer: ambient ở đáy, quoted ở giữa, tts ở trên cùng.
+   - Thêm xử lý ambient bằng `_process_ambient_track`: loop đủ dài, giảm volume nền, mute tại các khoảng mute segment theo timeline.
+   - Thêm `_mix_audio_batch` dùng `adelay` + `amix` để đặt đúng vị trí phát từng clip theo `new_start`.
+   - Dùng `-filter_complex_script` để tránh giới hạn độ dài command line khi số input lớn.
+   - Áp dụng batching nhằm giảm rủi ro chạm giới hạn file handle khi số input rất lớn.
+   - Duy trì chuẩn output wav 48kHz stereo và tạo base silence để đảm bảo chiều dài track cuối cùng đúng theo timeline.
+
+### Trạng thái hiện tại
+
+- ✅ Đã hoàn tất refactor Phase 3 sang FFmpeg.
+- ✅ Đã giữ nguyên luồng ghép 3 lớp âm thanh như thiết kế cũ.
+- ✅ Đã cải thiện kiến trúc theo hướng phù hợp xử lý quy mô lớn.
+- ⚠️ Theo yêu cầu người dùng, bước chạy test được bỏ qua trong vòng làm việc này.
+
+### Outstanding / Pending
+
+1. Chạy lại `tests/test_audio_assembler.py` sau khi thống nhất dependency test environment.
+2. Benchmark một case lớn thực tế trên Colab để ghi nhận mức cải thiện thời gian end-to-end cho Phase 3.
+
+### Bước tiếp theo đề xuất
+
+1. Chạy lại pipeline `sync-video` với bộ dữ liệu lớn đã từng chậm để so sánh thời gian trước và sau refactor.
+2. Nếu cần, tinh chỉnh batch size theo giới hạn thực tế của môi trường chạy để đạt throughput tốt nhất.
+
+### Đối chiếu Data Flow
+
+- Đối chiếu theo sơ đồ ở docs/workflow.md: thay đổi chỉ nằm ở cơ chế thực thi nội bộ của bước ghép audio, không thay đổi hợp đồng dữ liệu giữa các phase.
+- Input và output của Phase 3 vẫn giữ nguyên: nhận timeline + nguồn audio, xuất mixed_audio.wav cho Phase render kế tiếp.
+
+---
+
 ## 2026-04-02: Tích hợp Vertex AI Context Cache cho Global Context
 
 ### Yêu cầu
