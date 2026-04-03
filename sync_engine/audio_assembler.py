@@ -240,7 +240,7 @@ def assemble_audio_track(
     # 3. Chia lô (Batching) để mix
     # Giới hạn số lượng file mở đồng thời của OS (thường là 1024 trên Linux)
     # Ta chọn batch size an toàn là 100
-    BATCH_SIZE = 500
+    BATCH_SIZE = 100
     batch_outputs: List[str] = []
 
     if prepared_inputs:
