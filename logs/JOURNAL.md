@@ -1,5 +1,30 @@
 # Project Journal
 
+## 2026-04-03: Áp dụng xử lý bất đồng bộ (Parallel) cho Audio Batch Mixing
+
+### Yêu cầu
+
+- Tối ưu hóa thời gian mix audio trong Phase 3 bằng cách chạy song song các batch mix độc lập.
+- Tận dụng tối đa CPU và giảm thời gian chờ I/O của FFmpeg khi xử lý số lượng lớn segments.
+
+### Thay đổi đã thực hiện
+
+1. **`sync_engine/audio_assembler.py`**:
+   - Thay thế vòng lặp tuần tự bằng `concurrent.futures.ThreadPoolExecutor` trong bước "Chia lô (Batching) để mix".
+   - Giới hạn số lượng worker tối đa (`max_workers=4`) để tránh quá tải hệ thống khi gọi nhiều tiến trình FFmpeg cùng lúc.
+   - Đảm bảo thứ tự của `batch_outputs` được giữ nguyên sau khi xử lý song song bằng cách sắp xếp lại theo `batch_index`.
+
+### Trạng thái hiện tại
+
+- ✅ Đã cập nhật logic mix batch sang chạy song song.
+- ✅ Đã kiểm tra tính hợp lệ cú pháp (`python -m py_compile`).
+
+### Đối chiếu Data Flow
+
+- Thay đổi chỉ tối ưu hóa hiệu năng thực thi nội bộ (chạy đa luồng) của bước mix audio, không làm thay đổi luồng dữ liệu hay kết quả đầu ra của Phase 3.
+
+---
+
 ## 2026-04-03: Tối ưu hóa Phase 3 Audio Assembly bằng FFmpeg
 
 ### Yêu cầu

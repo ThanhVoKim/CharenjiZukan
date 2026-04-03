@@ -1,3 +1,5 @@
+import concurrent.futures
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -238,19 +240,50 @@ def assemble_audio_track(
     # 3. Chia lô (Batching) để mix
     # Giới hạn số lượng file mở đồng thời của OS (thường là 1024 trên Linux)
     # Ta chọn batch size an toàn là 100
-    BATCH_SIZE = 100
-    batch_outputs = []
-    
+    BATCH_SIZE = 500
+    batch_outputs: List[str] = []
+
     if prepared_inputs:
         logger.info(f"Đang mix {len(prepared_inputs)} file audio thành phần (Batch size: {BATCH_SIZE})...")
+
+        batches: List[Tuple[int, List[Tuple[str, float]], str]] = []
         for i in range(0, len(prepared_inputs), BATCH_SIZE):
+            batch_index = i // BATCH_SIZE
             batch = prepared_inputs[i:i+BATCH_SIZE]
-            batch_out = str(Path(tmp_dir) / f"mix_batch_{i//BATCH_SIZE}.wav")
-            
-            if _mix_audio_batch(batch, batch_out, sample_rate):
-                batch_outputs.append(batch_out)
-            else:
-                logger.error(f"Lỗi khi mix batch {i//BATCH_SIZE}")
+            batch_out = str(Path(tmp_dir) / f"mix_batch_{batch_index}.wav")
+            batches.append((batch_index, batch, batch_out))
+
+        # Tính toán số lượng worker dựa trên CPU thực tế
+        cpu_count = os.cpu_count() or 2
+        # Dùng khoảng 75% số core hiện có, tối thiểu 1, tối đa không vượt quá số batch
+        optimal_workers = max(1, int(cpu_count * 0.75))
+        max_workers = min(optimal_workers, len(batches)) or 1
+        
+        logger.info(f"Chạy song song {len(batches)} batch với tối đa {max_workers} worker (CPU cores: {cpu_count})...")
+
+        def _run_batch(
+            batch_index: int,
+            batch_data: List[Tuple[str, float]],
+            batch_out_path: str,
+        ) -> Tuple[int, str, bool]:
+            success = _mix_audio_batch(batch_data, batch_out_path, sample_rate)
+            return batch_index, batch_out_path, success
+
+        successful_batches: List[Tuple[int, str]] = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(_run_batch, batch_index, batch_data, batch_out_path)
+                for batch_index, batch_data, batch_out_path in batches
+            ]
+
+            for future in concurrent.futures.as_completed(futures):
+                batch_index, batch_out_path, success = future.result()
+                if success:
+                    successful_batches.append((batch_index, batch_out_path))
+                else:
+                    logger.error(f"Lỗi khi mix batch {batch_index}")
+
+        batch_outputs = [path for _, path in sorted(successful_batches, key=lambda item: item[0])]
 
     # 4. Mix Final (Các batch outputs + Ambient)
     logger.info("Đang thực hiện mix cuối cùng (Final Mix)...")
