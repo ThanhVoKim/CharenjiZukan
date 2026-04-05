@@ -481,6 +481,7 @@ Tách voice/background từ audio sử dụng AI model Demucs.
     --keep    bgm \
     --bitrate 128k \
     --device  cuda \
+    --segment 7 \
     --verbose
 ```
 
@@ -510,6 +511,7 @@ Tách voice/background từ audio sử dụng AI model Demucs.
 | `--keep`, `-k`    | Sources giữ lại (xem bảng dưới)                     | `bgm`             |
 | `--bitrate`, `-b` | Bitrate cho MP3/M4A output                          | `192k`            |
 | `--device`, `-d`  | Device: cuda, cuda:0, cpu                           | auto-detect       |
+| `--segment`       | Độ dài chunk (giây) để xử lý                        | `7`               |
 | `--verbose`, `-v` | Hiển thị log chi tiết                               | (tắt)             |
 
 #### Tham số `--keep` (chọn sources)
@@ -830,6 +832,7 @@ CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS the
     --black-bg /content/black-background.png \
     --ambient /content/ambient.mp3 \
     --slow-cap 0.5 \
+    --use-demucs \
     --output-dir /content/output_sync \
     --output-name video_synced \
     --no-hardsub \
@@ -856,6 +859,7 @@ CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS the
 | `--black-bg`           | Ảnh dải đen nền note (tự tạo nếu không truyền)            | (không dùng)         |
 | `--ambient`            | Nhạc nền ambient cho toàn bộ video                        | `assets/ambient.mp3` |
 | `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)         | `0.5`                |
+| `--use-demucs`         | Dùng Demucs tách lời (vocals) cho các đoạn quoted audio   | (tắt)                |
 | `--output-dir`         | Thư mục output                                            | `./sync_output/`     |
 | `--output-name`        | Tên base cho tất cả file output                           | `video_synced`       |
 | `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap         | (tắt)                |

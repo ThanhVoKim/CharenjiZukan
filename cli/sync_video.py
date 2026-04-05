@@ -155,13 +155,37 @@ def run_sync_pipeline(args):
             
         # PHASE 3: AUDIO ASSEMBLY
         logger.info("\n--- PHASE 3: AUDIO ASSEMBLY ---")
+        
+        source_audio_for_quotes = args.video
+        
+        if getattr(args, 'use_demucs', False):
+            logger.info("Đang chạy Demucs để tách lời (vocals) từ video gốc...")
+            from cli.demucs_audio import separate_audio
+            
+            vocals_path = str(Path(tmp_dir) / "vocals_only.wav")
+            try:
+                separate_audio(
+                    input_path=args.video,
+                    output_path=vocals_path,
+                    model="htdemucs_ft",
+                    keep="vocals",
+                    bitrate="192k",
+                    device="cuda",
+                    segment=7
+                )
+                source_audio_for_quotes = vocals_path
+                logger.info("Hoàn tất tách lời bằng Demucs.")
+            except Exception as e:
+                logger.error(f"Lỗi khi chạy Demucs, fallback về audio gốc: {e}")
+
         mixed_audio = str(Path(tmp_dir) / "mixed_audio.wav")
         assemble_audio_track(
             timeline=timeline,
-            video_path=args.video,
+            video_path=source_audio_for_quotes,
             ambient_path=args.ambient,
             output_path=mixed_audio,
-            tmp_dir=tmp_dir
+            tmp_dir=tmp_dir,
+            use_demucs=args.use_demucs
         )
         
         # PHASE 4: RECALCULATE TIMESTAMPS
@@ -265,6 +289,7 @@ def main():
     
     # Algorithm
     parser.add_argument("--slow-cap", type=float, default=0.5, help="Video speed tối thiểu (mặc định: 0.5)")
+    parser.add_argument("--use-demucs", action="store_true", help="Sử dụng Demucs để loại bỏ nhạc nền, chỉ giữ lại giọng nói cho các đoạn quoted audio")
     
     # Output
     parser.add_argument("--output-dir", default="./sync_output/", help="Thư mục output")

@@ -77,7 +77,8 @@ def _process_ambient_track(
     timeline: List[TimelineSegment],
     total_ms: float,
     output_path: str,
-    sample_rate: int = 48000
+    sample_rate: int = 48000,
+    use_demucs: bool = False
 ) -> bool:
     """
     Xử lý nhạc nền: loop, giảm âm lượng, và mute tại các đoạn quoted audio.
@@ -91,7 +92,7 @@ def _process_ambient_track(
     # Base volume: -25dB ~ 0.056
     base_vol = 0.056
     
-    if not mute_ranges:
+    if not mute_ranges or use_demucs:
         volume_expr = f"volume={base_vol}"
     else:
         # Xây dựng biểu thức: if(between(t, start1, end1) + between(t, start2, end2) + ..., 0, base_vol)
@@ -193,6 +194,7 @@ def assemble_audio_track(
     output_path: str,
     tmp_dir: str,
     sample_rate: int = 48000,
+    use_demucs: bool = False
 ) -> None:
     """
     Sử dụng FFmpeg để mix audio siêu tốc (thay thế pydub).
@@ -234,7 +236,7 @@ def assemble_audio_track(
     if ambient_path and Path(ambient_path).exists():
         logger.info("Đang xử lý nhạc nền (ambient)...")
         has_ambient = _process_ambient_track(
-            ambient_path, timeline, total_ms, ambient_processed_path, sample_rate
+            ambient_path, timeline, total_ms, ambient_processed_path, sample_rate, use_demucs
         )
 
     # 3. Chia lô (Batching) để mix

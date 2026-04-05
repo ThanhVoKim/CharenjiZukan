@@ -1,5 +1,43 @@
 # Project Journal
 
+## 2026-04-05: Tích hợp Demucs vào pipeline Sync Video để loại bỏ nhạc nền
+
+### Yêu cầu
+
+- Tích hợp công cụ Demucs vào pipeline `sync-video` để tự động tách và chỉ giữ lại giọng nói (vocals) cho các đoạn video gốc (quoted audio), giúp loại bỏ tạp âm/nhạc nền không mong muốn.
+- Thêm tham số `--segment` cho Demucs để xử lý các video dài mà không bị tràn bộ nhớ (OOM) trên GPU.
+- Thay đổi logic xử lý nhạc nền (ambient audio): Nếu sử dụng Demucs để lấy giọng nói sạch, nhạc nền sẽ được phát xuyên suốt toàn bộ video mà không bị giảm âm lượng (mute) tại các đoạn quoted audio.
+
+### Thay đổi đã thực hiện
+
+1. **`cli/demucs_audio.py`**:
+   - Thêm tham số `segment` (mặc định là 7) vào hàm `separate_audio` và gán vào `model_obj.segment`.
+   - Bổ sung cờ `--segment` vào CLI parser.
+
+2. **`cli/sync_video.py`**:
+   - Thêm cờ `--use-demucs` vào CLI parser.
+   - Trong PHASE 3 (Audio Assembly), nếu cờ `--use-demucs` được bật, hệ thống sẽ gọi `separate_audio` (với `model="htdemucs_ft"`, `keep="vocals"`, `bitrate="192k"`, `device="cuda"`, `segment=7`) để tạo ra file `vocals_only.wav` từ video gốc. File này sau đó được dùng làm nguồn để trích xuất các đoạn quoted audio thay vì dùng trực tiếp video gốc.
+
+3. **`sync_engine/audio_assembler.py`**:
+   - Cập nhật hàm `_process_ambient_track` và `assemble_audio_track` để nhận thêm tham số `use_demucs`.
+   - Sửa logic tạo `volume_expr`: Nếu `use_demucs` là True, bỏ qua việc tạo các khoảng mute cho nhạc nền, cho phép nhạc nền phát liên tục với âm lượng mặc định.
+
+4. **Tài liệu (`docs/colab-guide.md`)**:
+   - Cập nhật hướng dẫn sử dụng lệnh `sync-video` với cờ `--use-demucs`.
+   - Cập nhật hướng dẫn sử dụng lệnh `demucs-audio` với tham số `--segment`.
+
+### Trạng thái hiện tại
+
+- ✅ Đã hoàn tất tích hợp Demucs vào pipeline đồng bộ video.
+- ✅ Đã xử lý xong logic ambient audio không bị ngắt quãng khi dùng Demucs.
+- ✅ Tài liệu hướng dẫn đã được cập nhật đầy đủ.
+
+### Đối chiếu Data Flow
+
+- Thay đổi này bổ sung một bước tiền xử lý âm thanh (tách lời) ngay trước khi thực hiện cắt ghép audio trong Phase 3, không làm thay đổi cấu trúc timeline hay các phase khác của hệ thống. Logic ambient audio được điều chỉnh cục bộ trong khâu mix để phù hợp với chất lượng âm thanh mới.
+
+---
+
 ## 2026-04-04: Chuyển logic ngắt dòng (word wrap) từ khâu Dịch sang khâu Render
 
 ### Yêu cầu

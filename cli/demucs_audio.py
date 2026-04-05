@@ -106,7 +106,7 @@ def get_device():
         return "cpu"
 
 
-def separate_audio(input_path, output_path, model="htdemucs", keep="bgm", bitrate="192k", device=None):
+def separate_audio(input_path, output_path, model="htdemucs", keep="bgm", bitrate="192k", device=None, segment=7):
     """
     Tách audio thành các sources sử dụng Demucs.
 
@@ -143,6 +143,10 @@ def separate_audio(input_path, output_path, model="htdemucs", keep="bgm", bitrat
     model_obj.to(device)
     model_obj.eval()
 
+    if segment is not None:
+        logger.info(f"Thiết lập segment size = {segment}s để tiết kiệm VRAM")
+        model_obj.segment = float(segment)
+
     # 2. Load audio
     logger.info(f"Loading audio: {input_path}")
     wav, sr = torchaudio.load(input_path)
@@ -166,7 +170,7 @@ def separate_audio(input_path, output_path, model="htdemucs", keep="bgm", bitrat
     # 4. Apply model
     logger.info("Separating sources...")
     with torch.no_grad():
-        sources = apply_model(model_obj, wav, device=device)
+        sources = apply_model(model_obj, wav, device=device, split=True, overlap=0.25)
 
     # 5. Extract desired output
     # sources shape: [batch, sources, channels, time]
@@ -354,6 +358,11 @@ Source indices:
     )
 
     parser.add_argument(
+        "--segment", type=float, default=7,
+        help="Độ dài chunk (giây) để xử lý. Dùng '--segment 4' hoặc nhỏ hơn nếu GPU bị lỗi Out of Memory (OOM). Mặc định: 7",
+    )
+
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Hiển thị log chi tiết",
@@ -414,6 +423,7 @@ def main():
     print(f"  Keep    : {args.keep}")
     print(f"  Bitrate : {args.bitrate}")
     print(f"  Device  : {args.device or 'auto-detect'}")
+    print(f"  Segment : {args.segment}")
     print(f"{'=' * 55}\n")
 
     # Run separation
@@ -425,6 +435,7 @@ def main():
             keep=args.keep,
             bitrate=args.bitrate,
             device=args.device,
+            segment=args.segment,
         )
     except Exception as e:
         logger.error(f"❌ Lỗi khi xử lý: {e}")
