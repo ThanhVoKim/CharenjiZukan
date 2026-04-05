@@ -8,4 +8,3 @@ prompt_file: "prompts/gemini.txt"
 request_timeout: 180
 retry_attempts: 3
 retry_wait_seconds: 5
-max_chars: 0

@@ -344,7 +344,6 @@ gemini_key = userdata.get('gemini_key')
 | `--batch`, `-b`     | Số dòng dịch mỗi lần                    | `30`                     |
 | `--budget`          | Thinking budget tokens (Gemini only)    | `24576`                  |
 | `--wait`            | Giây chờ giữa mỗi batch                 | `0`                      |
-| `--max-chars`       | Số ký tự tối đa mỗi dòng (0 = tắt)      | `0`                      |
 | `--no-context`      | Tắt global context                      | (mặc định bật)           |
 | `--verbose`, `-v`   | Hiển thị log chi tiết                   | (tắt)                    |
 
@@ -841,32 +840,34 @@ CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS the
     --subtitle-color "&H00EEF5FF" \
     --subtitle-margin-v 6 \
     --note-max-chars 15
+    --subtitle-max-chars 0
 ```
 
 #### Tham số
 
-| Tham số               | Mô tả                                                     | Mặc định             |
-| --------------------- | --------------------------------------------------------- | -------------------- |
-| `--video`             | File video gốc (`.mp4`, `.mkv`)                           | (bắt buộc)           |
-| `--subtitle`          | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có) | (bắt buộc)           |
-| `--tts-voice`         | Giọng đọc EdgeTTS (ví dụ: ja-JP-KeitaNeural)              | `ja-JP-KeitaNeural`  |
-| `--mute`              | File mute `.srt` cho vùng quoted (không TTS)              | (không dùng)         |
-| `--note-overlay-png`  | Ảnh PNG tĩnh nền note                                     | (không dùng)         |
-| `--note-overlay-ass`  | File ASS text cho note overlay                            | (không dùng)         |
-| `--black-bg`          | Ảnh dải đen nền note (tự tạo nếu không truyền)            | (không dùng)         |
-| `--ambient`           | Nhạc nền ambient cho toàn bộ video                        | `assets/ambient.mp3` |
-| `--slow-cap`          | Giới hạn tốc độ video thấp nhất (cap cho stretch)         | `0.5`                |
-| `--output-dir`        | Thư mục output                                            | `./sync_output/`     |
-| `--output-name`       | Tên base cho tất cả file output                           | `video_synced`       |
-| `--no-hardsub`        | Bỏ render MP4 hardsub, chỉ xuất các file đã remap         | (tắt)                |
-| `--workers`           | Số worker FFmpeg chạy song song khi xử lý chunk video     | `4`                  |
-| `--no-gpu`            | Dùng `libx264` thay `h264_nvenc` (CPU mode)               | (tắt)                |
-| `--keep-tmp`          | Giữ lại thư mục tạm chứa các chunks video để debug        | (tắt)                |
-| `--subtitle-fontname` | Font subtitle dùng khi burn hardsub                       | `Noto Sans CJK JP`   |
-| `--subtitle-fontsize` | Cỡ chữ subtitle                                           | `22`                 |
-| `--subtitle-color`    | Màu chữ subtitle (ASS hex format)                         | `&H00EEF5FF`         |
-| `--subtitle-margin-v` | Margin dọc subtitle (px)                                  | `6`                  |
-| `--note-max-chars`    | Số ký tự tối đa mỗi dòng khi wrap text ASS note           | `15`                 |
+| Tham số                | Mô tả                                                     | Mặc định             |
+| ---------------------- | --------------------------------------------------------- | -------------------- |
+| `--video`              | File video gốc (`.mp4`, `.mkv`)                           | (bắt buộc)           |
+| `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có) | (bắt buộc)           |
+| `--tts-voice`          | Giọng đọc EdgeTTS (ví dụ: ja-JP-KeitaNeural)              | `ja-JP-KeitaNeural`  |
+| `--mute`               | File mute `.srt` cho vùng quoted (không TTS)              | (không dùng)         |
+| `--note-overlay-png`   | Ảnh PNG tĩnh nền note                                     | (không dùng)         |
+| `--note-overlay-ass`   | File ASS text cho note overlay                            | (không dùng)         |
+| `--black-bg`           | Ảnh dải đen nền note (tự tạo nếu không truyền)            | (không dùng)         |
+| `--ambient`            | Nhạc nền ambient cho toàn bộ video                        | `assets/ambient.mp3` |
+| `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)         | `0.5`                |
+| `--output-dir`         | Thư mục output                                            | `./sync_output/`     |
+| `--output-name`        | Tên base cho tất cả file output                           | `video_synced`       |
+| `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap         | (tắt)                |
+| `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video     | `4`                  |
+| `--no-gpu`             | Dùng `libx264` thay `h264_nvenc` (CPU mode)               | (tắt)                |
+| `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug        | (tắt)                |
+| `--subtitle-fontname`  | Font subtitle dùng khi burn hardsub                       | `Noto Sans CJK JP`   |
+| `--subtitle-fontsize`  | Cỡ chữ subtitle                                           | `22`                 |
+| `--subtitle-color`     | Màu chữ subtitle (ASS hex format)                         | `&H00EEF5FF`         |
+| `--subtitle-margin-v`  | Margin dọc subtitle (px)                                  | `6`                  |
+| `--note-max-chars`     | Số ký tự tối đa mỗi dòng khi wrap text ASS note           | `15`                 |
+| `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle           | `0`                  |
 
 #### Quy ước input/output quan trọng
 

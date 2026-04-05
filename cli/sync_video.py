@@ -178,13 +178,13 @@ def run_sync_pipeline(args):
         
         # 2. subtitle_synced.srt (đầy đủ)
         subtitle_synced = str(output_dir / f"{args.output_name}_synced.srt")
-        recalculate_srt(subtitle_segments, timeline, subtitle_synced, is_tts_track=False)
+        recalculate_srt(subtitle_segments, timeline, subtitle_synced, is_tts_track=False, max_chars=args.subtitle_max_chars)
         logger.info(f"Đã tạo {subtitle_synced}")
         
         # 3. mute_synced.srt (nếu có)
         if mute_segments:
             mute_synced = str(output_dir / f"{args.output_name}_mute_synced.srt")
-            recalculate_srt(mute_segments, timeline, mute_synced, is_tts_track=False)
+            recalculate_srt(mute_segments, timeline, mute_synced, is_tts_track=False, max_chars=args.subtitle_max_chars)
             logger.info(f"Đã tạo {mute_synced}")
             
         # 4. note_overlay_synced.ass (nếu có)
@@ -281,6 +281,7 @@ def main():
     parser.add_argument("--subtitle-fontsize", type=int, default=24)
     parser.add_argument("--subtitle-color", default="&H00EEF5FF")
     parser.add_argument("--subtitle-margin-v", type=int, default=7)
+    parser.add_argument("--subtitle-max-chars", type=int, default=0, help="Ngắt dòng subtitle nếu dài hơn số ký tự này (0 = không ngắt)")
     parser.add_argument("--note-max-chars", type=int, default=16)
     
     args = parser.parse_args()

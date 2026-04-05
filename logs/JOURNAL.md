@@ -1,5 +1,37 @@
 # Project Journal
 
+## 2026-04-04: Chuyển logic ngắt dòng (word wrap) từ khâu Dịch sang khâu Render
+
+### Yêu cầu
+
+- Xóa bỏ việc ngắt dòng (dựa vào `max_chars`) ở file `translation/translator.py` để giữ nguyên vẹn câu phụ đề, giúp cho việc tạo audio TTS tự nhiên hơn (không bị ngắt quãng giữa câu).
+- Chuyển logic ngắt dòng này sang Phase 4 (Timestamp Remapping) trước khi render video ở Phase 5, để phụ đề hiển thị trên video vẫn được ngắt dòng đúng chuẩn.
+
+### Thay đổi đã thực hiện
+
+1. **`translation/translator.py`**:
+   - Xóa tham số `max_chars` và logic gọi `wrap_subtitle_text` trong hàm `translate_srt_file`.
+   - File SRT kết quả sau khi dịch sẽ giữ nguyên cấu trúc câu gốc.
+
+2. **`sync_engine/timestamp_remapper.py`**:
+   - Thêm tham số `max_chars: int = 0` vào hàm `recalculate_srt`.
+   - Gọi `wrap_subtitle_text(seg.text, max_chars)` để ngắt dòng text trước khi tạo file SRT mới.
+
+3. **`cli/sync_video.py`**:
+   - Thêm tham số `--subtitle-max-chars` (mặc định 0) vào CLI.
+   - Truyền giá trị này vào hàm `recalculate_srt` ở Phase 4.
+
+### Trạng thái hiện tại
+
+- ✅ Đã hoàn tất việc di dời logic ngắt dòng.
+- ✅ Đã kiểm tra tính hợp lệ cú pháp của các file thay đổi.
+
+### Đối chiếu Data Flow
+
+- Thay đổi này giúp bảo toàn ngữ nghĩa và độ liền mạch của câu cho engine TTS ở Phase 1/Phase 3, đồng thời vẫn đảm bảo yêu cầu hiển thị (UI) ở Phase 5.
+
+---
+
 ## 2026-04-03: Áp dụng xử lý bất đồng bộ (Parallel) cho Audio Batch Mixing
 
 ### Yêu cầu

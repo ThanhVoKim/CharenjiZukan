@@ -17,4 +17,3 @@ request_timeout: 300
 retry_attempts: 3
 retry_wait_seconds: 10
 cache_ttl_seconds: 3600
-max_chars: 0

@@ -129,13 +129,6 @@ Ví dụ đầy đủ:
         help="Thinking budget tokens (gemini), ưu tiên: CLI > config > mặc định 24576",
     )
     parser.add_argument(
-        "--max-chars",
-        type=int,
-        default=None,
-        metavar="CHARS",
-        help="Số ký tự tối đa trên mỗi dòng (ưu tiên: CLI > config > mặc định 0=tắt)",
-    )
-    parser.add_argument(
         "--context",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -266,7 +259,6 @@ def main():
 
     batch_size = resolve_by_priority(args.batch, provider_config, ["batch", "batch_size"], 30)
     wait_sec = resolve_by_priority(args.wait, provider_config, ["wait", "wait_sec"], 0.0)
-    max_chars = resolve_by_priority(args.max_chars, provider_config, ["max_chars"], 0)
     use_full_context = resolve_by_priority(
         args.context,
         provider_config,
@@ -285,7 +277,6 @@ def main():
     print(f"  Provider : {provider.name}")
     print(f"  Lang     : {args.lang}")
     print(f"  Batch    : {batch_size}")
-    print(f"  Max chars: {max_chars}")
     print(f"  Context  : {'ON' if use_full_context else 'OFF'}")
     print("=" * 55)
 
@@ -300,7 +291,6 @@ def main():
             batch_size      = batch_size,
             use_full_context= use_full_context,
             wait_sec        = wait_sec,
-            max_chars       = max_chars,
         )
         sys.exit(0)
 

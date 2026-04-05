@@ -275,6 +275,8 @@ def assemble_audio_track(
             return batch_index, batch_out_path, success
 
         successful_batches: List[Tuple[int, str]] = []
+        failed_batches: List[int] = []
+        
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
                 executor.submit(_run_batch, batch_index, batch_data, batch_out_path)
@@ -286,7 +288,12 @@ def assemble_audio_track(
                 if success:
                     successful_batches.append((batch_index, batch_out_path))
                 else:
+                    failed_batches.append(batch_index)
                     logger.error(f"Lỗi khi mix batch {batch_index}")
+
+        if failed_batches:
+            failed_batches.sort()
+            raise RuntimeError(f"Quá trình mix audio thất bại tại các batch: {failed_batches}. Hủy toàn bộ tiến trình.")
 
         batch_outputs = [path for _, path in sorted(successful_batches, key=lambda item: item[0])]
 

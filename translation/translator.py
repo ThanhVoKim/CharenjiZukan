@@ -82,7 +82,6 @@ def translate_srt_file(
     batch_size: int = 30,
     use_full_context: bool = True,
     wait_sec: float = 0.0,
-    max_chars: int = 0,
 ) -> dict:
     raw_content = Path(input_file).read_text(encoding="utf-8", errors="ignore")
     srt_list = parse_srt(raw_content)
@@ -189,10 +188,6 @@ def translate_srt_file(
 
         if wait_sec > 0:
             time.sleep(wait_sec)
-
-    if max_chars > 0:
-        for item in translated_srt:
-            item["text"] = wrap_subtitle_text(item["text"], max_chars)
 
     output_content = segments_to_srt(translated_srt)
     Path(output_file).parent.mkdir(parents=True, exist_ok=True)

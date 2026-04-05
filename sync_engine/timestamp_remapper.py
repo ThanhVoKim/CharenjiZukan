@@ -2,7 +2,7 @@ from typing import List, Dict
 
 from sync_engine.models import TimelineSegment
 from sync_engine.analyzer import remap_timestamp
-from utils.srt_parser import segments_to_srt
+from utils.srt_parser import segments_to_srt, wrap_subtitle_text
 from utils.media_utils import parse_ass_timestamp_to_ms, ms_to_ass_timestamp
 from utils.ass_utils import wrap_text
 
@@ -11,6 +11,7 @@ def recalculate_srt(
     timeline: List[TimelineSegment],
     output_path: str,
     is_tts_track: bool = False,
+    max_chars: int = 0,
 ) -> None:
     """
     Sửa lỗi #4: Với TTS track, end_time được neo theo tts_duration thực tế.
@@ -54,6 +55,10 @@ def recalculate_srt(
 
         new_sub["start_time"] = int(new_start)
         new_sub["end_time"]   = int(new_end)
+        
+        if max_chars > 0:
+            new_sub["text"] = wrap_subtitle_text(new_sub["text"], max_chars)
+            
         new_segments.append(new_sub)
 
     with open(output_path, "w", encoding="utf-8") as f:
