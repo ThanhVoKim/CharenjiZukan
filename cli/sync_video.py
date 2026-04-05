@@ -167,7 +167,7 @@ def run_sync_pipeline(args):
                 separate_audio(
                     input_path=args.video,
                     output_path=vocals_path,
-                    model="htdemucs_ft",
+                    model="htdemucs",
                     keep="vocals",
                     bitrate="192k",
                     device="cuda",
