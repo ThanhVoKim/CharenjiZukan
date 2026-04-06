@@ -10,6 +10,8 @@ import logging
 from sync_engine.models import TimelineSegment
 from utils.media_utils import _build_atempo_filter
 
+_PCM_AUDIO_EXTENSIONS = {'.wav', '.flac', '.aiff', '.aif', '.pcm'}
+
 logger = logging.getLogger("sync_video")
 
 def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_provider: str = "edge") -> None:
@@ -42,20 +44,51 @@ def extract_quoted_audio(
     output_path: str,
 ) -> None:
     """
-    THAY ĐỔI: Dùng 2 pass -ss (rough seek trước -i, fine seek sau -i) để extract chính xác.
+    Extract đoạn audio từ nguồn video hoặc WAV.
+
+    - Video source (MP4/MKV/...): Dùng 2-pass seek (rough + fine) để bù
+      encoder delay của codec nén (AAC/MP3). FFmpeg xử lý edit list trong
+      container để bỏ priming samples, nên cần chiến lược này.
+    - PCM WAV source (Demucs output): Dùng single-pass seek trước -i.
+      WAV/PCM không có encoder delay; single-pass seek là sample-accurate
+      và KHÔNG bị lệch time reference so với quá trình pre-extract FFmpeg.
     """
-    rough_start_s = max(0.0, orig_start_ms / 1000.0 - 5.0)
-    exact_offset_s = orig_start_ms / 1000.0 - rough_start_s
-    
-    subprocess.run([
-        "ffmpeg", "-y",
-        "-ss", f"{rough_start_s:.6f}",
-        "-i", video_path,
-        "-ss", f"{exact_offset_s:.6f}",
-        "-t",  f"{(orig_end_ms - orig_start_ms) / 1000:.6f}",
-        "-vn", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
-        output_path,
-    ], check=True, capture_output=True)
+    duration_s = (orig_end_ms - orig_start_ms) / 1000.0
+    src_ext = Path(video_path).suffix.lower()
+
+    if src_ext in _PCM_AUDIO_EXTENSIONS:
+        # PCM audio: single-pass seek — sample-accurate, không có codec delay.
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{orig_start_ms / 1000.0:.9f}",
+            "-i", video_path,
+            "-t", f"{duration_s:.9f}",
+            "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
+            output_path,
+        ]
+        logger.debug(
+            "extract_quoted_audio [PCM] %.3fs–%.3fs → %s",
+            orig_start_ms / 1000.0, orig_end_ms / 1000.0, output_path,
+        )
+    else:
+        # Video source: 2-pass seek để xử lý codec delay (AAC priming samples).
+        rough_start_s = max(0.0, orig_start_ms / 1000.0 - 5.0)
+        exact_offset_s = orig_start_ms / 1000.0 - rough_start_s
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{rough_start_s:.6f}",
+            "-i", video_path,
+            "-ss", f"{exact_offset_s:.6f}",
+            "-t", f"{duration_s:.6f}",
+            "-vn", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
+            output_path,
+        ]
+        logger.debug(
+            "extract_quoted_audio [Video] rough=%.3fs offset=%.3fs dur=%.3fs → %s",
+            rough_start_s, exact_offset_s, duration_s, output_path,
+        )
+
+    subprocess.run(cmd, check=True, capture_output=True)
 
 def build_ambient_mask(
     timeline: List[TimelineSegment],
