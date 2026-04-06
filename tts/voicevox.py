@@ -15,7 +15,7 @@ class VoicevoxTTSEngine(BaseTTSEngine):
         host: str = "127.0.0.1",
         port: int = 50121,
         # --- Tham số Voicevox mặc định ---
-        speed_scale: float = 1.05,
+        speed_scale: float = 1.1,
         pitch_scale: float = -0.05,
         intonation_scale: float = 1.0,
         volume_scale: float = 2.0,

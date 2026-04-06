@@ -61,8 +61,8 @@ def build_ffmpeg_chunk_cmd(
     pts_factor = 1.0 / video_speed
 
     encoder = "h264_nvenc" if use_gpu else "libx264"
-    preset  = "p7"         if use_gpu else "fast"
-    quality = ["-cq", "21"] if use_gpu else ["-crf", "23"]
+    preset  = "p5"         if use_gpu else "fast"
+    quality = ["-cq", "23"] if use_gpu else ["-crf", "23"]
 
     return [
         "ffmpeg", "-y",

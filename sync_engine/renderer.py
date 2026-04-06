@@ -25,7 +25,7 @@ def detect_gpu_encoder() -> Tuple[bool, str, str]:
     r = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
                        capture_output=True, text=True)
     if "h264_nvenc" in r.stdout:
-        return True, "h264_nvenc", "p7"
+        return True, "h264_nvenc", "p5"
     return False, "libx264", "fast"
 
 def ensure_black_bg(path: str, w: int = 1920, h: int = 1080, alpha: int = 255) -> str:
@@ -94,7 +94,7 @@ def render_final_video(
     if use_gpu and has_gpu:
         encoder = auto_encoder
         preset = auto_preset
-        quality = ["-cq", "21"]
+        quality = ["-cq", "23"]
     else:
         encoder = "libx264"
         preset = "fast"
