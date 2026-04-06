@@ -203,6 +203,7 @@ def run_sync_pipeline(args):
                         "ffmpeg", "-y",
                         "-i", args.video,
                         "-vn",
+                        "-af", "aresample=async=1:first_pts=0", # Đảm bảo đồng bộ timebase, pad silence nếu audio start > 0
                         "-ar", "44100",   # giữ nguyên SR phổ biến cho Demucs
                         "-ac", "2",
                         "-c:a", "pcm_s16le",
