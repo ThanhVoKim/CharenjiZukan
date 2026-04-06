@@ -222,9 +222,9 @@ def main():
 
     provider_config = {}
     if provider_type == "openai":
-        config_path = config_path or "config/openai_compat_translate.yaml"
+        config_path = config_path or str(PROJECT_ROOT / "config/openai_compat_translate.yaml")
     elif provider_type == "vertexai":
-        config_path = config_path or "config/vertexai_translate.yaml"
+        config_path = config_path or str(PROJECT_ROOT / "config/vertexai_translate.yaml")
 
     if config_path:
         from translation.factory import load_provider_config

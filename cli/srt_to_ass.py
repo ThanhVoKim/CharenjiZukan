@@ -37,7 +37,7 @@ logger = get_logger(__name__)
 # DEFAULT VALUES
 # ─────────────────────────────────────────────────────────────
 
-DEFAULT_TEMPLATE = Path("assets/sample.ass")
+DEFAULT_TEMPLATE = PROJECT_ROOT / "assets/sample.ass"
 DEFAULT_MAX_CHARS = 14
 DEFAULT_STYLE = "NoteStyle"
 

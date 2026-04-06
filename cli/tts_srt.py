@@ -83,7 +83,6 @@ def run_tts(
     strip_silence: bool = True,
     silence_thresh:int  = -50,
     tts_provider:  str  = "edge",
-    voicevox_id:   int  = 10008,
 ) -> dict:
     """
     Pipeline hoàn chỉnh: SRT → queue_tts → EdgeTTS → SpeedRate → audio.
@@ -108,7 +107,7 @@ def run_tts(
     if tts_provider == "edge":
         print(f"  Voice   : {voice}")
     else:
-        print(f"  Voice ID: {voicevox_id}")
+        print(f"  Voice ID: {voice}")
     print(f"  Rate    : {rate}  Volume: {volume}  Pitch: {pitch}")
     print(f"  Autorate: {'ON' if voice_autorate else 'OFF'}")
     print(f"  Subs    : {total} dòng  ({raw_total_time/1000:.1f}s)")
@@ -151,9 +150,14 @@ def run_tts(
             silence_thresh_dbfs = silence_thresh,
         )
     elif tts_provider == "voicevox":
+        try:
+            voice_id = int(voice)
+        except ValueError:
+            raise ValueError(f"Với Voicevox, tham số --voice phải là ID dạng số nguyên (ví dụ: 10008). Giá trị hiện tại: {voice}")
+        
         engine = VoicevoxTTSEngine(
             queue_tts=queue_tts,
-            voice_id=voicevox_id,
+            voice_id=voice_id,
             concurrent_requests=max_concurrent,
         )
     else:
@@ -249,13 +253,11 @@ Xem danh sách giọng tiếng Việt:
     parser.add_argument("--input",  "-i", metavar="FILE",
                         help="File .srt đầu vào (bắt buộc trừ khi --list-voices)")
     parser.add_argument("--voice",  "-v", metavar="VOICE", default="vi-VN-HoaiMyNeural",
-                        help="Tên giọng EdgeTTS, vd: vi-VN-HoaiMyNeural")
+                        help="Tên giọng EdgeTTS (vd: vi-VN-HoaiMyNeural) hoặc ID nhân vật Voicevox (vd: 10008)")
 
     # TTS Provider
     parser.add_argument("--tts-provider", choices=["edge", "voicevox"], default="edge",
                         help="Chọn TTS engine (mặc định: edge)")
-    parser.add_argument("--voicevox-id", type=int, default=10008,
-                        help="ID nhân vật Voicevox (mặc định: 10008)")
 
     # Tùy chọn audio
     parser.add_argument("--output", "-o", default=None, metavar="FILE",
@@ -355,7 +357,6 @@ def main():
             strip_silence  = not args.no_strip_silence,
             silence_thresh = args.silence_thresh,
             tts_provider   = args.tts_provider,
-            voicevox_id    = args.voicevox_id,
         )
         sys.exit(0)
     except KeyboardInterrupt:

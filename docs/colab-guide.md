@@ -454,7 +454,7 @@ while True:
 !uv run tts-srt \
     --input /content/video_ja.srt \
     --tts-provider voicevox \
-    --voicevox-id 10008
+    --voice 10008
 ```
 
 #### Đầy đủ tham số
@@ -465,7 +465,6 @@ while True:
     --output     /content/video_ja.wav \
     --tts-provider edge \
     --voice      ja-JP-KeitaNeural \
-    --voicevox-id 10008 \
     --rate       +10% \
     --volume     +0% \
     --pitch      +0Hz \
@@ -479,25 +478,24 @@ while True:
 
 #### Tham số
 
-| Tham số              | Mô tả                           | Mặc định                  |
-| -------------------- | ------------------------------- | ------------------------- |
-| `--input`, `-i`      | File .srt đầu vào               | (bắt buộc)                |
-| `--tts-provider`     | Provider (edge/voicevox)        | `edge`                    |
-| `--voice`, `-v`      | Tên giọng EdgeTTS               | `vi-VN-HoaiMyNeural`      |
-| `--voicevox-id`      | ID nhân vật Voicevox            | `10008`                   |
-| `--output`, `-o`     | File audio đầu ra (.wav/.mp3)   | `output/<input_stem>.wav` |
-| `--rate`             | Tốc độ giọng (vd: +10%, -5%)    | `+0%`                     |
-| `--volume`           | Âm lượng (vd: +20%)             | `+0%`                     |
-| `--pitch`            | Cao độ (vd: +50Hz)              | `+0Hz`                    |
-| `--autorate`         | Tự động nén audio khớp slot SRT | (tắt)                     |
-| `--max-speed`        | Giới hạn tốc độ nén tối đa      | `100.0`                   |
-| `--concurrent`       | Số request EdgeTTS song song    | `10`                      |
-| `--cache`            | Thư mục cache audio tạm         | `tmp/<stem>_<ts>/`        |
-| `--no-strip-silence` | Tắt cắt silence ở đuôi mỗi clip | (tắt)                     |
-| `--silence-thresh`   | Ngưỡng dBFS coi là silence      | `-50`                     |
-| `--proxy`            | Proxy URL                       | (không dùng)              |
-| `--list-voices`      | Liệt kê giọng EdgeTTS           | (không dùng)              |
-| `--verbose`          | Bật logging debug               | (tắt)                     |
+| Tham số              | Mô tả                              | Mặc định                  |
+| -------------------- | ---------------------------------- | ------------------------- |
+| `--input`, `-i`      | File .srt đầu vào                  | (bắt buộc)                |
+| `--tts-provider`     | Provider (edge/voicevox)           | `edge`                    |
+| `--voice`, `-v`      | Tên giọng EdgeTTS hoặc ID Voicevox | `vi-VN-HoaiMyNeural`      |
+| `--output`, `-o`     | File audio đầu ra (.wav/.mp3)      | `output/<input_stem>.wav` |
+| `--rate`             | Tốc độ giọng (vd: +10%, -5%)       | `+0%`                     |
+| `--volume`           | Âm lượng (vd: +20%)                | `+0%`                     |
+| `--pitch`            | Cao độ (vd: +50Hz)                 | `+0Hz`                    |
+| `--autorate`         | Tự động nén audio khớp slot SRT    | (tắt)                     |
+| `--max-speed`        | Giới hạn tốc độ nén tối đa         | `100.0`                   |
+| `--concurrent`       | Số request EdgeTTS song song       | `10`                      |
+| `--cache`            | Thư mục cache audio tạm            | `tmp/<stem>_<ts>/`        |
+| `--no-strip-silence` | Tắt cắt silence ở đuôi mỗi clip    | (tắt)                     |
+| `--silence-thresh`   | Ngưỡng dBFS coi là silence         | `-50`                     |
+| `--proxy`            | Proxy URL                          | (không dùng)              |
+| `--list-voices`      | Liệt kê giọng EdgeTTS              | (không dùng)              |
+| `--verbose`          | Bật logging debug                  | (tắt)                     |
 
 ---
 
@@ -875,7 +873,7 @@ Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
     --video /content/video.mp4 \
     --subtitle /content/subtitle_translated.srt \
     --tts-provider voicevox \
-    --voicevox-id 10008 \
+    --tts-voice 10008 \
     --output-dir /content/output_sync
 ```
 
@@ -887,7 +885,6 @@ Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
     --subtitle /content/subtitle_translated.srt \
     --tts-provider edge \
     --tts-voice ja-JP-KeitaNeural \
-    --voicevox-id 10008 \
     --mute /content/mute.srt \
     --note-overlay-png /content/note-overlay.png \
     --note-overlay-ass /content/note_overlay.ass \
@@ -915,8 +912,7 @@ Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
 | `--video`              | File video gốc (`.mp4`, `.mkv`)                           | (bắt buộc)           |
 | `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có) | (bắt buộc)           |
 | `--tts-provider`       | Provider TTS (`edge` hoặc `voicevox`)                     | `edge`               |
-| `--tts-voice`          | Giọng đọc EdgeTTS (ví dụ: ja-JP-KeitaNeural)              | `vi-VN-HoaiMyNeural` |
-| `--voicevox-id`        | ID nhân vật Voicevox                                      | `10008`              |
+| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox               | `vi-VN-HoaiMyNeural` |
 | `--mute`               | File mute `.srt` cho vùng quoted (không TTS)              | (không dùng)         |
 | `--note-overlay-png`   | Ảnh PNG tĩnh nền note                                     | (không dùng)         |
 | `--note-overlay-ass`   | File ASS text cho note overlay                            | (không dùng)         |

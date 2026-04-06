@@ -40,7 +40,10 @@ def run_sync_pipeline(args):
         logger.info("=== BẮT ĐẦU TTS-VIDEO SYNC ===")
         logger.info(f"Video: {args.video}")
         logger.info(f"Subtitle: {args.subtitle}")
-        logger.info(f"TTS Voice: {args.tts_voice}")
+        if args.tts_provider == "edge":
+            logger.info(f"TTS Voice: {args.tts_voice}")
+        else:
+            logger.info(f"Voice ID: {args.tts_voice}")
         
         # Parse inputs
         if not Path(args.subtitle).exists():
@@ -113,9 +116,14 @@ def run_sync_pipeline(args):
                 min_silence_len_ms=300
             )
         elif args.tts_provider == "voicevox":
+            try:
+                voice_id = int(args.tts_voice)
+            except ValueError:
+                raise ValueError(f"Với Voicevox, tham số --tts-voice phải là ID dạng số nguyên (ví dụ: 10008). Giá trị hiện tại: {args.tts_voice}")
+            
             engine = VoicevoxTTSEngine(
                 queue_tts=queue_tts,
-                voice_id=args.voicevox_id,
+                voice_id=voice_id,
                 concurrent_requests=100,
             )
         else:
@@ -288,8 +296,7 @@ def main():
     
     # TTS Settings
     parser.add_argument("--tts-provider", choices=["edge", "voicevox"], default="edge", help="Chọn TTS engine (mặc định: edge)")
-    parser.add_argument("--tts-voice", default="vi-VN-HoaiMyNeural", help="Giọng đọc EdgeTTS (ví dụ: vi-VN-HoaiMyNeural)")
-    parser.add_argument("--voicevox-id", type=int, default=10008, help="ID nhân vật Voicevox (mặc định: 10008)")
+    parser.add_argument("--tts-voice", default="vi-VN-HoaiMyNeural", help="Tên giọng EdgeTTS hoặc ID nhân vật Voicevox")
     parser.add_argument("--tts-rate", default="+0%", help="Tốc độ giọng đọc EdgeTTS")
     parser.add_argument("--tts-volume", default="+0%", help="Âm lượng EdgeTTS")
     parser.add_argument("--tts-pitch", default="+0Hz", help="Pitch EdgeTTS")
@@ -299,7 +306,7 @@ def main():
     parser.add_argument("--note-overlay-png", help="PNG tĩnh nền note")
     parser.add_argument("--note-overlay-ass", help="ASS text cho note")
     parser.add_argument("--black-bg", help="Dải đen 1920x80 (tự tạo nếu không có)")
-    parser.add_argument("--ambient", default="assets/ambient.mp3", help="Nhạc nền")
+    parser.add_argument("--ambient", default=str(PROJECT_ROOT / "assets" / "ambient.mp3"), help="Nhạc nền")
     
     # Algorithm
     parser.add_argument("--slow-cap", type=float, default=0.5, help="Video speed tối thiểu (mặc định: 0.5)")

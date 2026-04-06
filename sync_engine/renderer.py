@@ -100,7 +100,8 @@ def render_final_video(
         preset = "fast"
         quality = ["-crf", "23"]
 
-    watermark_path = "assets/CharenjiZukan-watermark.png"
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    watermark_path = str(PROJECT_ROOT / "assets" / "CharenjiZukan-watermark.png")
     watermark_path_esc = watermark_path.replace('\\', '/')
     TITLE_FONT_PATH = "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf"
 
@@ -115,7 +116,7 @@ def render_final_video(
                note_overlay_synced_ass and Path(note_overlay_synced_ass).exists()
 
     if has_note:
-        bg = ensure_black_bg(black_bg_path or "tmp_black_bg.png")
+        bg = ensure_black_bg(black_bg_path or str(PROJECT_ROOT / "tmp" / "tmp_black_bg.png"))
         note_overlay_synced_ass_esc = note_overlay_synced_ass.replace('\\', '/')
         bg_esc = bg.replace('\\', '/')
         png_esc = note_overlay_png.replace('\\', '/')

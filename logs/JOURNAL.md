@@ -1,5 +1,28 @@
 # Project Journal
 
+## 2026-04-06: Sửa lỗi đường dẫn tương đối trong các CLI scripts (Relative Path Fixes)
+
+### Yêu cầu
+
+- Sửa lỗi `subprocess.CalledProcessError` từ `ffmpeg` khi chạy lệnh `sync-video` từ một thư mục làm việc không phải là thư mục gốc của dự án (ví dụ: chạy trên Colab từ `/content/Survival/...`).
+- Khắc phục tình trạng một số đường dẫn file phụ trợ (như watermark `assets/CharenjiZukan-watermark.png`, `ambient.mp3`, file cấu hình, v.v.) sử dụng đường dẫn tương đối bị lỗi không tìm thấy file.
+
+### Thay đổi đã thực hiện
+
+1. **`sync_engine/renderer.py`**:
+   - Thay đổi đường dẫn `watermark_path` và `black_bg_path` (file mặc định) thành đường dẫn tuyệt đối dựa trên biến môi trường `PROJECT_ROOT` (`Path(__file__).resolve().parent.parent`).
+2. **`cli/sync_video.py`**:
+   - Cập nhật tham số mặc định của cờ `--ambient` sử dụng đường dẫn tuyệt đối dựa trên `PROJECT_ROOT`.
+3. **Các script CLI khác (`cli/srt_to_ass.py`, `cli/video_ocr.py`, `cli/video_ocr_native.py`, `cli/translate_srt.py`)**:
+   - Đồng bộ việc sử dụng `PROJECT_ROOT` để tạo đường dẫn tuyệt đối cho các tham số mặc định trỏ về thư mục project như `assets/boxesOCR.txt`, `assets/sample.ass`, `config/openai_compat_translate.yaml`, `prompts/native_video_ocr_prompt.txt`.
+
+### Trạng thái hiện tại
+
+- ✅ Đã khắc phục hoàn toàn lỗi không tìm thấy file phụ trợ khi chạy CLI ở thư mục làm việc bất kỳ.
+- ✅ Tăng tính ổn định và nhất quán trong cách xử lý đường dẫn file xuyên suốt dự án.
+
+---
+
 ## 2026-04-05: Tích hợp Voicevox TTS
 
 ### Yêu cầu

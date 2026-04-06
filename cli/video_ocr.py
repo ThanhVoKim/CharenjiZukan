@@ -27,8 +27,8 @@ import argparse
 import sys
 from pathlib import Path
 
-# Thêm project root vào path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.logger import setup_logging, get_logger
 from video_subtitle_extractor import VideoSubtitleExtractor
@@ -79,7 +79,7 @@ Examples:
     # Box configuration
     parser.add_argument(
         "--boxes-file",
-        default="assets/boxesOCR.txt",
+        default=str(PROJECT_ROOT / "assets/boxesOCR.txt"),
         help="Đường dẫn file txt cấu hình các vùng box (mặc định: assets/boxesOCR.txt)"
     )
     
@@ -322,7 +322,7 @@ def main():
     boxes = []
     
     # Precedence cho boxes_file: YAML > CLI override fallback default
-    boxes_file = getattr(args, "boxes_file", "assets/boxesOCR.txt")
+    boxes_file = getattr(args, "boxes_file", str(PROJECT_ROOT / "assets/boxesOCR.txt"))
     if config.get("roi", {}).get("boxes_file"):
         boxes_file = config["roi"]["boxes_file"]
     

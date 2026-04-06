@@ -10,8 +10,8 @@ import argparse
 import sys
 from pathlib import Path
 
-# Thêm project root vào path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.logger import setup_logging, get_logger
 from video_subtitle_extractor.box_manager import parse_boxes_file, OcrBox
@@ -20,7 +20,7 @@ from video_subtitle_extractor.native_video_extractor import NativeVideoSubtitleE
 logger = get_logger(__name__)
 
 
-DEFAULT_CONFIG_PATH = "config/native_video_ocr_config.yaml"
+DEFAULT_CONFIG_PATH = str(PROJECT_ROOT / "config/native_video_ocr_config.yaml")
 
 
 def parse_args():
@@ -209,7 +209,7 @@ def main():
         return default_val
 
     # Boxes
-    boxes_file = get_param("boxes_file", ("roi", "boxes_file"), "assets/boxesOCR.txt")
+    boxes_file = get_param("boxes_file", ("roi", "boxes_file"), str(PROJECT_ROOT / "assets/boxesOCR.txt"))
     boxes = parse_boxes_file(boxes_file)
     if not boxes:
         logger.warning("Không đọc được boxes từ %s. Dùng fallback mặc định.", boxes_file)
@@ -230,7 +230,7 @@ def main():
         max_frames=get_param("max_frames", ("ocr", "max_frames"), 2048),
         warn_english=get_param("warn_english", ("output", "warn_english"), False),
         save_minify_txt=get_param("save_minify_txt", ("output", "save_minify_txt"), False),
-        prompt_file=get_param("prompt_file", ("prompt", "file"), "prompts/native_video_ocr_prompt.txt"),
+        prompt_file=get_param("prompt_file", ("prompt", "file"), str(PROJECT_ROOT / "prompts/native_video_ocr_prompt.txt")),
     )
 
     video_path = Path(args.video)
