@@ -106,7 +106,9 @@ def strip_audio_silence(
 # ─────────────────────────────────────────────────────────────────────
 # ASYNC ENGINE
 # ─────────────────────────────────────────────────────────────────────
-class EdgeTTSEngine:
+from tts.base import BaseTTSEngine
+
+class EdgeTTSEngine(BaseTTSEngine):
     """
     Async engine tạo audio từng dòng subtitle.
     Giống EdgeTTS class trong pyvideotrans/tts/_edgetts.py nhưng
@@ -127,8 +129,9 @@ class EdgeTTSEngine:
         silence_thresh_dbfs: int = -50,      # Ngưỡng silence
         min_silence_len_ms: int = 100,       # Silence tối thiểu để detect
         keep_padding_ms: int = 60,           # Padding giữ lại ở viền
+        **kwargs
     ):
-        self.queue_tts      = queue_tts
+        super().__init__(queue_tts, **kwargs)
         self.voice          = voice
         self.rate           = _normalize_rate(rate)
         self.volume         = volume

@@ -27,7 +27,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from tts_edgetts import EdgeTTSEngine     # noqa: E402
+from tts.edgetts import EdgeTTSEngine     # noqa: E402
+from tts.voicevox import VoicevoxTTSEngine # noqa: E402
 from speed_rate import SpeedRate          # noqa: E402
 from utils.logger import setup_logging, get_logger  # noqa: E402
 
@@ -81,6 +82,8 @@ def run_tts(
     max_speed_rate:float= 100.0,
     strip_silence: bool = True,
     silence_thresh:int  = -50,
+    tts_provider:  str  = "edge",
+    voicevox_id:   int  = 10008,
 ) -> dict:
     """
     Pipeline hoàn chỉnh: SRT → queue_tts → EdgeTTS → SpeedRate → audio.
@@ -98,11 +101,14 @@ def run_tts(
     raw_total_time = srt_list[-1]["end_time"]  # tổng thời lượng SRT (ms)
 
     print(f"\n{'='*55}")
-    print(f"  🎙  EdgeTTS Dubbing")
+    print(f"  🎙  TTS Dubbing ({tts_provider.upper()})")
     print(f"{'='*55}")
     print(f"  Input   : {input_file}")
     print(f"  Output  : {output_file}")
-    print(f"  Voice   : {voice}")
+    if tts_provider == "edge":
+        print(f"  Voice   : {voice}")
+    else:
+        print(f"  Voice ID: {voicevox_id}")
     print(f"  Rate    : {rate}  Volume: {volume}  Pitch: {pitch}")
     print(f"  Autorate: {'ON' if voice_autorate else 'OFF'}")
     print(f"  Subs    : {total} dòng  ({raw_total_time/1000:.1f}s)")
@@ -130,24 +136,34 @@ def run_tts(
             "filename":   str(Path(cache_folder) / f"dubb-{i}.wav"),
         })
 
-    # 4. EdgeTTS: tạo audio từng dòng
+    # 4. TTS: tạo audio từng dòng
     print(f"🔊 Phase 1/2 — Tạo audio từng dòng ({total} dòng)...")
-    engine = EdgeTTSEngine(
-        queue_tts     = queue_tts,
-        voice         = voice,
-        rate          = rate,
-        volume        = volume,
-        pitch         = pitch,
-        proxy         = proxy,
-        max_concurrent= max_concurrent,
-        strip_silence       = strip_silence,
-        silence_thresh_dbfs = silence_thresh,
-    )
+    if tts_provider == "edge":
+        engine = EdgeTTSEngine(
+            queue_tts     = queue_tts,
+            voice         = voice,
+            rate          = rate,
+            volume        = volume,
+            pitch         = pitch,
+            proxy         = proxy,
+            max_concurrent= max_concurrent,
+            strip_silence       = strip_silence,
+            silence_thresh_dbfs = silence_thresh,
+        )
+    elif tts_provider == "voicevox":
+        engine = VoicevoxTTSEngine(
+            queue_tts=queue_tts,
+            voice_id=voicevox_id,
+            concurrent_requests=max_concurrent,
+        )
+    else:
+        raise ValueError(f"Provider không hợp lệ: {tts_provider}")
+
     tts_stats = engine.run()
-    print(f"   ✅ EdgeTTS: {tts_stats['ok']} OK | {tts_stats['err']} lỗi\n")
+    print(f"   ✅ {tts_provider.upper()}: {tts_stats['ok']} OK | {tts_stats['err']} lỗi\n")
 
     if tts_stats["ok"] == 0:
-        raise RuntimeError("EdgeTTS thất bại hoàn toàn — không có audio nào được tạo")
+        raise RuntimeError(f"{tts_provider.upper()} thất bại hoàn toàn — không có audio nào được tạo")
 
     # 5. SpeedRate: ghép và align
     print(f"🔗 Phase 2/2 — Ghép audio (autorate={'ON' if voice_autorate else 'OFF'})...")
@@ -232,8 +248,14 @@ Xem danh sách giọng tiếng Việt:
     # Bắt buộc (trừ khi --list-voices)
     parser.add_argument("--input",  "-i", metavar="FILE",
                         help="File .srt đầu vào (bắt buộc trừ khi --list-voices)")
-    parser.add_argument("--voice",  "-v", metavar="VOICE",
-                        help="Tên giọng EdgeTTS, vd: vi-VN-HoaiMyNeural (bắt buộc trừ khi --list-voices)")
+    parser.add_argument("--voice",  "-v", metavar="VOICE", default="vi-VN-HoaiMyNeural",
+                        help="Tên giọng EdgeTTS, vd: vi-VN-HoaiMyNeural")
+
+    # TTS Provider
+    parser.add_argument("--tts-provider", choices=["edge", "voicevox"], default="edge",
+                        help="Chọn TTS engine (mặc định: edge)")
+    parser.add_argument("--voicevox-id", type=int, default=10008,
+                        help="ID nhân vật Voicevox (mặc định: 10008)")
 
     # Tùy chọn audio
     parser.add_argument("--output", "-o", default=None, metavar="FILE",
@@ -299,8 +321,8 @@ def main():
     # ── Validate đầu vào ─────────────────────────────────────────────
     if not args.input:
         parser.error("--input là bắt buộc (hoặc dùng --list-voices)")
-    if not args.voice:
-        parser.error("--voice là bắt buộc (hoặc dùng --list-voices)")
+    if args.tts_provider == "edge" and not args.voice:
+        parser.error("--voice là bắt buộc khi dùng EdgeTTS (hoặc dùng --list-voices)")
 
     input_path = Path(args.input)
     if not input_path.exists():
@@ -332,6 +354,8 @@ def main():
             max_speed_rate = args.max_speed,
             strip_silence  = not args.no_strip_silence,
             silence_thresh = args.silence_thresh,
+            tts_provider   = args.tts_provider,
+            voicevox_id    = args.voicevox_id,
         )
         sys.exit(0)
     except KeyboardInterrupt:

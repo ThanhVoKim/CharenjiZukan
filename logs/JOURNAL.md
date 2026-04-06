@@ -1,5 +1,47 @@
 # Project Journal
 
+## 2026-04-05: Tích hợp Voicevox TTS
+
+### Yêu cầu
+
+- Tích hợp module tạo giọng nói Voicevox như một lựa chọn thay thế cho EdgeTTS trong luồng `sync_video`.
+- Đảm bảo hiệu suất cao, không gây lỗi tràn VRAM (OOM) trên Colab bằng cách cung cấp quy trình khởi chạy server độc lập.
+- Giữ nguyên logic đồng bộ video cốt lõi.
+- Đưa tất cả logic TTS vào một package riêng `tts/`.
+
+### Thay đổi đã thực hiện
+
+1. **Tái cấu trúc kiến trúc TTS**:
+   - Tạo package `tts/` tại root project.
+   - Tạo file `tts/base.py` định nghĩa abstract class `BaseTTSEngine`.
+   - Di chuyển và refactor `tts_edgetts.py` thành `tts/edgetts.py` kế thừa từ `BaseTTSEngine`.
+
+2. **Tạo Voicevox Engine**:
+   - Tạo `tts/voicevox.py` chứa `VoicevoxTTSEngine` (kế thừa `BaseTTSEngine`).
+   - Implement logic gọi API nội bộ của Voicevox (`/audio_query` và `/synthesis`) thông qua `aiohttp`.
+   - Hỗ trợ các tham số cấu hình động (speed, pitch, volume, intonation, v.v.) và cơ chế tự động retry (`max_retries`).
+   - Loại bỏ tham số `strip_silence` do Voicevox tự quản lý khoảng lặng thông qua `prePhonemeLength` và `postPhonemeLength`.
+
+3. **Cập nhật luồng tích hợp (Integration)**:
+   - Sửa đổi CLI `cli/tts_srt.py` và `cli/sync_video.py` để bổ sung flag `--tts-provider` (`edge` hoặc `voicevox`) và `--voicevox-id`.
+   - Cập nhật `sync_engine/audio_assembler.py` để chỉ áp dụng volume filter cho EdgeTTS, bỏ qua filter này nếu dùng Voicevox (vì Voicevox đã được tăng âm lượng qua tham số API `volumeScale`).
+   - Sửa toàn bộ references đang trỏ về `tts_edgetts` cũ thành đường dẫn import package mới (`tts.edgetts`).
+
+4. **Cập nhật tài liệu**:
+   - Cập nhật `docs/colab-guide.md` bổ sung hướng dẫn cài đặt và sử dụng Voicevox. Chạy server ngầm trong một cell riêng biệt và gọi CLI ở cell khác để tránh tranh chấp VRAM với các models khác.
+
+### Trạng thái hiện tại
+
+- ✅ Đã hoàn tất việc tích hợp Voicevox vào pipeline.
+- ✅ Đã tái cấu trúc module TTS rõ ràng, dễ bảo trì và mở rộng.
+- ✅ Đã cập nhật tài liệu hướng dẫn đầy đủ.
+
+### Bước tiếp theo đề xuất
+
+- Chạy thử nghiệm thực tế trên môi trường Colab để kiểm chứng tốc độ khởi tạo server và khả năng đồng bộ TTS vào video sử dụng Voicevox.
+
+---
+
 ## 2026-04-05: Tích hợp Demucs vào pipeline Sync Video để loại bỏ nhạc nền
 
 ### Yêu cầu

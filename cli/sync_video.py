@@ -85,7 +85,8 @@ def run_sync_pipeline(args):
         Path(tts_dir).mkdir(parents=True, exist_ok=True)
         
         from sync_engine.analyzer import filter_tts_subtitles
-        from tts_edgetts import EdgeTTSEngine
+        from tts.edgetts import EdgeTTSEngine
+        from tts.voicevox import VoicevoxTTSEngine
         
         tts_only = filter_tts_subtitles(subtitle_segments, mute_segments)
         queue_tts = []
@@ -99,20 +100,30 @@ def run_sync_pipeline(args):
                 "filename":   str(Path(tts_dir) / f"dubb-{i}.wav"),
             })
             
-        logger.info(f"Đang sinh {len(queue_tts)} audio clips bằng EdgeTTS (voice={args.tts_voice})...")
-        engine = EdgeTTSEngine(
-            queue_tts=queue_tts,
-            voice=args.tts_voice,
-            rate=args.tts_rate,
-            volume=args.tts_volume,
-            pitch=args.tts_pitch,
-            strip_silence=True,
-            max_concurrent=10,
-            min_silence_len_ms=300
-        )
+        logger.info(f"Đang sinh {len(queue_tts)} audio clips bằng {args.tts_provider.upper()}...")
+        if args.tts_provider == "edge":
+            engine = EdgeTTSEngine(
+                queue_tts=queue_tts,
+                voice=args.tts_voice,
+                rate=args.tts_rate,
+                volume=args.tts_volume,
+                pitch=args.tts_pitch,
+                strip_silence=True,
+                max_concurrent=10,
+                min_silence_len_ms=300
+            )
+        elif args.tts_provider == "voicevox":
+            engine = VoicevoxTTSEngine(
+                queue_tts=queue_tts,
+                voice_id=args.voicevox_id,
+                concurrent_requests=100,
+            )
+        else:
+            raise ValueError(f"Provider không hợp lệ: {args.tts_provider}")
+
         tts_stats = engine.run()
         if tts_stats["ok"] == 0 and len(queue_tts) > 0:
-            raise RuntimeError("EdgeTTS thất bại hoàn toàn — không có audio nào được tạo")
+            raise RuntimeError(f"{args.tts_provider.upper()} thất bại hoàn toàn — không có audio nào được tạo")
         logger.info(f"Tạo TTS hoàn tất: {tts_stats['ok']} thành công, {tts_stats['err']} lỗi")
         
         # PHASE 1: ANALYSIS
@@ -185,7 +196,8 @@ def run_sync_pipeline(args):
             ambient_path=args.ambient,
             output_path=mixed_audio,
             tmp_dir=tmp_dir,
-            use_demucs=args.use_demucs
+            use_demucs=args.use_demucs,
+            tts_provider=args.tts_provider
         )
         
         # PHASE 4: RECALCULATE TIMESTAMPS
@@ -275,7 +287,9 @@ def main():
     parser.add_argument("--subtitle", required=True, help="File subtitle.srt đầy đủ (kể cả vùng mute)")
     
     # TTS Settings
+    parser.add_argument("--tts-provider", choices=["edge", "voicevox"], default="edge", help="Chọn TTS engine (mặc định: edge)")
     parser.add_argument("--tts-voice", default="vi-VN-HoaiMyNeural", help="Giọng đọc EdgeTTS (ví dụ: vi-VN-HoaiMyNeural)")
+    parser.add_argument("--voicevox-id", type=int, default=10008, help="ID nhân vật Voicevox (mặc định: 10008)")
     parser.add_argument("--tts-rate", default="+0%", help="Tốc độ giọng đọc EdgeTTS")
     parser.add_argument("--tts-volume", default="+0%", help="Âm lượng EdgeTTS")
     parser.add_argument("--tts-pitch", default="+0Hz", help="Pitch EdgeTTS")

@@ -386,7 +386,9 @@ Chuyển file SRT thành file ASS để overlay lên video.
 
 ### 2.6. Text-to-Speech (tts-srt)
 
-#### Xem danh sách giọng
+Hỗ trợ 2 engine: **EdgeTTS** (mặc định, cloud) và **Voicevox** (local server).
+
+#### Xem danh sách giọng (EdgeTTS)
 
 ```colab
 # Giọng tiếng Việt
@@ -415,13 +417,55 @@ Chuyển file SRT thành file ASS để overlay lên video.
     --autorate
 ```
 
+#### Sử dụng Voicevox
+
+**Bước 1: Khởi động Server Voicevox ngầm**
+Cài đặt môi trường
+
+```colab
+!python setup_voicevox.py
+```
+
+Chạy trong một cell riêng biệt trước khi gọi lệnh TTS:
+
+```colab
+import subprocess
+import time
+
+print("🚀 Đang khởi động Voicevox Server ngầm...")
+process = subprocess.Popen(
+    ["uv", "run", "run.py", "--use_gpu", "--host", "127.0.0.1", "--port", "50121"],
+    cwd="/content/voicevox_nemo_engine",
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True
+)
+
+while True:
+    line = process.stdout.readline()
+    if "Application startup complete" in line or "Uvicorn running on" in line:
+        print("✅ Voicevox Server đã sẵn sàng tại 127.0.0.1:50121")
+        break
+```
+
+**Bước 2: Chạy TTS với Voicevox**
+
+```colab
+!uv run tts-srt \
+    --input /content/video_ja.srt \
+    --tts-provider voicevox \
+    --voicevox-id 10008
+```
+
 #### Đầy đủ tham số
 
 ```colab
 !uv run tts-srt \
     --input      /content/video_ja.srt \
     --output     /content/video_ja.wav \
+    --tts-provider edge \
     --voice      ja-JP-KeitaNeural \
+    --voicevox-id 10008 \
     --rate       +10% \
     --volume     +0% \
     --pitch      +0Hz \
@@ -438,7 +482,9 @@ Chuyển file SRT thành file ASS để overlay lên video.
 | Tham số              | Mô tả                           | Mặc định                  |
 | -------------------- | ------------------------------- | ------------------------- |
 | `--input`, `-i`      | File .srt đầu vào               | (bắt buộc)                |
-| `--voice`, `-v`      | Tên giọng EdgeTTS               | (bắt buộc)                |
+| `--tts-provider`     | Provider (edge/voicevox)        | `edge`                    |
+| `--voice`, `-v`      | Tên giọng EdgeTTS               | `vi-VN-HoaiMyNeural`      |
+| `--voicevox-id`      | ID nhân vật Voicevox            | `10008`                   |
 | `--output`, `-o`     | File audio đầu ra (.wav/.mp3)   | `output/<input_stem>.wav` |
 | `--rate`             | Tốc độ giọng (vd: +10%, -5%)    | `+0%`                     |
 | `--volume`           | Âm lượng (vd: +20%)             | `+0%`                     |
@@ -815,7 +861,21 @@ CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS the
 !uv run sync-video \
     --video /content/video.mp4 \
     --subtitle /content/subtitle_translated.srt \
+    --tts-provider edge \
     --tts-voice ja-JP-KeitaNeural \
+    --output-dir /content/output_sync
+```
+
+#### Chạy nhanh với Voicevox
+
+Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
+
+```colab
+!uv run sync-video \
+    --video /content/video.mp4 \
+    --subtitle /content/subtitle_translated.srt \
+    --tts-provider voicevox \
+    --voicevox-id 10008 \
     --output-dir /content/output_sync
 ```
 
@@ -825,7 +885,9 @@ CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS the
 !uv run sync-video \
     --video /content/video.mp4 \
     --subtitle /content/subtitle_translated.srt \
+    --tts-provider edge \
     --tts-voice ja-JP-KeitaNeural \
+    --voicevox-id 10008 \
     --mute /content/mute.srt \
     --note-overlay-png /content/note-overlay.png \
     --note-overlay-ass /content/note_overlay.ass \
@@ -852,7 +914,9 @@ CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS the
 | ---------------------- | --------------------------------------------------------- | -------------------- |
 | `--video`              | File video gốc (`.mp4`, `.mkv`)                           | (bắt buộc)           |
 | `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có) | (bắt buộc)           |
-| `--tts-voice`          | Giọng đọc EdgeTTS (ví dụ: ja-JP-KeitaNeural)              | `ja-JP-KeitaNeural`  |
+| `--tts-provider`       | Provider TTS (`edge` hoặc `voicevox`)                     | `edge`               |
+| `--tts-voice`          | Giọng đọc EdgeTTS (ví dụ: ja-JP-KeitaNeural)              | `vi-VN-HoaiMyNeural` |
+| `--voicevox-id`        | ID nhân vật Voicevox                                      | `10008`              |
 | `--mute`               | File mute `.srt` cho vùng quoted (không TTS)              | (không dùng)         |
 | `--note-overlay-png`   | Ảnh PNG tĩnh nền note                                     | (không dùng)         |
 | `--note-overlay-ass`   | File ASS text cho note overlay                            | (không dùng)         |

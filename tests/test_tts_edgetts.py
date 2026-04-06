@@ -36,7 +36,7 @@ from pydub import AudioSegment
 from pydub.silence import detect_nonsilent
 
 from cli.tts_srt import run_tts
-from tts_edgetts import EdgeTTSEngine, convert_to_wav, strip_audio_silence
+from tts.edgetts import EdgeTTSEngine, convert_to_wav, strip_audio_silence
 
 # ═════════════════════════════════════════════════════════════════════
 # SHARED FIXTURES
@@ -83,7 +83,7 @@ def synthetic_wav_all_silent(tmp_path_factory) -> Path:
 @pytest.fixture
 def mock_edgetts_communicate():
     """Mock edge_tts.Communicate để không gọi mạng."""
-    with patch("tts_edgetts.Communicate") as mock_comm:
+    with patch("tts.edgetts.Communicate") as mock_comm:
         instance = MagicMock()
         # Mock hàm save trả về future hoàn thành ngay lập tức
         # Nó sẽ tạo ra 1 file rỗng tại path truyền vào để mô phỏng tải xong
@@ -162,7 +162,7 @@ class TestLayer1_StripSilence:
 class TestLayer2_EdgeTTSEngine:
     """Kiểm tra EdgeTTSEngine và luồng convert + strip silence."""
 
-    @patch("tts_edgetts.convert_to_wav")
+    @patch("tts.edgetts.convert_to_wav")
     def test_engine_run_with_strip_silence(self, mock_convert, mock_edgetts_communicate, synthetic_wav_with_silence, tmp_path):
         """Test engine hoạt động bình thường, sinh mp3 giả và convert sang wav, sau đó strip."""
         
@@ -204,7 +204,7 @@ class TestLayer2_EdgeTTSEngine:
         final_seg = AudioSegment.from_file(filename)
         assert abs(len(final_seg) - 1500) < 5
 
-    @patch("tts_edgetts.convert_to_wav")
+    @patch("tts.edgetts.convert_to_wav")
     def test_engine_run_without_strip_silence(self, mock_convert, mock_edgetts_communicate, synthetic_wav_with_silence, tmp_path):
         """Test engine khi cờ strip_silence=False."""
         

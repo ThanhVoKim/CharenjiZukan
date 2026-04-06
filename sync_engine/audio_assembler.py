@@ -12,22 +12,28 @@ from utils.media_utils import _build_atempo_filter
 
 logger = logging.getLogger("sync_video")
 
-def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str) -> None:
-    # Luôn áp dụng filter tăng âm lượng và limiter cho TTS audio
-    base_filter = "volume=1.5,alimiter=limit=0.95:level_in=1:level_out=1"
+def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_provider: str = "edge") -> None:
+    # Chỉ áp dụng filter tăng âm lượng và limiter cho EdgeTTS
+    if tts_provider == "edge":
+        base_filter = "volume=1.5,alimiter=limit=0.95:level_in=1:level_out=1"
+    else:
+        base_filter = "" # Voicevox đã tự tăng volumeScale
     
     if audio_speed > 1.01:
         atempo_str = _build_atempo_filter(audio_speed)  # Reuse từ media_utils.py
-        filter_str = f"{atempo_str},{base_filter}"
+        filter_str = f"{atempo_str},{base_filter}" if base_filter else atempo_str
     else:
         filter_str = base_filter
         
-    subprocess.run([
+    cmd = [
         "ffmpeg", "-y", "-i", wav_path,
-        "-filter:a", filter_str,
         "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
-        output_path,
-    ], check=True, capture_output=True)
+    ]
+    if filter_str:
+        cmd.extend(["-filter:a", filter_str])
+    cmd.append(output_path)
+    
+    subprocess.run(cmd, check=True, capture_output=True)
 
 def extract_quoted_audio(
     video_path: str,
@@ -194,7 +200,8 @@ def assemble_audio_track(
     output_path: str,
     tmp_dir: str,
     sample_rate: int = 48000,
-    use_demucs: bool = False
+    use_demucs: bool = False,
+    tts_provider: str = "edge"
 ) -> None:
     """
     Sử dụng FFmpeg để mix audio siêu tốc (thay thế pydub).
@@ -226,7 +233,7 @@ def assemble_audio_track(
         elif seg.block_type == "tts" and seg.tts_clip_path:
             tmp_c = str(Path(tmp_dir) / f"processed_{int(seg.new_start)}.wav")
             if not Path(tmp_c).exists():
-                compress_tts_clip(seg.tts_clip_path, seg.audio_speed, tmp_c)
+                compress_tts_clip(seg.tts_clip_path, seg.audio_speed, tmp_c, tts_provider)
             if Path(tmp_c).exists():
                 prepared_inputs.append((tmp_c, seg.new_start))
 
