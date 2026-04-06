@@ -165,7 +165,10 @@ def separate_audio(input_path, output_path, model="htdemucs", keep="bgm", bitrat
     if wav.dim() == 2:
         wav = wav.unsqueeze(0)
 
-    wav = wav.to(device)
+    # KHÔNG đưa toàn bộ wav lên GPU ở đây.
+    # Truyền wav ở CPU vào apply_model, Demucs sẽ tự động đưa từng chunk lên GPU
+    # xử lý rồi trả về CPU, giúp VRAM không bị tăng tuyến tính.
+    # wav = wav.to(device)
 
     # 4. Apply model
     logger.info("Separating sources...")
@@ -277,6 +280,19 @@ def separate_audio(input_path, output_path, model="htdemucs", keep="bgm", bitrat
         torchaudio.save(output_path, output_audio, sr)
 
     logger.info(f"✅ Done! Output saved to: {output_path}")
+
+    # 8. Cleanup VRAM
+    logger.info("Giải phóng VRAM...")
+    del model_obj
+    del wav
+    del sources
+    del output_audio
+    import gc
+    gc.collect()
+    if str(device).startswith("cuda"):
+        import torch
+        torch.cuda.empty_cache()
+
     return output_path
 
 
