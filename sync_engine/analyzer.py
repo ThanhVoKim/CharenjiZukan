@@ -12,22 +12,61 @@ def filter_tts_subtitles(
     mute_segments: List[dict],
 ) -> List[dict]:
     """
-    Xóa bỏ bất kỳ subtitle block nào có overlap với mute region.
-    Đánh lại line number từ 1.
-    Output mapping: dubb-0.wav <-> tts_blocks[0], dubb-1.wav <-> tts_blocks[1], ...
+    Xử lý subtitle blocks overlap với mute:
+    - Overlap hoàn toàn (start >= mute_start) → drop.
+    - Overlap phần đuôi (start < mute_start <= end) → clip end_time về mute_start.
+    - Không overlap → giữ nguyên.
     """
+    mute_sorted = sorted(mute_segments, key=lambda m: m["start_time"])
     tts_blocks = []
+
     for seg in subtitle_segments:
-        overlaps_mute = any(
-            seg["start_time"] < mute["end_time"] and
-            seg["end_time"]   > mute["start_time"]
-            for mute in mute_segments
-        )
-        if not overlaps_mute:
-            tts_blocks.append(seg)
+        clipped = dict(seg)  # copy để không sửa dữ liệu gốc
+        drop = False
+
+        for mute in mute_sorted:
+            mute_start = mute["start_time"]
+            mute_end   = mute["end_time"]
+
+            # Không overlap gì cả → bỏ qua mute này
+            if clipped["end_time"] <= mute_start or clipped["start_time"] >= mute_end:
+                continue
+
+            # Overlap hoàn toàn: start của sub nằm trong vùng mute → drop
+            if clipped["start_time"] >= mute_start:
+                drop = True
+                break
+
+            # Overlap phần đuôi: start < mute_start < end → clip end về mute_start
+            if clipped["start_time"] < mute_start < clipped["end_time"]:
+                clipped["end_time"] = mute_start
+                logger.debug(
+                    "Clipped sub %s end_time %s → %s (mute starts at %s)",
+                    clipped.get("line"),
+                    seg["end_time"],
+                    mute_start,
+                    mute_start,
+                )
+                break  # Một mute đã clip rồi, không cần kiểm tra mute tiếp theo
+
+        if drop:
+            logger.debug("Dropped sub %s (fully inside mute region)", seg.get("line"))
+            continue
+
+        # Sau khi clip, nếu duration quá ngắn (< 100ms) thì drop
+        if clipped["end_time"] - clipped["start_time"] < 100:
+            logger.debug(
+                "Dropped sub %s after clip: duration too short (%sms)",
+                seg.get("line"),
+                clipped["end_time"] - clipped["start_time"],
+            )
+            continue
+
+        tts_blocks.append(clipped)
 
     for i, seg in enumerate(tts_blocks, 1):
         seg["line"] = i
+
     return tts_blocks
 
 def _get_wav_duration_ms(wav_path: str) -> float:
@@ -158,24 +197,35 @@ def classify_and_compute_slots(
 def compute_speeds(
     tts_ms: float,
     slot_ms: float,
+    cap: float = 0.5,
     hard_limit_ms: Optional[float] = None,
-    cap: float = 0.5
+    no_cap: bool = False,       # True → bỏ Case 3, video slow thoải mái
 ) -> Tuple[float, float, float]:
     """
-    Returns (video_speed, audio_speed, new_chunk_duration_ms).
+    no_cap=True (Voicevox mode):
+        Chỉ có Case 1 và Case 2. Không bao giờ compress audio.
+        Video slow bao nhiêu cũng được để khớp TTS.
     """
-    if tts_ms <= 0:
-        return 1.0, 1.0, slot_ms
-        
     effective = hard_limit_ms if hard_limit_ms is not None else slot_ms
-    max_str   = effective / cap
 
     if tts_ms <= effective:
+        # Case 1: TTS vừa slot, không cần làm gì
         return 1.0, 1.0, slot_ms
 
+    if no_cap:
+        # Voicevox mode: kéo video chậm thoải mái, không compress audio
+        # video_speed = effective / tts_ms (có thể rất nhỏ, e.g. 0.1x)
+        video_speed = effective / tts_ms
+        return video_speed, 1.0, tts_ms
+
+    # EdgeTTS mode: có cap
+    max_str = effective / cap
+
     if tts_ms <= max_str:
+        # Case 2: slow video vừa đủ
         return effective / tts_ms, 1.0, tts_ms
 
+    # Case 3: slow max + compress audio
     return cap, tts_ms / max_str, max_str
 
 def build_timeline_map(

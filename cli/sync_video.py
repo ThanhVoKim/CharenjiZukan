@@ -143,13 +143,18 @@ def run_sync_pipeline(args):
         )
         logger.info(f"Tìm thấy {len(blocks)} blocks (bao gồm tts, mute, gap).")
         
+        is_voicevox = args.tts_provider == "voicevox"
+        if is_voicevox:
+            logger.info("Voicevox mode: no_cap=True, video có thể slow xuống dưới %.1fx", args.slow_cap)
+
         speeds = []
         for b in blocks:
             vs, as_, new_dur = compute_speeds(
-                tts_ms=b.tts_duration,
-                slot_ms=b.slot_duration,
-                hard_limit_ms=b.hard_limit_ms,
-                cap=args.slow_cap
+                tts_ms        = b.tts_duration,
+                slot_ms       = b.slot_duration,
+                cap           = args.slow_cap,
+                hard_limit_ms = b.hard_limit_ms,
+                no_cap        = is_voicevox,
             )
             speeds.append((vs, as_, new_dur))
             
