@@ -125,6 +125,8 @@ def run_sync_pipeline(args):
                 queue_tts=queue_tts,
                 voice_id=voice_id,
                 concurrent_requests=100,
+                speed_scale=1.12,
+                pitch_scale=-0.05,
             )
         else:
             raise ValueError(f"Provider không hợp lệ: {args.tts_provider}")
@@ -174,29 +176,60 @@ def run_sync_pipeline(args):
             
         # PHASE 3: AUDIO ASSEMBLY
         logger.info("\n--- PHASE 3: AUDIO ASSEMBLY ---")
-        
+
         source_audio_for_quotes = args.video
-        
+
         if getattr(args, 'use_demucs', False):
             logger.info("Đang chạy Demucs để tách lời (vocals) từ video gốc...")
             from cli.demucs_audio import separate_audio
-            
+
+            # ── BƯỚC TIÊN QUYẾT: Pre-extract audio ra WAV bằng FFmpeg ──────────
+            # Mục đích: Đảm bảo time reference của Demucs input ĐỒNG NHẤT với
+            # FFmpeg. Khi torchaudio.load() đọc trực tiếp từ video (AAC/MP3),
+            # nó có thể bao gồm priming samples (~1024 samples ≈ 23ms ở 44100Hz)
+            # mà FFmpeg tự động bỏ qua qua edit list. Điều này gây lệch timestamp
+            # ở ranh giới segment và dẫn đến "audio leak".
+            # Pre-extract bằng FFmpeg giải quyết triệt để vấn đề này.
+            raw_audio_for_demucs = str(Path(tmp_dir) / "raw_audio_for_demucs.wav")
+            logger.info("Pre-extracting audio từ video bằng FFmpeg (đảm bảo time reference chuẩn)...")
+            try:
+                subprocess.run(
+                    [
+                        "ffmpeg", "-y",
+                        "-i", args.video,
+                        "-vn",
+                        "-ar", "44100",   # giữ nguyên SR phổ biến cho Demucs
+                        "-ac", "2",
+                        "-c:a", "pcm_s16le",
+                        raw_audio_for_demucs,
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+                logger.info("Pre-extract hoàn tất: %s", raw_audio_for_demucs)
+            except subprocess.CalledProcessError as e:
+                stderr_msg = e.stderr.decode(errors="ignore")[-500:]
+                logger.error("Lỗi pre-extract audio: %s", stderr_msg)
+                logger.warning("Fallback: dùng video gốc làm source cho Demucs (có thể bị lệch timestamp).")
+                raw_audio_for_demucs = args.video
+
+            # ── Chạy Demucs trên WAV đã pre-extract ──────────────────────────
             vocals_path = str(Path(tmp_dir) / "vocals_only.wav")
             try:
                 separate_audio(
-                    input_path=args.video,
+                    input_path=raw_audio_for_demucs,   # WAV, không phải video
                     output_path=vocals_path,
                     model="htdemucs",
                     keep="vocals",
                     bitrate="192k",
                     device="cuda",
-                    segment=7
+                    segment=7,
                 )
                 source_audio_for_quotes = vocals_path
-                logger.info("Hoàn tất tách lời bằng Demucs.")
+                logger.info("Hoàn tất tách lời bằng Demucs: %s", vocals_path)
             except Exception as e:
-                logger.error(f"Lỗi khi chạy Demucs, fallback về audio gốc: {e}")
-
+                logger.error("Lỗi khi chạy Demucs, fallback về audio gốc: %s", e)
+        
         mixed_audio = str(Path(tmp_dir) / "mixed_audio.wav")
         assemble_audio_track(
             timeline=timeline,
