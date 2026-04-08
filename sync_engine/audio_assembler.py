@@ -270,6 +270,32 @@ def assemble_audio_track(
             if Path(tmp_c).exists():
                 prepared_inputs.append((tmp_c, seg.new_start))
 
+    if use_demucs:
+        quoted_clips_paths = [path for path, delay in prepared_inputs if Path(path).name.startswith("quoted_")]
+        if quoted_clips_paths:
+            logger.info(f"Đang chạy Demucs trên {len(quoted_clips_paths)} đoạn quoted clips (batch)...")
+            from cli.demucs_audio import separate_audio_batch
+            
+            demucs_outputs = [str(Path(p).with_name(f"{Path(p).stem}_vocals.wav")) for p in quoted_clips_paths]
+            
+            try:
+                separate_audio_batch(
+                    input_paths=quoted_clips_paths,
+                    output_paths=demucs_outputs,
+                    model="htdemucs",
+                    keep="vocals",
+                    device=None,
+                    segment=7
+                )
+                
+                # Ghi đè file cũ bằng file đã tách lời
+                for orig_p, new_p in zip(quoted_clips_paths, demucs_outputs):
+                    if Path(new_p).exists():
+                        shutil.move(new_p, orig_p)
+                logger.info("Hoàn tất tách lời bằng Demucs cho các đoạn quoted.")
+            except Exception as e:
+                logger.error(f"Lỗi khi chạy Demucs batch, fallback dùng audio có nhạc nền: {e}")
+
     # 2. Xử lý Ambient Track
     ambient_processed_path = str(Path(tmp_dir) / "ambient_processed.wav")
     has_ambient = False

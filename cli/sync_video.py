@@ -25,27 +25,6 @@ from sync_engine.renderer import render_final_video, DEFAULT_SUBTITLE_STYLE
 
 logger = get_logger("sync_video")
 
-def get_audio_start_time(video_path: str) -> float:
-    """
-    Trả về PTS (giây) của audio packet đầu tiên trong video.
-    Dùng để phát hiện encoder delay / priming samples.
-    Nếu PTS > 0 → audio bị trễ so với video → cần aresample=async=1:first_pts=0.
-    """
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-select_streams", "a:0",
-        "-show_entries", "packet=pts_time",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        "-read_intervals", "%+#1",
-        video_path,
-    ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        pts = float(result.stdout.strip())
-        return pts
-    except (ValueError, subprocess.TimeoutExpired, subprocess.CalledProcessError):
-        return 0.0
-
 def run_sync_pipeline(args):
     # Setup directories
     output_dir = Path(args.output_dir)
@@ -204,70 +183,6 @@ def run_sync_pipeline(args):
         logger.info("\n--- PHASE 3: AUDIO ASSEMBLY ---")
 
         source_audio_for_quotes = args.video
-
-        if getattr(args, 'use_demucs', False):
-            logger.info("Đang chạy Demucs để tách lời (vocals) từ video gốc...")
-            from cli.demucs_audio import separate_audio
-
-            # ── BƯỚC TIÊN QUYẾT: Pre-extract audio ra WAV bằng FFmpeg ──────────
-            # Mục đích: Đảm bảo time reference của Demucs input ĐỒNG NHẤT với
-            # FFmpeg. Khi torchaudio.load() đọc trực tiếp từ video (AAC/MP3),
-            # nó có thể bao gồm priming samples (~1024 samples ≈ 23ms ở 44100Hz)
-            # mà FFmpeg tự động bỏ qua qua edit list. Điều này gây lệch timestamp
-            # ở ranh giới segment và dẫn đến "audio leak".
-            # Pre-extract bằng FFmpeg giải quyết triệt để vấn đề này.
-            raw_audio_for_demucs = str(Path(tmp_dir) / "raw_audio_for_demucs.wav")
-
-            # Kiểm tra động: chỉ dùng aresample nếu audio packet đầu tiên có PTS > 0
-            audio_start = get_audio_start_time(args.video)
-            need_aresample = audio_start > 0.001  # Trễ hơn 1ms → cần bù trừ
-            if need_aresample:
-                logger.info(
-                    "Phát hiện audio start time = %.6fs (> 0) → bật aresample=async=1:first_pts=0 để bù trừ.",
-                    audio_start,
-                )
-            else:
-                logger.info("Audio start time = %.6fs (~0) → không cần aresample.", audio_start)
-
-            logger.info("Pre-extracting audio từ video bằng FFmpeg (đảm bảo time reference chuẩn)...")
-            try:
-                extract_cmd = [
-                    "ffmpeg", "-y",
-                    "-i", args.video,
-                    "-vn",
-                ]
-                if need_aresample:
-                    extract_cmd.extend(["-af", "aresample=async=1:first_pts=0"])
-                extract_cmd.extend([
-                    "-ar", "44100",   # giữ nguyên SR phổ biến cho Demucs
-                    "-ac", "2",
-                    "-c:a", "pcm_s16le",
-                    raw_audio_for_demucs,
-                ])
-                subprocess.run(extract_cmd, check=True, capture_output=True)
-                logger.info("Pre-extract hoàn tất: %s", raw_audio_for_demucs)
-            except subprocess.CalledProcessError as e:
-                stderr_msg = e.stderr.decode(errors="ignore")[-500:]
-                logger.error("Lỗi pre-extract audio: %s", stderr_msg)
-                logger.warning("Fallback: dùng video gốc làm source cho Demucs (có thể bị lệch timestamp).")
-                raw_audio_for_demucs = args.video
-
-            # ── Chạy Demucs trên WAV đã pre-extract ──────────────────────────
-            vocals_path = str(Path(tmp_dir) / "vocals_only.wav")
-            try:
-                separate_audio(
-                    input_path=raw_audio_for_demucs,   # WAV, không phải video
-                    output_path=vocals_path,
-                    model="htdemucs",
-                    keep="vocals",
-                    bitrate="192k",
-                    device="cuda",
-                    segment=7,
-                )
-                source_audio_for_quotes = vocals_path
-                logger.info("Hoàn tất tách lời bằng Demucs: %s", vocals_path)
-            except Exception as e:
-                logger.error("Lỗi khi chạy Demucs, fallback về audio gốc: %s", e)
         
         mixed_audio = str(Path(tmp_dir) / "mixed_audio.wav")
         assemble_audio_track(

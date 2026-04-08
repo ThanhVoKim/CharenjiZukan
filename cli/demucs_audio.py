@@ -106,6 +106,109 @@ def get_device():
         return "cpu"
 
 
+def separate_audio_batch(input_paths, output_paths, model="htdemucs", keep="bgm", bitrate="192k", device=None, segment=7):
+    """
+    Tách audio thành các sources sử dụng Demucs cho một danh sách file.
+    Tái sử dụng model để tiết kiệm thời gian tải model.
+    """
+    import torch
+    import torchaudio
+    from demucs.pretrained import get_model
+    from demucs.apply import apply_model
+
+    if len(input_paths) != len(output_paths):
+        raise ValueError("Số lượng input_paths phải bằng số lượng output_paths")
+
+    if not input_paths:
+        return []
+
+    # Auto-detect device nếu không chỉ định
+    if device is None:
+        device = get_device()
+
+    # 1. Load model ONCE
+    logger.info(f"Loading model: {model} for batch processing ({len(input_paths)} files)")
+    model_obj = get_model(model)
+    model_obj.to(device)
+    model_obj.eval()
+
+    if segment is not None:
+        logger.info(f"Thiết lập segment size = {segment}s để tiết kiệm VRAM")
+        model_obj.segment = float(segment)
+
+    results = []
+
+    # 2. Xử lý từng file
+    for input_path, output_path in zip(input_paths, output_paths):
+        logger.debug(f"Processing: {input_path}")
+        wav, sr = torchaudio.load(input_path)
+        
+        if wav.shape[0] == 1:
+            wav = wav.repeat(2, 1)
+            
+        if wav.dim() == 1:
+            wav = wav.unsqueeze(0)
+        if wav.dim() == 2:
+            wav = wav.unsqueeze(0)
+
+        with torch.no_grad():
+            sources = apply_model(model_obj, wav, device=device, split=True, overlap=0.25)
+
+        num_sources = sources.shape[1]
+        source_names = ["drums", "bass", "other", "vocals"]
+
+        if num_sources == 4:
+            if keep.isdigit() or (keep.replace(",", "").replace("-", "").isdigit()):
+                if "-" in keep:
+                    start, end = map(int, keep.split("-"))
+                    indices = list(range(start, end + 1))
+                else:
+                    indices = [int(x.strip()) for x in keep.split(",")]
+                
+                output_audio = sources[0, indices[0]]
+                for idx in indices[1:]:
+                    output_audio = output_audio + sources[0, idx]
+            else:
+                keep_presets = {
+                    "bgm": ([0, 1, 2], "background music"),
+                    "vocals": ([3], "vocals"),
+                    "drums": ([0], "drums"),
+                    "bass": ([1], "bass"),
+                    "other": ([2], "other"),
+                    "all": ([0, 1, 2, 3], "all sources"),
+                }
+                indices, _ = keep_presets[keep]
+                output_audio = sources[0, indices[0]]
+                for idx in indices[1:]:
+                    output_audio = output_audio + sources[0, idx]
+        elif num_sources == 2:
+            if keep in ["vocals", "3"]:
+                output_audio = sources[0, 1]
+            else:
+                output_audio = sources[0, 0]
+
+        output_audio = output_audio.cpu()
+        
+        # Lưu file WAV
+        torchaudio.save(output_path, output_audio, sr)
+        results.append(output_path)
+        
+        # Dọn dẹp RAM/VRAM cho từng iteration
+        del wav, sources, output_audio
+
+    logger.info(f"✅ Hoàn tất xử lý batch {len(input_paths)} files.")
+
+    # 3. Cleanup VRAM tổng
+    logger.info("Giải phóng VRAM...")
+    del model_obj
+    import gc
+    gc.collect()
+    if str(device).startswith("cuda"):
+        import torch
+        torch.cuda.empty_cache()
+
+    return results
+
 def separate_audio(input_path, output_path, model="htdemucs", keep="bgm", bitrate="192k", device=None, segment=7):
     """
     Tách audio thành các sources sử dụng Demucs.

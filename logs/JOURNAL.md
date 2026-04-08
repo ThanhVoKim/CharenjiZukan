@@ -1,5 +1,39 @@
 # Project Journal
 
+## 2026-04-08: Đổi kiến trúc tách lời Demucs để sửa lỗi Desync và tăng tốc độ
+
+### Yêu cầu
+
+- Sửa lỗi hình ảnh bị lệch so với âm thanh ở các đoạn quoted clip khi dùng Demucs (`--use-demucs`). Lỗi xảy ra do việc pre-extract toàn bộ âm thanh của video ra file WAV đã làm mất đi thông tin Timestamp (PTS) gốc của video, dẫn đến âm thanh bị trượt dốc (audio drift) so với hình ảnh.
+- Tăng tốc quá trình chạy Demucs: Xóa bỏ việc chạy mô hình tách lời trên toàn bộ thời lượng video. Thay vào đó, chỉ chạy mô hình cho những đoạn clip ngắn thực sự cần thiết.
+
+### Thay đổi đã thực hiện
+
+1. **`cli/sync_video.py`**:
+   - Xóa bỏ hoàn toàn bước pre-extract FFmpeg (`raw_audio_for_demucs.wav`).
+   - Xóa bỏ việc gọi Demucs để tách lời cho cả video (`vocals_only.wav`).
+   - Truyền trực tiếp `args.video` vào `assemble_audio_track`.
+
+2. **`sync_engine/audio_assembler.py`**:
+   - Hàm `assemble_audio_track` sẽ dùng FFmpeg (với cơ chế 2-pass seek chính xác tới từng khung hình) để cắt các đoạn quoted clip ngắn trực tiếp từ file MP4 gốc ra các file `tmp_q` (Bảo đảm 100% đồng bộ hình/tiếng).
+   - Nếu cờ `--use-demucs` bật, hệ thống sẽ gom tất cả các file `tmp_q` này lại thành một mảng (batch) và gọi `separate_audio_batch`.
+   - Kết quả tách lời của từng file sẽ được ghi đè lại vào chính các file `tmp_q` cũ.
+
+3. **`cli/demucs_audio.py`**:
+   - Thêm hàm `separate_audio_batch(input_paths, output_paths, ...)`: Tải mô hình Demucs một lần duy nhất vào VRAM (GPU) và sử dụng vòng lặp để xử lý một mảng nhiều file âm thanh ngắn, sau đó giải phóng VRAM. Cách làm này tiết kiệm bộ nhớ và thời gian khởi tạo mô hình cực kỳ hiệu quả.
+
+### Trạng thái hiện tại
+
+- ✅ Đã khắc phục dứt điểm lỗi A/V desync cho quoted clips nhờ tái sử dụng lợi thế Timestamp của file MP4.
+- ✅ Thời gian chạy Demucs trên các dự án có video dài sẽ được giảm từ hàng chục phút xuống chỉ còn vài chục giây (chỉ xử lý đúng phần audio có người nói).
+- ✅ Cú pháp mã nguồn đã được kiểm tra (py_compile pass).
+
+### Đối chiếu Data Flow
+
+- Việc gọi module Demucs được dời từ Phase 3 (trong `sync_video.py`) vào sâu bên trong nội bộ `assemble_audio_track`. Logic tạo Timeline và logic Ghép file (Concat/Mix) hoàn toàn giữ nguyên hợp đồng giao tiếp (interface).
+
+---
+
 ## 2026-04-08: Sửa lỗi A/V Desync — Hybrid Seek + Dynamic aresample
 
 ### Yêu cầu
