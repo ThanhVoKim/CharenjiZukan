@@ -47,7 +47,7 @@ def build_ffmpeg_chunk_cmd(
     Hybrid Seek (2-pass seek) cho cắt video chính xác frame-by-frame.
 
     Cơ chế:
-    - Pass 1 (Input Seek): -ss TRƯỚC -i, lùi 5 giây so với mốc cắt thực tế
+    - Pass 1 (Input Seek): -ss TRƯỚC -i, lùi 2 giây so với mốc cắt thực tế
       → FFmpeg nhảy nhanh đến keyframe gần nhất, tránh decode từ đầu file.
     - Pass 2 (Output Seek): -ss SAU -i, với offset chính xác
       → FFmpeg decode từ keyframe đó và chỉ giữ frame từ offset trở đi,
@@ -66,8 +66,8 @@ def build_ffmpeg_chunk_cmd(
     start_s = start_frame / fps_float
     duration_s = duration_frames / fps_float
 
-    # Bước 3: Hybrid Seek — lùi 5 giây để tìm keyframe, rồi offset chính xác
-    rough_start_s = max(0.0, start_s - 5.0)
+    # Bước 3: Hybrid Seek — lùi 2 giây để tìm keyframe, rồi offset chính xác
+    rough_start_s = max(0.0, start_s - 2.0)
     exact_offset_s = start_s - rough_start_s
 
     pts_factor = 1.0 / video_speed
