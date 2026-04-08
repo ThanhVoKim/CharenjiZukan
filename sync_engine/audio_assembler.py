@@ -129,7 +129,7 @@ def _process_ambient_track(
     mute_ranges = [(s.new_start / 1000.0, s.new_end / 1000.0) for s in timeline if s.block_type == "mute"]
     
     # Base volume: -25dB ~ 0.056
-    base_vol = 0.035
+    base_vol = 0.025
     
     if not mute_ranges or use_demucs:
         volume_expr = f"volume={base_vol}"

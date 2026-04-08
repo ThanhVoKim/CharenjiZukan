@@ -1,5 +1,40 @@
 # Project Journal
 
+## 2026-04-08: Sửa lỗi A/V Desync — Hybrid Seek + Dynamic aresample
+
+### Yêu cầu
+
+- Khắc phục tình trạng mất đồng bộ A/V (hình ảnh trễ 1-2 frame so với âm thanh và subtitle) sau khi áp dụng bản vá sửa audio leak Demucs.
+- Nguyên nhân được xác định có 2 nguồn:
+  1. **Fast Seek PTS Shift**: Khi dùng `-ss` trước `-i` (Input Seek) trong `build_ffmpeg_chunk_cmd()`, FFmpeg nhảy đến keyframe gần nhất trước mốc cắt, decode từ đó, và `setpts=(PTS-STARTPTS)` chỉ trừ PTS của frame đầu tiên được decode (keyframe), không phải mốc `-ss` thực tế. Kết quả: mỗi chunk chứa 1-15 frame thừa ở đầu, gây lệch PTS tích lũy sau concat.
+  2. **aresample padding không cần thiết**: Filter `aresample=async=1:first_pts=0` được hardcode cho mọi video khi dùng Demucs, nhưng nếu video gốc có audio start time = 0, filter này có thể chèn silence padding giả, làm audio dài hơn video.
+
+### Thay đổi đã thực hiện
+
+1. **`sync_engine/video_processor.py`** — Hybrid Seek (2-pass seek):
+   - Chuyển từ Fast Seek đơn thuần (`-ss` trước `-i`) sang Hybrid Seek:
+     - Pass 1 (Input Seek): `-ss` trước `-i`, lùi 5 giây so với mốc cắt → FFmpeg nhảy nhanh đến keyframe gần nhất.
+     - Pass 2 (Output Seek): `-ss` sau `-i`, với offset chính xác → FFmpeg decode từ keyframe và chỉ giữ frame từ offset trở đi.
+   - Kết quả: PTS của mỗi chunk bắt đầu chính xác từ 0, không có frame thừa, đảm bảo concat demuxer nối chính xác.
+
+2. **`cli/sync_video.py`** — Dynamic aresample:
+   - Thêm hàm `get_audio_start_time()` dùng `ffprobe` để đọc PTS của audio packet đầu tiên (`-show_entries packet=pts_time -read_intervals "%+#1"`).
+   - Chỉ bật filter `aresample=async=1:first_pts=0` khi PTS > 1ms (audio thực sự bị trễ).
+   - Nếu PTS ≈ 0, bỏ qua filter để tránh chèn silence padding không cần thiết.
+
+### Trạng thái hiện tại
+
+- ✅ Đã khắc phục triệt để lỗi A/V desync do PTS shift trong quá trình cắt video chunks.
+- ✅ Đã tối ưu hóa pre-extract audio cho Demucs: chỉ dùng aresample khi thực sự cần thiết.
+- ✅ Giữ nguyên tốc độ xử lý nhanh của Hybrid Seek (không phải decode từ đầu file).
+
+### Đối chiếu Data Flow
+
+- Thay đổi chỉ ảnh hưởng đến cơ chế seeking và cắt video trong Phase 2, không thay đổi luồng dữ liệu hay giao diện giữa các phase.
+- Input/output của `build_ffmpeg_chunk_cmd()` giữ nguyên signature, tương thích hoàn toàn với `process_video_chunks_parallel()`.
+
+---
+
 ## 2026-04-06: Sửa lỗi đường dẫn tương đối trong các CLI scripts (Relative Path Fixes)
 
 ### Yêu cầu

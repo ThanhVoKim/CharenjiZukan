@@ -44,11 +44,19 @@ def build_ffmpeg_chunk_cmd(
     use_gpu: bool = True,
 ) -> List[str]:
     """
-    THAY ĐỔI TỐI ƯU HÓA:
-    - Tính toán frame ranh giới chính xác bằng fps_float để tránh cắt lẹm vào giữa 2 frame (Tránh lỗi lặp frame).
-    - -ss và -t được đưa lên TRƯỚC -i để kích hoạt Fast Seek (nhanh hơn gấp nhiều lần).
-    - Thêm filter fps={fps_str} để ép Constant Frame Rate (CFR), giúp các chunk dễ dàng nối lại.
-    - Dùng -video_track_timescale 90000 để đảm bảo timebase đồng nhất cho concat demuxer.
+    Hybrid Seek (2-pass seek) cho cắt video chính xác frame-by-frame.
+
+    Cơ chế:
+    - Pass 1 (Input Seek): -ss TRƯỚC -i, lùi 5 giây so với mốc cắt thực tế
+      → FFmpeg nhảy nhanh đến keyframe gần nhất, tránh decode từ đầu file.
+    - Pass 2 (Output Seek): -ss SAU -i, với offset chính xác
+      → FFmpeg decode từ keyframe đó và chỉ giữ frame từ offset trở đi,
+      đảm bảo PTS bắt đầu chính xác từ 0, không có frame thừa.
+
+    Kết hợp với:
+    - Frame-accurate rounding (snap to frame boundaries)
+    - CFR (Constant Frame Rate) qua filter fps=
+    - setpts để stretch video theo tốc độ mong muốn
     """
     # Bước 1: Tính toán chính xác số frame để làm tròn điểm cắt
     start_frame = round((start_ms / 1000.0) * fps_float)
@@ -58,6 +66,10 @@ def build_ffmpeg_chunk_cmd(
     start_s = start_frame / fps_float
     duration_s = duration_frames / fps_float
 
+    # Bước 3: Hybrid Seek — lùi 5 giây để tìm keyframe, rồi offset chính xác
+    rough_start_s = max(0.0, start_s - 5.0)
+    exact_offset_s = start_s - rough_start_s
+
     pts_factor = 1.0 / video_speed
 
     encoder = "h264_nvenc" if use_gpu else "libx264"
@@ -66,11 +78,13 @@ def build_ffmpeg_chunk_cmd(
 
     return [
         "ffmpeg", "-y",
-        # Fast Seek: -ss TRƯỚC -i
-        "-ss", f"{start_s:.6f}",
-        "-t",  f"{duration_s:.6f}",
+        # Pass 1: Input Seek (nhanh) — nhảy đến keyframe gần nhất
+        "-ss", f"{rough_start_s:.6f}",
         "-i", input_path,
-        # Ép chuẩn Framerate cố định (CFR)
+        # Pass 2: Output Seek (chính xác) — chỉ giữ frame từ offset trở đi
+        "-ss", f"{exact_offset_s:.6f}",
+        "-t",  f"{duration_s:.6f}",
+        # Ép chuẩn Framerate cố định (CFR) + stretch
         "-filter:v", f"setpts={pts_factor:.6f}*(PTS-STARTPTS),fps={fps_str}",
         "-an",
         "-c:v", encoder,
