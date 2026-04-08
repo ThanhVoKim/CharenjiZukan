@@ -8,6 +8,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import argparse
+import subprocess
 import tempfile
 import shutil
 import time
@@ -77,7 +78,6 @@ def run_sync_pipeline(args):
         import wave
         
         # Lấy duration video từ ffprobe thay vì ffmpeg để nhanh hơn
-        import subprocess
         cmd = [
             "ffprobe", "-v", "error", "-show_entries",
             "format=duration", "-of",
