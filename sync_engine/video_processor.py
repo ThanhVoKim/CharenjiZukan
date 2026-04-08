@@ -76,16 +76,20 @@ def build_ffmpeg_chunk_cmd(
     preset  = "p5"         if use_gpu else "fast"
     quality = ["-cq", "23"] if use_gpu else ["-crf", "23"]
 
+    filter_chain = ",".join([
+        f"trim=start={exact_offset_s:.6f}:duration={duration_s:.6f}",
+        "setpts=PTS-STARTPTS",  # Đặt lại PTS về 0 ngay sau khi cắt
+        f"setpts={pts_factor:.6f}*PTS", # Stretch video
+        f"fps={fps_str}" # Đảm bảo constant frame rate
+    ])
+
     return [
         "ffmpeg", "-y",
-        # Pass 1: Input Seek (nhanh) — nhảy đến keyframe gần nhất
+        # Bước 1 (Fast Seek): Nhảy đến vị trí an toàn trước điểm cần cắt
         "-ss", f"{rough_start_s:.6f}",
         "-i", input_path,
-        # Pass 2: Output Seek (chính xác) — chỉ giữ frame từ offset trở đi
-        "-ss", f"{exact_offset_s:.6f}",
-        "-t",  f"{duration_s:.6f}",
-        # Ép chuẩn Framerate cố định (CFR) + stretch
-        "-filter:v", f"setpts={pts_factor:.6f}*(PTS-STARTPTS),fps={fps_str}",
+        # Bước 2 (Accurate Trimming & Stretching) thông qua filter thay vì Output Seek
+        "-filter:v", filter_chain,
         "-an",
         "-c:v", encoder,
         "-preset", preset,

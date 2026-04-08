@@ -14,8 +14,8 @@
 1. **`sync_engine/video_processor.py`** — Hybrid Seek (2-pass seek):
    - Chuyển từ Fast Seek đơn thuần (`-ss` trước `-i`) sang Hybrid Seek:
      - Pass 1 (Input Seek): `-ss` trước `-i`, lùi 5 giây so với mốc cắt → FFmpeg nhảy nhanh đến keyframe gần nhất.
-     - Pass 2 (Output Seek): `-ss` sau `-i`, với offset chính xác → FFmpeg decode từ keyframe và chỉ giữ frame từ offset trở đi.
-   - Kết quả: PTS của mỗi chunk bắt đầu chính xác từ 0, không có frame thừa, đảm bảo concat demuxer nối chính xác.
+     - Pass 2 (Accurate Trimming qua Filter): Không sử dụng `-ss` và `-t` ở output option vì nó cản trở quá trình stretch (gây lỗi video không kéo dài ra được theo audio). Thay vào đó, áp dụng filter `trim=start={offset}:duration={duration}` theo sau là `setpts=PTS-STARTPTS`.
+   - Kết quả: PTS của mỗi chunk bắt đầu chính xác từ 0, cắt video chuẩn đến từng frame (sample-accurate), thời gian stretch hoạt động chính xác và không có frame thừa gây lệch 1-2 frame.
 
 2. **`cli/sync_video.py`** — Dynamic aresample:
    - Thêm hàm `get_audio_start_time()` dùng `ffprobe` để đọc PTS của audio packet đầu tiên (`-show_entries packet=pts_time -read_intervals "%+#1"`).
