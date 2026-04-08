@@ -42,25 +42,36 @@ def extract_quoted_audio(
     orig_start_ms: float,
     orig_end_ms: float,
     output_path: str,
-) -> None:
+    pad_s: float = 0.0,
+) -> float:
     """
     Extract đoạn audio từ nguồn video hoặc WAV.
 
+    - Có hỗ trợ Padding (pad_s) ở 2 đầu để giữ context cho mô hình AI.
     - Video source (MP4/MKV/...): Dùng 2-pass seek (rough + fine) để bù
       encoder delay của codec nén (AAC/MP3). FFmpeg xử lý edit list trong
       container để bỏ priming samples, nên cần chiến lược này.
     - PCM WAV source (Demucs output): Dùng single-pass seek trước -i.
       WAV/PCM không có encoder delay; single-pass seek là sample-accurate
       và KHÔNG bị lệch time reference so với quá trình pre-extract FFmpeg.
+    
+    Trả về số giây padding thực tế đã thêm vào phía trước (left pad).
     """
-    duration_s = (orig_end_ms - orig_start_ms) / 1000.0
+    start_s = orig_start_ms / 1000.0
+    end_s = orig_end_ms / 1000.0
+    
+    actual_left_pad = min(pad_s, start_s)
+    pad_start_s = start_s - actual_left_pad
+    pad_end_s = end_s + pad_s
+    
+    duration_s = pad_end_s - pad_start_s
     src_ext = Path(video_path).suffix.lower()
 
     if src_ext in _PCM_AUDIO_EXTENSIONS:
         # PCM audio: single-pass seek — sample-accurate, không có codec delay.
         cmd = [
             "ffmpeg", "-y",
-            "-ss", f"{orig_start_ms / 1000.0:.9f}",
+            "-ss", f"{pad_start_s:.9f}",
             "-i", video_path,
             "-t", f"{duration_s:.9f}",
             "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
@@ -68,12 +79,12 @@ def extract_quoted_audio(
         ]
         logger.debug(
             "extract_quoted_audio [PCM] %.3fs–%.3fs → %s",
-            orig_start_ms / 1000.0, orig_end_ms / 1000.0, output_path,
+            pad_start_s, pad_end_s, output_path,
         )
     else:
         # Video source: 2-pass seek để xử lý codec delay (AAC priming samples).
-        rough_start_s = max(0.0, orig_start_ms / 1000.0 - 5.0)
-        exact_offset_s = orig_start_ms / 1000.0 - rough_start_s
+        rough_start_s = max(0.0, pad_start_s - 5.0)
+        exact_offset_s = pad_start_s - rough_start_s
         cmd = [
             "ffmpeg", "-y",
             "-ss", f"{rough_start_s:.6f}",
@@ -89,6 +100,7 @@ def extract_quoted_audio(
         )
 
     subprocess.run(cmd, check=True, capture_output=True)
+    return actual_left_pad
 
 def build_ambient_mask(
     timeline: List[TimelineSegment],
@@ -254,12 +266,27 @@ def assemble_audio_track(
     # 1. Chuẩn bị các file input (Quoted và TTS)
     prepared_inputs: List[Tuple[str, float]] = [] # (path, delay_ms)
     
+    # Cấu hình padding cho Demucs (htdemucs segment=7s, overlap=0.25 -> tối thiểu padding 3.5s)
+    pad_s = 3.5 if use_demucs else 0.0
+    quoted_pad_info = {} # dict lưu {path: (actual_left_pad_s, duration_s)}
+    
     logger.info("Đang chuẩn bị các file audio thành phần...")
     for i, seg in enumerate(timeline):
         if seg.block_type == "mute":
             tmp_q = str(Path(tmp_dir) / f"quoted_{int(seg.orig_start)}.wav")
             if not Path(tmp_q).exists():
-                extract_quoted_audio(video_path, seg.orig_start, seg.orig_end, tmp_q)
+                actual_left_pad = extract_quoted_audio(
+                    video_path, seg.orig_start, seg.orig_end, tmp_q, pad_s=pad_s
+                )
+                if use_demucs:
+                    duration_s = (seg.orig_end - seg.orig_start) / 1000.0
+                    quoted_pad_info[tmp_q] = (actual_left_pad, duration_s)
+            elif use_demucs:
+                # Nếu đã có từ lần chạy trước, tính lại duration
+                duration_s = (seg.orig_end - seg.orig_start) / 1000.0
+                actual_left_pad = min(pad_s, seg.orig_start / 1000.0)
+                quoted_pad_info[tmp_q] = (actual_left_pad, duration_s)
+                
             if Path(tmp_q).exists():
                 prepared_inputs.append((tmp_q, seg.new_start))
                 
@@ -273,7 +300,7 @@ def assemble_audio_track(
     if use_demucs:
         quoted_clips_paths = [path for path, delay in prepared_inputs if Path(path).name.startswith("quoted_")]
         if quoted_clips_paths:
-            logger.info(f"Đang chạy Demucs trên {len(quoted_clips_paths)} đoạn quoted clips (batch)...")
+            logger.info(f"Đang chạy Demucs trên {len(quoted_clips_paths)} đoạn quoted clips (batch, có padding {pad_s}s)...")
             from cli.demucs_audio import separate_audio_batch
             
             demucs_outputs = [str(Path(p).with_name(f"{Path(p).stem}_vocals.wav")) for p in quoted_clips_paths]
@@ -288,13 +315,39 @@ def assemble_audio_track(
                     segment=7
                 )
                 
-                # Ghi đè file cũ bằng file đã tách lời
-                for orig_p, new_p in zip(quoted_clips_paths, demucs_outputs):
-                    if Path(new_p).exists():
-                        shutil.move(new_p, orig_p)
-                logger.info("Hoàn tất tách lời bằng Demucs cho các đoạn quoted.")
+                # Cắt bỏ phần padding (trim) sau khi có kết quả Demucs, ghi đè lại file `tmp_q` gốc
+                for orig_p, demucs_p in zip(quoted_clips_paths, demucs_outputs):
+                    if Path(demucs_p).exists():
+                        actual_left_pad, dur_s = quoted_pad_info[orig_p]
+                        trim_cmd = [
+                            "ffmpeg", "-y",
+                            "-i", demucs_p,
+                            "-ss", f"{actual_left_pad:.6f}",
+                            "-t", f"{dur_s:.6f}",
+                            "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
+                            orig_p
+                        ]
+                        subprocess.run(trim_cmd, check=True, capture_output=True)
+                logger.info("Hoàn tất tách lời và trim padding bằng Demucs.")
             except Exception as e:
                 logger.error(f"Lỗi khi chạy Demucs batch, fallback dùng audio có nhạc nền: {e}")
+                # Nếu lỗi Demucs, ta vẫn phải trim padding của file gốc (do lúc extract đã thêm padding)
+                for orig_p in quoted_clips_paths:
+                    if orig_p in quoted_pad_info:
+                        actual_left_pad, dur_s = quoted_pad_info[orig_p]
+                        if actual_left_pad > 0:
+                            # Trim trực tiếp trên file gốc
+                            tmp_fallback = str(Path(orig_p).with_name(f"{Path(orig_p).stem}_fallback.wav"))
+                            trim_cmd = [
+                                "ffmpeg", "-y",
+                                "-i", orig_p,
+                                "-ss", f"{actual_left_pad:.6f}",
+                                "-t", f"{dur_s:.6f}",
+                                "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
+                                tmp_fallback
+                            ]
+                            subprocess.run(trim_cmd, check=True, capture_output=True)
+                            shutil.move(tmp_fallback, orig_p)
 
     # 2. Xử lý Ambient Track
     ambient_processed_path = str(Path(tmp_dir) / "ambient_processed.wav")

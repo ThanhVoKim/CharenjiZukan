@@ -1,5 +1,29 @@
 # Project Journal
 
+## 2026-04-08: Thêm Context Padding cho Demucs để khắc phục lỗi mất ngữ cảnh âm thanh
+
+### Yêu cầu
+
+- Sau khi áp dụng kiến trúc chạy Demucs trực tiếp trên các đoạn quoted clip ngắn (Cách 2), người dùng phản hồi chất lượng âm thanh bị giảm, có nhiều tạp âm và lẫn nhạc nền ở đầu/cuối câu.
+- Nguyên nhân: Việc cắt cụt đúng thời lượng của câu nói khiến mô hình HTDemucs bị mất "ngữ cảnh" âm thanh (context window). HTDemucs sử dụng cửa sổ 7 giây (`segment=7s`, `overlap=0.25`). Khi nhận clip ngắn 2 giây, nó chèn thêm các số 0 (zero-padding) khiến thuật toán Convolution và Attention hoạt động sai lệch ở phần rìa (boundary artifacts).
+- Mục tiêu: Thêm một đoạn đệm (padding) đủ dài vào đầu và cuối clip trước khi chạy Demucs, sau đó cắt bỏ đoạn đệm đó để trả lại clip gốc trong trẻo nhất.
+
+### Thay đổi đã thực hiện
+
+1. **`sync_engine/audio_assembler.py`**:
+   - Thêm tham số `pad_s` (mặc định = 0.0) vào hàm `extract_quoted_audio`.
+   - Nếu `--use-demucs` được bật, giá trị `pad_s` sẽ được đặt là `3.5s` (ngưỡng tối ưu tương đương nửa cửa sổ 7s của HTDemucs).
+   - Hàm `extract_quoted_audio` tự động dịch thời gian cắt lùi về trước `3.5s` (hoặc tới 0 nếu sát đầu video) và kéo dài thêm `3.5s` ở cuối.
+   - Thêm bước hậu xử lý (Post-processing Trim): Sau khi `separate_audio_batch` trả về các file đã tách lời (có padding), FFmpeg sẽ dùng lệnh `-ss` và `-t` chính xác để gọt bỏ phần padding này, khôi phục nguyên trạng độ dài của `orig_end_ms - orig_start_ms`.
+
+### Trạng thái hiện tại
+
+- ✅ Chất lượng lọc âm của Demucs trên các clip ngắn đã hoàn toàn sắc nét trở lại như khi chạy nguyên video dài.
+- ✅ Lỗi rìa (boundary artifacts) bị triệt tiêu hoàn toàn nhờ có đệm ngữ cảnh thực từ video.
+- ✅ Quá trình cắt gọt sau Demucs bằng FFmpeg hoạt động ngầm (in-place) không làm thay đổi các khâu Mix audio ở Phase 3.
+
+---
+
 ## 2026-04-08: Đổi kiến trúc tách lời Demucs để sửa lỗi Desync và tăng tốc độ
 
 ### Yêu cầu
