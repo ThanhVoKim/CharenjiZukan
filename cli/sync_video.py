@@ -25,6 +25,17 @@ from sync_engine.renderer import render_final_video, DEFAULT_SUBTITLE_STYLE
 
 logger = get_logger("sync_video")
 
+def _probe_video_duration(video_path: str) -> float:
+    """Đo duration video bằng ffprobe, trả về ms."""
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        video_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return float(result.stdout.strip()) * 1000.0
+
 def run_sync_pipeline(args):
     # Setup directories
     output_dir = Path(args.output_dir)
@@ -165,7 +176,7 @@ def run_sync_pipeline(args):
         logger.info("\n--- PHASE 2: VIDEO PROCESSING ---")
         stretched_video = str(Path(tmp_dir) / "video_stretched.mp4")
         
-        process_video_chunks_parallel(
+        stretched_video_chunked, actual_durations = process_video_chunks_parallel(
             video_path=args.video,
             timeline=timeline,
             output_dir=tmp_dir, # put chunks in tmp
@@ -175,9 +186,16 @@ def run_sync_pipeline(args):
             fps_float=fps_float
         )
         
-        stretched_video_chunked = str(Path(tmp_dir) / "video_stretched.mp4")
         if not Path(stretched_video_chunked).exists():
             raise RuntimeError("Lỗi khi xử lý video chunks.")
+            
+        # Đo duration thực tế của video đã concat
+        video_actual_duration_ms = _probe_video_duration(stretched_video_chunked)
+            
+        # Cập nhật timeline dựa trên duration thực tế
+        from sync_engine.analyzer import recalculate_timeline_from_actual_durations
+        timeline = recalculate_timeline_from_actual_durations(timeline, actual_durations, fps_float)
+        logger.info(f"Timeline đã cập nhật với {len(timeline)} segments (dựa trên duration thực tế).")
             
         # PHASE 3: AUDIO ASSEMBLY
         logger.info("\n--- PHASE 3: AUDIO ASSEMBLY ---")
@@ -192,7 +210,8 @@ def run_sync_pipeline(args):
             output_path=mixed_audio,
             tmp_dir=tmp_dir,
             use_demucs=args.use_demucs,
-            tts_provider=args.tts_provider
+            tts_provider=args.tts_provider,
+            video_duration_override=video_actual_duration_ms
         )
         
         # PHASE 4: RECALCULATE TIMESTAMPS
@@ -204,25 +223,25 @@ def run_sync_pipeline(args):
         from sync_engine.analyzer import filter_tts_subtitles
         tts_only = filter_tts_subtitles(subtitle_segments, mute_segments)
         
-        recalculate_srt(tts_only, timeline, subtitle_tts_synced, is_tts_track=True)
+        recalculate_srt(tts_only, timeline, subtitle_tts_synced, is_tts_track=True, max_chars=0, fps_float=fps_float)
         logger.info(f"Đã tạo {subtitle_tts_synced}")
         
         # 2. subtitle_synced.srt (đầy đủ)
         subtitle_synced = str(output_dir / f"{args.output_name}_synced.srt")
-        recalculate_srt(subtitle_segments, timeline, subtitle_synced, is_tts_track=False, max_chars=args.subtitle_max_chars)
+        recalculate_srt(subtitle_segments, timeline, subtitle_synced, is_tts_track=False, max_chars=args.subtitle_max_chars, fps_float=fps_float)
         logger.info(f"Đã tạo {subtitle_synced}")
         
         # 3. mute_synced.srt (nếu có)
         if mute_segments:
             mute_synced = str(output_dir / f"{args.output_name}_mute_synced.srt")
-            recalculate_srt(mute_segments, timeline, mute_synced, is_tts_track=False, max_chars=args.subtitle_max_chars)
+            recalculate_srt(mute_segments, timeline, mute_synced, is_tts_track=False, max_chars=args.subtitle_max_chars, fps_float=fps_float)
             logger.info(f"Đã tạo {mute_synced}")
             
         # 4. note_overlay_synced.ass (nếu có)
         note_ass_synced = None
         if args.note_overlay_ass and Path(args.note_overlay_ass).exists():
             note_ass_synced = str(output_dir / f"{args.output_name}_note_synced.ass")
-            recalculate_ass(args.note_overlay_ass, timeline, note_ass_synced, max_chars_per_line=args.note_max_chars)
+            recalculate_ass(args.note_overlay_ass, timeline, note_ass_synced, max_chars_per_line=args.note_max_chars, fps_float=fps_float)
             logger.info(f"Đã tạo {note_ass_synced}")
             
         # PHASE 5: FINAL RENDER

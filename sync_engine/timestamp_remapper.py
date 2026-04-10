@@ -12,6 +12,7 @@ def recalculate_srt(
     output_path: str,
     is_tts_track: bool = False,
     max_chars: int = 0,
+    fps_float: float = 30.0,
 ) -> None:
     """
     Sửa lỗi #4: Với TTS track, end_time được neo theo tts_duration thực tế.
@@ -28,7 +29,7 @@ def recalculate_srt(
     
     for sub in segments:
         new_sub = sub.copy()
-        new_start = remap_timestamp(new_sub["start_time"], timeline)
+        new_start = remap_timestamp(new_sub["start_time"], timeline, fps_float)
 
         if is_tts_track:
             key = int(round(new_sub["start_time"]))
@@ -46,15 +47,15 @@ def recalculate_srt(
                 # Không vượt quá new_end của slot
                 new_end = min(new_end, ts_seg.new_end)
             else:
-                new_end = remap_timestamp(new_sub["end_time"], timeline)
+                new_end = remap_timestamp(new_sub["end_time"], timeline, fps_float)
         else:
-            new_end = remap_timestamp(new_sub["end_time"], timeline)
+            new_end = remap_timestamp(new_sub["end_time"], timeline, fps_float)
 
         if new_end <= new_start:
             new_end = new_start + 100  # Min 100ms
 
-        new_sub["start_time"] = int(new_start)
-        new_sub["end_time"]   = int(new_end)
+        new_sub["start_time"] = int(round(new_start))
+        new_sub["end_time"]   = int(round(new_end))
         
         if max_chars > 0:
             new_sub["text"] = wrap_subtitle_text(new_sub["text"], max_chars)
@@ -69,6 +70,7 @@ def recalculate_ass(
     timeline: List[TimelineSegment],
     output_path: str,
     max_chars_per_line: int = 15,
+    fps_float: float = 30.0,
 ) -> None:
     """
     Remap timestamps ASS + wrap text tại max_chars_per_line.
@@ -85,8 +87,8 @@ def recalculate_ass(
                 start_ms = parse_ass_timestamp_to_ms(parts[1].strip())
                 end_ms   = parse_ass_timestamp_to_ms(parts[2].strip())
 
-                parts[1] = ms_to_ass_timestamp(int(remap_timestamp(start_ms, timeline)))
-                parts[2] = ms_to_ass_timestamp(int(remap_timestamp(end_ms,   timeline)))
+                parts[1] = ms_to_ass_timestamp(int(round(remap_timestamp(start_ms, timeline, fps_float))))
+                parts[2] = ms_to_ass_timestamp(int(round(remap_timestamp(end_ms,   timeline, fps_float))))
 
                 # wrap_text có sẵn trong ass_utils, chỉ đổi max_chars=15
                 parts[9] = wrap_text(parts[9].rstrip("\n"), max_chars=max_chars_per_line)

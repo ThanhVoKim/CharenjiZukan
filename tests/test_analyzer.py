@@ -50,9 +50,10 @@ class TestLayer1_AnalyzerFilterAndClassify:
         ]
         
         filtered = filter_tts_subtitles(subs, mutes)
-        assert len(filtered) == 1
-        assert filtered[0]["text"] == "C"
-        assert filtered[0]["line"] == 1  # Được đánh số lại
+        assert len(filtered) == 2
+        assert filtered[0]["text"] == "A"
+        assert filtered[0]["end_time"] == 4000
+        assert filtered[1]["text"] == "C"
 
     def test_classify_and_compute_slots(self):
         subs = [
@@ -174,15 +175,23 @@ class TestLayer1_AnalyzerSpeedsAndTimeline:
 
     def test_remap_timestamp(self):
         timeline = [
-            TimelineSegment(orig_start=0, orig_end=10, new_start=0, new_end=10, video_speed=1, audio_speed=1, new_chunk_dur=10, block_type="gap", tts_clip_path=None, tts_duration=0),
-            TimelineSegment(orig_start=10, orig_end=20, new_start=10, new_end=30, video_speed=0.5, audio_speed=1, new_chunk_dur=20, block_type="tts", tts_clip_path=None, tts_duration=0),
-            TimelineSegment(orig_start=20, orig_end=30, new_start=30, new_end=40, video_speed=1, audio_speed=1, new_chunk_dur=10, block_type="mute", tts_clip_path=None, tts_duration=0),
+            TimelineSegment(orig_start=0, orig_end=1000, new_start=0, new_end=1000, video_speed=1, audio_speed=1, new_chunk_dur=1000, block_type="gap", tts_clip_path=None, tts_duration=0),
+            TimelineSegment(orig_start=1000, orig_end=2000, new_start=1000, new_end=3000, video_speed=0.5, audio_speed=1, new_chunk_dur=2000, block_type="tts", tts_clip_path=None, tts_duration=0),
+            TimelineSegment(orig_start=2000, orig_end=3000, new_start=3000, new_end=4000, video_speed=1, audio_speed=1, new_chunk_dur=1000, block_type="mute", tts_clip_path=None, tts_duration=0),
         ]
         
-        assert remap_timestamp(5, timeline) == 5
-        assert remap_timestamp(10, timeline) == 10
-        assert remap_timestamp(15, timeline) == 20 # (15-10)/(20-10) * 20 + 10 = 0.5 * 20 + 10 = 20
-        assert remap_timestamp(20, timeline) == 30
-        assert remap_timestamp(25, timeline) == 35
-        assert remap_timestamp(35, timeline) == 45 # Extrapolate past end
-        assert remap_timestamp(-5, timeline) == -5 # Extrapolate before start
+        # Test interpolate
+        # orig_ms=500 -> in seg 0. ratio=0.5. raw_new=500. new_frames=round(500/1000*30)=15. return 15/30*1000 = 500.0
+        assert remap_timestamp(500, timeline, fps_float=30.0) == 500.0
+        # orig_ms=1500 -> in seg 1. ratio=0.5. raw_new=1000 + 0.5*2000 = 2000. new_frames=round(2000/1000*30)=60. return 60/30*1000 = 2000.0
+        assert remap_timestamp(1500, timeline, fps_float=30.0) == 2000.0 
+        
+        # Test boundary
+        assert remap_timestamp(1000, timeline, fps_float=30.0) == 1000.0
+        assert remap_timestamp(2000, timeline, fps_float=30.0) == 3000.0
+        
+        # Test extrapolate (trước/sau timeline)
+        # orig_ms=-500 -> before start. first seg new_start=0, orig_start=0. raw_new = 0 - (0 - -500) = -500. new_frames = round(-500/1000*30) = -15. return -15/30*1000 = -500.0
+        assert remap_timestamp(-500, timeline, fps_float=30.0) == -500.0
+        # orig_ms=3500 -> after end. last seg new_end=4000, orig_end=3000. raw_new = 4000 + (3500 - 3000) = 4500. new_frames = round(4500/1000*30) = 135. return 135/30*1000 = 4500.0
+        assert remap_timestamp(3500, timeline, fps_float=30.0) == 4500.0

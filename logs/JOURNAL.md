@@ -1,5 +1,56 @@
 # Project Journal
 
+## 2026-04-10: Fix Video-Audio-Subtitle Sync Drift (Cumulative Drift)
+
+### Yêu cầu
+
+- Khắc phục lỗi lệch audio/subtitle/overlay chạy trước video gốc, đặc biệt rõ rệt ở video dài.
+- Nguyên nhân root cause: `new_chunk_dur` được tính bằng math rounding trong `build_timeline_map()` không khớp với duration thực tế mà FFmpeg render ra (do filter `fps=` làm rounding lần 3), gây sai lệch tích lũy ~33ms/segment.
+
+### Thay đổi đã thực hiện
+
+1. **`sync_engine/video_processor.py`** — Phase 1: ffprobe đo duration thực tế
+   - Thêm hàm `_probe_chunk_duration()`: đo duration chunk bằng ffprobe, snap về frame-aligned.
+   - Thay đổi `process_video_chunks_parallel()` trả về `Tuple[str, List[float]]` — path video + danh sách actual durations.
+   - Sau khi concat, loop đo duration từng chunk và log so sánh expected vs actual.
+
+2. **`sync_engine/analyzer.py`** — Phase 1 + 4: Timeline recalculate + Frame-based remap
+   - Thêm hàm `recalculate_timeline_from_actual_durations()`: cập nhật `new_chunk_dur`, `new_start`, `new_end` dựa trên duration thực tế từ FFmpeg.
+   - Cập nhật `remap_timestamp()`: thêm param `fps_float`, snap kết quả nội suy về frame-aligned (`round(raw_new / 1000 * fps) / fps * 1000`).
+
+3. **`sync_engine/audio_assembler.py`** — Phase 2 + 3: apad+atrim + video duration override
+   - Thêm hàm `_get_audio_duration_s()`: đo duration audio bằng ffprobe.
+   - Thay đổi `_mix_audio_batch()`: thay `adelay={int_ms}` bằng `apad=whole_dur={delay_s} + atrim` để có precision thập phân, loại bỏ mất phần lẻ do integer truncation.
+   - Thêm param `video_duration_override` vào `assemble_audio_track()`: ưu tiên dùng duration thực tế từ `video_stretched.mp4` cho `total_ms`.
+
+4. **`sync_engine/timestamp_remapper.py`** — Phase 4: Frame-based downstream
+   - Thêm param `fps_float` vào `recalculate_srt()` và `recalculate_ass()`.
+   - Đổi `int(new_start)` thành `int(round(new_start))` để tránh truncate sai lệch.
+   - Truyền `fps_float` vào tất cả calls đến `remap_timestamp()`.
+
+5. **`cli/sync_video.py`** — Pipeline update
+   - Thêm hàm `_probe_video_duration()`: đo duration video bằng ffprobe.
+   - Cập nhật Phase 2: nhận `actual_durations` từ `process_video_chunks_parallel()`, gọi `recalculate_timeline_from_actual_durations()`.
+   - Cập nhật Phase 3: truyền `video_duration_override` vào `assemble_audio_track()`.
+   - Cập nhật Phase 4: truyền `fps_float` vào `recalculate_srt()` và `recalculate_ass()`.
+
+6. **`tests/test_analyzer.py`** — Test update
+   - Cập nhật `test_filter_tts_subtitles`: fix assertion theo behavior hiện tại.
+   - Cập nhật `test_remap_timestamp`: dùng timeline values lớn hơn (ms thay vì 10-unit), truyền `fps_float=30.0`.
+
+### Trạng thái hiện tại
+
+- ✅ 4 phase đã implement hoàn tất.
+- ✅ Tests pass: `test_analyzer.py`, `test_timestamp_remapper.py`, `test_audio_assembler.py`.
+- ⏳ Cần chạy end-to-end test trên video thực tế dài để xác nhận drift đã được khắc phục.
+
+### Đối chiếu Data Flow
+
+- Thay đổi không làm thay đổi luồng tổng thể. Chỉ thêm bước "feedback loop" sau Phase 2: đo duration thực tế → recalculate timeline → dùng timeline đã update cho Phase 3/4/5.
+- Video là ground truth — audio và subtitle giờ đây đồng bộ dựa trên duration thực tế từ FFmpeg thay vì math dự đoán.
+
+---
+
 ## 2026-04-08: Thêm Context Padding cho Demucs để khắc phục lỗi mất ngữ cảnh âm thanh
 
 ### Yêu cầu

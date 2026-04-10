@@ -115,6 +115,20 @@ def _run_chunk(args: tuple) -> Tuple[int, str, str]:
         logger.error(f"Chunk {idx} failed with error: {err_msg}")
         return idx, out_path, err_msg[-2000:]
 
+def _probe_chunk_duration(chunk_path: str, fps_float: float) -> float:
+    """Đo duration thực tế của chunk và snap về frame-aligned."""
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        chunk_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    raw_dur_s = float(result.stdout.strip())
+    # Snap về frame-aligned để đồng nhất với video
+    dur_frames = round(raw_dur_s * fps_float)
+    return (dur_frames / fps_float) * 1000.0  # ms
+
 def process_video_chunks_parallel(
     video_path: str,
     timeline: List[TimelineSegment],
@@ -123,8 +137,8 @@ def process_video_chunks_parallel(
     use_gpu: bool = True,
     fps_str: str = "30/1",
     fps_float: float = 30.0,
-) -> str:
-    """Split + stretch + concat. Returns path to video_stretched.mp4."""
+) -> Tuple[str, List[float]]:
+    """Split + stretch + concat. Returns (path to video_stretched.mp4, list of actual durations in ms)."""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     chunk_tasks = []
@@ -195,7 +209,14 @@ def process_video_chunks_parallel(
 
     output_video = str(Path(output_dir) / "video_stretched.mp4")
     _concat_chunks(ordered, output_video)
-    return output_video
+    
+    actual_durations = []
+    for i, chunk_path in enumerate(ordered):
+        actual_dur = _probe_chunk_duration(chunk_path, fps_float)
+        actual_durations.append(actual_dur)
+        logger.debug(f"Chunk {i}: expected={timeline[i].new_chunk_dur:.3f}ms, actual={actual_dur:.3f}ms")
+        
+    return output_video, actual_durations
 
 def _concat_chunks(chunk_paths: List[str], output_path: str) -> None:
     """

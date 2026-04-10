@@ -189,6 +189,17 @@ def _process_ambient_track(
         logger.error(f"Lỗi xử lý ambient track: {e.stderr.decode('utf-8', errors='ignore')}")
         return False
 
+def _get_audio_duration_s(audio_path: str) -> float:
+    """Đo duration audio bằng ffprobe."""
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        audio_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return float(result.stdout.strip())
+
 def _mix_audio_batch(
     inputs: List[Tuple[str, float]], # List of (file_path, delay_ms)
     output_path: str,
@@ -204,14 +215,30 @@ def _mix_audio_batch(
     filter_script_path = output_path + ".filter.txt"
     
     with open(filter_script_path, "w", encoding="utf-8") as f:
-        # 1. Delay từng input
+        # 1. Delay từng input bằng apad + atrim
+        max_end_s = 0.0
+        
         for i, (path, delay_ms) in enumerate(inputs):
-            delay_ms_int = int(delay_ms)
-            f.write(f"[{i}:a]adelay={delay_ms_int}|{delay_ms_int}[aud{i}];\n")
+            delay_s = delay_ms / 1000.0
+            clip_dur_s = _get_audio_duration_s(path)
+            
+            f.write(
+                f"[{i}:a]apad=whole_dur={delay_s:.6f},"
+                f"atrim=start=0:end={delay_s + clip_dur_s:.6f},"
+                f"asetpts=PTS-STARTPTS[aud{i}];\n"
+            )
+            
+            end_s = delay_s + clip_dur_s
+            if end_s > max_end_s:
+                max_end_s = end_s
         
         # 2. Mix tất cả lại
         mix_inputs = "".join([f"[aud{i}]" for i in range(len(inputs))])
-        f.write(f"{mix_inputs}amix=inputs={len(inputs)}:dropout_transition=0:normalize=0[out]\n")
+        f.write(
+            f"{mix_inputs}amix=inputs={len(inputs)}:"
+            f"dropout_transition=0:normalize=0,"
+            f"atrim=end={max_end_s:.6f}[out]\n"
+        )
 
     # Xây dựng lệnh FFmpeg
     cmd = ["ffmpeg", "-y"]
@@ -246,7 +273,8 @@ def assemble_audio_track(
     tmp_dir: str,
     sample_rate: int = 48000,
     use_demucs: bool = False,
-    tts_provider: str = "edge"
+    tts_provider: str = "edge",
+    video_duration_override: Optional[float] = None,
 ) -> None:
     """
     Sử dụng FFmpeg để mix audio siêu tốc (thay thế pydub).
@@ -260,7 +288,11 @@ def assemble_audio_track(
         ], check=True, capture_output=True)
         return
 
-    total_ms = int(timeline[-1].new_end)
+    if video_duration_override is not None:
+        total_ms = int(video_duration_override)
+    else:
+        total_ms = int(timeline[-1].new_end)
+        
     logger.info(f"Bắt đầu mix audio, tổng thời lượng: {total_ms/1000:.2f}s")
 
     # 1. Chuẩn bị các file input (Quoted và TTS)

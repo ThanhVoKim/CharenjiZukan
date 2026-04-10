@@ -295,24 +295,63 @@ def build_timeline_map(
 
     return segments
 
-def remap_timestamp(orig_ms: float, timeline: List[TimelineSegment]) -> float:
-    """Nội suy tuyến tính trong segment chứa timestamp."""
+def recalculate_timeline_from_actual_durations(
+    timeline: List[TimelineSegment],
+    actual_durations: List[float],
+    fps_float: float,
+) -> List[TimelineSegment]:
+    """
+    Cập nhật new_chunk_dur, new_start, new_end dựa trên duration thực tế từ FFmpeg.
+    Giữ nguyên orig_start, orig_end, video_speed, audio_speed, block_type, tts_...
+    """
+    updated = []
+    cursor = 0.0
+    for seg, actual_dur in zip(timeline, actual_durations):
+        new_seg = TimelineSegment(
+            orig_start=seg.orig_start,
+            orig_end=seg.orig_end,
+            new_start=cursor,
+            new_end=cursor + actual_dur,
+            video_speed=seg.video_speed,
+            audio_speed=seg.audio_speed,
+            new_chunk_dur=actual_dur,
+            block_type=seg.block_type,
+            tts_clip_path=seg.tts_clip_path,
+            tts_duration=seg.tts_duration,
+        )
+        updated.append(new_seg)
+        cursor += actual_dur
+    return updated
+
+def remap_timestamp(
+    orig_ms: float,
+    timeline: List[TimelineSegment],
+    fps_float: float = 30.0,
+) -> float:
+    """Nội suy tuyến tính trong segment chứa timestamp, snap về frame."""
     if not timeline:
         return orig_ms
-        
+
     for seg in timeline:
         if seg.orig_start <= orig_ms <= seg.orig_end:
             span = seg.orig_end - seg.orig_start
             if span <= 0:
                 return seg.new_start
             ratio = (orig_ms - seg.orig_start) / span
-            return seg.new_start + ratio * seg.new_chunk_dur
-            
+            raw_new = seg.new_start + ratio * seg.new_chunk_dur
+            # Snap về frame-aligned
+            new_frames = round((raw_new / 1000.0) * fps_float)
+            return (new_frames / fps_float) * 1000.0
+
     # Extrapolate từ segment cuối
     last = timeline[-1]
     if orig_ms > last.orig_end:
-        return last.new_end + (orig_ms - last.orig_end)
-    
+        raw_new = last.new_end + (orig_ms - last.orig_end)
+        new_frames = round((raw_new / 1000.0) * fps_float)
+        return (new_frames / fps_float) * 1000.0
+
     # Trước segment đầu
     first = timeline[0]
-    return first.new_start - (first.orig_start - orig_ms)
+    raw_new = first.new_start - (first.orig_start - orig_ms)
+    new_frames = round((raw_new / 1000.0) * fps_float)
+    return (new_frames / fps_float) * 1000.0
