@@ -215,27 +215,30 @@ def _mix_audio_batch(
     filter_script_path = output_path + ".filter.txt"
     
     with open(filter_script_path, "w", encoding="utf-8") as f:
-        # 1. Delay từng input bằng apad + atrim
+        # 1. Delay từng input bằng adelay (hậu tố S cho precision thập phân)
+        # - adelay=Xs|Xs: chèn silence X giây ở ĐẦU audio (precision thập phân)
+        # - apad=whole_dur=Y: đảm bảo tổng duration = Y (bù silence ở CUỐI nếu cần)
+        # - atrim=end=Y: cắt chính xác tại mốc Y
         max_end_s = 0.0
         
         for i, (path, delay_ms) in enumerate(inputs):
             delay_s = delay_ms / 1000.0
             clip_dur_s = _get_audio_duration_s(path)
+            total_dur_s = delay_s + clip_dur_s
             
             f.write(
-                f"[{i}:a]apad=whole_dur={delay_s:.6f},"
-                f"atrim=start=0:end={delay_s + clip_dur_s:.6f},"
-                f"asetpts=PTS-STARTPTS[aud{i}];\n"
+                f"[{i}:a]adelay={delay_s:.6f}S|{delay_s:.6f}S,"
+                f"apad=whole_dur={total_dur_s:.6f},"
+                f"atrim=end={total_dur_s:.6f}[aud{i}];\n"
             )
             
-            end_s = delay_s + clip_dur_s
-            if end_s > max_end_s:
-                max_end_s = end_s
+            if total_dur_s > max_end_s:
+                max_end_s = total_dur_s
         
         # 2. Mix tất cả lại
         mix_inputs = "".join([f"[aud{i}]" for i in range(len(inputs))])
         f.write(
-            f"{mix_inputs}amix=inputs={len(inputs)}:"
+            f"{mix_inputs}amix=inputs={len(inputs)}:all=1:"
             f"dropout_transition=0:normalize=0,"
             f"atrim=end={max_end_s:.6f}[out]\n"
         )
@@ -475,7 +478,7 @@ def assemble_audio_track(
         filter_script_path = str(Path(tmp_dir) / "final_mix_filter.txt")
         with open(filter_script_path, "w", encoding="utf-8") as f:
             mix_inputs = "".join([f"[{i}:a]" for i in range(len(final_inputs))])
-            f.write(f"{mix_inputs}amix=inputs={len(final_inputs)}:dropout_transition=0:normalize=0[out]\n")
+            f.write(f"{mix_inputs}amix=inputs={len(final_inputs)}:all=1:dropout_transition=0:normalize=0[out]\n")
 
         cmd = ["ffmpeg", "-y"]
         for path in final_inputs:
