@@ -227,7 +227,7 @@ def _mix_audio_batch(
             total_dur_s = delay_s + clip_dur_s
             
             f.write(
-                f"[{i}:a]adelay={delay_s:.6f}S|{delay_s:.6f}S,"
+                f"[{i}:a]adelay={delay_s:.6f}s|{delay_s:.6f}s,"
                 f"apad=whole_dur={total_dur_s:.6f},"
                 f"atrim=end={total_dur_s:.6f}[aud{i}];\n"
             )
@@ -238,7 +238,7 @@ def _mix_audio_batch(
         # 2. Mix tất cả lại
         mix_inputs = "".join([f"[aud{i}]" for i in range(len(inputs))])
         f.write(
-            f"{mix_inputs}amix=inputs={len(inputs)}:all=1:"
+            f"{mix_inputs}amix=inputs={len(inputs)}:"
             f"dropout_transition=0:normalize=0,"
             f"atrim=end={max_end_s:.6f}[out]\n"
         )
@@ -478,7 +478,7 @@ def assemble_audio_track(
         filter_script_path = str(Path(tmp_dir) / "final_mix_filter.txt")
         with open(filter_script_path, "w", encoding="utf-8") as f:
             mix_inputs = "".join([f"[{i}:a]" for i in range(len(final_inputs))])
-            f.write(f"{mix_inputs}amix=inputs={len(final_inputs)}:all=1:dropout_transition=0:normalize=0[out]\n")
+            f.write(f"{mix_inputs}amix=inputs={len(final_inputs)}:dropout_transition=0:normalize=0[out]\n")
 
         cmd = ["ffmpeg", "-y"]
         for path in final_inputs:
