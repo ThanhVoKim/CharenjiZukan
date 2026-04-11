@@ -101,6 +101,32 @@ class TestLayer1_AnalyzerFilterAndClassify:
         assert blocks[5].slot_duration == 15000
         assert blocks[5].hard_limit_ms is None
 
+    def test_classify_overlap_and_order(self):
+        """Test kịch bản overlap, gap rất ngắn và sát mí để đảm bảo thứ tự luôn tuyến tính"""
+        subs = [
+            {"line": 1, "start_time": 10000, "end_time": 15000, "text": "Sub1"},
+            {"line": 2, "start_time": 20000.001, "end_time": 25000, "text": "Sub2 sát mí Mute"},
+            {"line": 3, "start_time": 20050, "end_time": 26000, "text": "Sub3 bị Mute nuốt gọn"},
+        ]
+        mutes = [
+            {"line": 1, "start_time": 20000, "end_time": 30000, "text": "Mute1"},
+        ]
+        video_dur = 40000.0
+
+        blocks = classify_and_compute_slots(subs, mutes, video_dur)
+        
+        # Sub3 sẽ bị filter_tts_subtitles drop hoàn toàn vì nằm trong Mute.
+        # Sub2 sẽ bị clip end_time về 20000. Do duration còn lại < 100ms nên Sub2 bị filter_tts_subtitles drop luôn.
+        # Trật tự mong muốn: GAP(0-10000) -> TTS(10000-20000) -> MUTE(20000-30000) -> GAP(30000-40000)
+
+        assert len(blocks) == 4
+        
+        # Verify sự nối tiếp: end của block trước == start của block sau
+        cursor = 0.0
+        for block in blocks:
+            assert block.start_time == cursor, f"Đứt gãy timeline tại {cursor}"
+            cursor += block.slot_duration
+
 
 class TestLayer1_AnalyzerSpeedsAndTimeline:
     """Test compute_speeds, build_timeline_map và remap_timestamp."""
