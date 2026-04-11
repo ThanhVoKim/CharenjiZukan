@@ -1,53 +1,49 @@
 # Project Journal
 
-## 2026-04-10: Fix Video-Audio-Subtitle Sync Drift (Cumulative Drift)
+## 2026-04-10: Fix Video-Audio-Subtitle Sync Drift & Refactor Audio Assembly (Concat)
 
 ### Yêu cầu
 
 - Khắc phục lỗi lệch audio/subtitle/overlay chạy trước video gốc, đặc biệt rõ rệt ở video dài.
-- Nguyên nhân root cause: `new_chunk_dur` được tính bằng math rounding trong `build_timeline_map()` không khớp với duration thực tế mà FFmpeg render ra (do filter `fps=` làm rounding lần 3), gây sai lệch tích lũy ~33ms/segment.
+- Tái cấu trúc workflow audio assembly: thay vì sử dụng cơ chế mix các audio track bằng `adelay` (không hỗ trợ ms lẻ và sinh ra quá nhiều file im lặng trống khổng lồ), chuyển sang cách nối tiếp nhau (concat) để đạt độ chuẩn xác thời gian cao nhất.
 
 ### Thay đổi đã thực hiện
 
 1. **`sync_engine/video_processor.py`** — Phase 1: ffprobe đo duration thực tế
    - Thêm hàm `_probe_chunk_duration()`: đo duration chunk bằng ffprobe, snap về frame-aligned.
    - Thay đổi `process_video_chunks_parallel()` trả về `Tuple[str, List[float]]` — path video + danh sách actual durations.
-   - Sau khi concat, loop đo duration từng chunk và log so sánh expected vs actual.
 
 2. **`sync_engine/analyzer.py`** — Phase 1 + 4: Timeline recalculate + Frame-based remap
    - Thêm hàm `recalculate_timeline_from_actual_durations()`: cập nhật `new_chunk_dur`, `new_start`, `new_end` dựa trên duration thực tế từ FFmpeg.
-   - Cập nhật `remap_timestamp()`: thêm param `fps_float`, snap kết quả nội suy về frame-aligned (`round(raw_new / 1000 * fps) / fps * 1000`).
+   - Cập nhật `remap_timestamp()`: thêm param `fps_float`, snap kết quả nội suy về frame-aligned.
 
-3. **`sync_engine/audio_assembler.py`** — Phase 2 + 3: apad+atrim + video duration override
-   - Thêm hàm `_get_audio_duration_s()`: đo duration audio bằng ffprobe.
-   - Thay đổi `_mix_audio_batch()`: thay `adelay={int_ms}` bằng `apad=whole_dur={delay_s} + atrim` để có precision thập phân, loại bỏ mất phần lẻ do integer truncation.
-   - Thêm param `video_duration_override` vào `assemble_audio_track()`: ưu tiên dùng duration thực tế từ `video_stretched.mp4` cho `total_ms`.
+3. **`sync_engine/audio_assembler.py`** — Phase 2 + 3: Refactor Concat Approach
+   - Bỏ hoàn toàn hàm `_mix_audio_batch()` cũ (dùng `adelay` và `amix` cồng kềnh).
+   - Thiết kế lại `assemble_audio_track()`: Với mỗi segment trong timeline, tạo ra một chunk audio riêng rẽ có thời lượng chuẩn xác cực hạn (sử dụng chuỗi filter `atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur=X,atrim=end=X`).
+   - Tạo chunk cho các block im lặng (`gap`, `tail`) trực tiếp bằng `anullsrc`.
+   - Sử dụng `concat demuxer` của FFmpeg (với flag `-c copy`) để nối toàn bộ các chunk lại với tốc độ siêu tốc, thay vì phải re-encode lại trong mixer.
+   - Trộn nhạc nền `ambient` bằng `amix` vào track tổng cuối cùng.
+   - Cập nhật hàm `compress_tts_clip` để hỗ trợ param `target_dur_s`.
 
-4. **`sync_engine/timestamp_remapper.py`** — Phase 4: Frame-based downstream
-   - Thêm param `fps_float` vào `recalculate_srt()` và `recalculate_ass()`.
-   - Đổi `int(new_start)` thành `int(round(new_start))` để tránh truncate sai lệch.
-   - Truyền `fps_float` vào tất cả calls đến `remap_timestamp()`.
+4. **`sync_engine/timestamp_remapper.py`** — Phase 4: Downstream Frame-based
+   - Cập nhật `recalculate_srt()` và `recalculate_ass()` để sử dụng `fps_float` khi remap.
+   - Đảm bảo `end_time` của subtitle gắn theo duration thực tế của `tts` chunk để chữ không bị tắt trước tiếng.
 
 5. **`cli/sync_video.py`** — Pipeline update
    - Thêm hàm `_probe_video_duration()`: đo duration video bằng ffprobe.
-   - Cập nhật Phase 2: nhận `actual_durations` từ `process_video_chunks_parallel()`, gọi `recalculate_timeline_from_actual_durations()`.
-   - Cập nhật Phase 3: truyền `video_duration_override` vào `assemble_audio_track()`.
-   - Cập nhật Phase 4: truyền `fps_float` vào `recalculate_srt()` và `recalculate_ass()`.
+   - Truyền timeline đã được `recalculate_timeline_from_actual_durations()` xuống dưới cho các layer sau.
 
-6. **`tests/test_analyzer.py`** — Test update
-   - Cập nhật `test_filter_tts_subtitles`: fix assertion theo behavior hiện tại.
-   - Cập nhật `test_remap_timestamp`: dùng timeline values lớn hơn (ms thay vì 10-unit), truyền `fps_float=30.0`.
+6. **`tests/test_audio_assembler.py` & `tests/test_analyzer.py`**
+   - Thay thế test `_mix_audio_batch` cũ bằng bộ test `multi_segment_concat`, `compress_tts_clip_with_target_dur`.
+   - Các test mới cover chuẩn xác workflow concat audio và assert độ chính xác tới tận mili-giây.
+   - Test đã pass hoàn toàn thành công.
 
 ### Trạng thái hiện tại
 
-- ✅ 4 phase đã implement hoàn tất.
-- ✅ Tests pass: `test_analyzer.py`, `test_timestamp_remapper.py`, `test_audio_assembler.py`.
-- ⏳ Cần chạy end-to-end test trên video thực tế dài để xác nhận drift đã được khắc phục.
-
-### Đối chiếu Data Flow
-
-- Thay đổi không làm thay đổi luồng tổng thể. Chỉ thêm bước "feedback loop" sau Phase 2: đo duration thực tế → recalculate timeline → dùng timeline đã update cho Phase 3/4/5.
-- Video là ground truth — audio và subtitle giờ đây đồng bộ dựa trên duration thực tế từ FFmpeg thay vì math dự đoán.
+- ✅ Sync Drift đã được vá triệt để dựa vào real duration `ffprobe` và logic nội suy frame-based.
+- ✅ Kiến trúc dựng Audio đã thay đổi 180 độ: Từ việc "chồng đống layer + chèn delay" => Sang dạng "Chặt khúc chính xác tuyệt đối + nối file siêu tốc".
+- ✅ Fix lỗi filter FFmpeg `adelay` không hỗ trợ số thập phân.
+- ✅ Pipeline chạy mượt mà trên CLI.
 
 ---
 

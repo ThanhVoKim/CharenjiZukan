@@ -14,7 +14,7 @@ _PCM_AUDIO_EXTENSIONS = {'.wav', '.flac', '.aiff', '.aif', '.pcm'}
 
 logger = logging.getLogger("sync_video")
 
-def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_provider: str = "edge") -> None:
+def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_provider: str = "edge", target_dur_s: Optional[float] = None) -> None:
     # Chỉ áp dụng filter tăng âm lượng và limiter cho EdgeTTS
     if tts_provider == "edge":
         base_filter = "volume=1.5,alimiter=limit=0.95:level_in=1:level_out=1"
@@ -27,6 +27,11 @@ def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_p
     else:
         filter_str = base_filter
         
+    # Thêm atrim và apad để đảm bảo duration chính xác tuyệt đối
+    if target_dur_s is not None:
+        pad_trim_filter = f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}"
+        filter_str = f"{filter_str},{pad_trim_filter}" if filter_str else pad_trim_filter
+
     cmd = [
         "ffmpeg", "-y", "-i", wav_path,
         "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
@@ -189,84 +194,6 @@ def _process_ambient_track(
         logger.error(f"Lỗi xử lý ambient track: {e.stderr.decode('utf-8', errors='ignore')}")
         return False
 
-def _get_audio_duration_s(audio_path: str) -> float:
-    """Đo duration audio bằng ffprobe."""
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        audio_path,
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    return float(result.stdout.strip())
-
-def _mix_audio_batch(
-    inputs: List[Tuple[str, float]], # List of (file_path, delay_ms)
-    output_path: str,
-    sample_rate: int = 48000
-) -> bool:
-    """
-    Mix một batch các file audio đã được delay.
-    """
-    if not inputs:
-        return False
-
-    # Tạo file filter_complex
-    filter_script_path = output_path + ".filter.txt"
-    
-    with open(filter_script_path, "w", encoding="utf-8") as f:
-        # 1. Delay từng input bằng adelay (hậu tố S cho precision thập phân)
-        # - adelay=Xs|Xs: chèn silence X giây ở ĐẦU audio (precision thập phân)
-        # - apad=whole_dur=Y: đảm bảo tổng duration = Y (bù silence ở CUỐI nếu cần)
-        # - atrim=end=Y: cắt chính xác tại mốc Y
-        max_end_s = 0.0
-        
-        for i, (path, delay_ms) in enumerate(inputs):
-            delay_s = delay_ms / 1000.0
-            clip_dur_s = _get_audio_duration_s(path)
-            total_dur_s = delay_s + clip_dur_s
-            
-            f.write(
-                f"[{i}:a]adelay={delay_s:.6f}s|{delay_s:.6f}s,"
-                f"apad=whole_dur={total_dur_s:.6f},"
-                f"atrim=end={total_dur_s:.6f}[aud{i}];\n"
-            )
-            
-            if total_dur_s > max_end_s:
-                max_end_s = total_dur_s
-        
-        # 2. Mix tất cả lại
-        mix_inputs = "".join([f"[aud{i}]" for i in range(len(inputs))])
-        f.write(
-            f"{mix_inputs}amix=inputs={len(inputs)}:"
-            f"dropout_transition=0:normalize=0,"
-            f"atrim=end={max_end_s:.6f}[out]\n"
-        )
-
-    # Xây dựng lệnh FFmpeg
-    cmd = ["ffmpeg", "-y"]
-    for path, _ in inputs:
-        cmd.extend(["-i", path])
-    
-    cmd.extend([
-        "-filter_complex_script", filter_script_path,
-        "-map", "[out]",
-        "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le",
-        output_path
-    ])
-    
-    try:
-        subprocess.run(cmd, check=True, capture_output=True)
-        return True
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Lỗi mix audio batch: {e.stderr.decode('utf-8', errors='ignore')}")
-        return False
-    finally:
-        # Dọn dẹp file script
-        try:
-            Path(filter_script_path).unlink(missing_ok=True)
-        except Exception:
-            pass
 
 def assemble_audio_track(
     timeline: List[TimelineSegment],
@@ -280,8 +207,8 @@ def assemble_audio_track(
     video_duration_override: Optional[float] = None,
 ) -> None:
     """
-    Sử dụng FFmpeg để mix audio siêu tốc (thay thế pydub).
-    Layer order (bottom → top): ambient → quoted → TTS
+    Sử dụng FFmpeg để ghép (concat) audio tuần tự.
+    Layer order (bottom → top): ambient → (tts/quoted/silence concat)
     """
     if not timeline:
         # Tạo file im lặng nếu timeline trống
@@ -296,95 +223,130 @@ def assemble_audio_track(
     else:
         total_ms = int(timeline[-1].new_end)
         
-    logger.info(f"Bắt đầu mix audio, tổng thời lượng: {total_ms/1000:.2f}s")
+    logger.info(f"Bắt đầu mix audio (Concat approach), tổng thời lượng: {total_ms/1000:.2f}s")
 
-    # 1. Chuẩn bị các file input (Quoted và TTS)
-    prepared_inputs: List[Tuple[str, float]] = [] # (path, delay_ms)
-    
-    # Cấu hình padding cho Demucs (htdemucs segment=7s, overlap=0.25 -> tối thiểu padding 3.5s)
+    # Cấu hình padding cho Demucs
     pad_s = 3.5 if use_demucs else 0.0
-    quoted_pad_info = {} # dict lưu {path: (actual_left_pad_s, duration_s)}
+    quoted_pad_info = {} # dict lưu {path: (actual_left_pad_s, duration_s, final_q, target_dur_s)}
     
-    logger.info("Đang chuẩn bị các file audio thành phần...")
-    for i, seg in enumerate(timeline):
+    # Danh sách lưu đường dẫn các chunk đã được xử lý xong, theo đúng thứ tự timeline
+    ordered_chunk_paths: List[str] = []
+
+    # 1. Chuẩn bị / Extract / Compress tất cả các chunk (chạy đa luồng)
+    logger.info(f"Đang chuẩn bị {len(timeline)} audio chunks...")
+    
+    def _prepare_chunk(index: int, seg: TimelineSegment) -> Tuple[int, str]:
+        target_dur_s = seg.new_chunk_dur / 1000.0
+        
+        if target_dur_s <= 0:
+            return index, ""
+            
         if seg.block_type == "mute":
-            tmp_q = str(Path(tmp_dir) / f"quoted_{int(seg.orig_start)}.wav")
-            if not Path(tmp_q).exists():
-                actual_left_pad = extract_quoted_audio(
-                    video_path, seg.orig_start, seg.orig_end, tmp_q, pad_s=pad_s
-                )
-                if use_demucs:
-                    duration_s = (seg.orig_end - seg.orig_start) / 1000.0
-                    quoted_pad_info[tmp_q] = (actual_left_pad, duration_s)
-            elif use_demucs:
-                # Nếu đã có từ lần chạy trước, tính lại duration
-                duration_s = (seg.orig_end - seg.orig_start) / 1000.0
-                actual_left_pad = min(pad_s, seg.orig_start / 1000.0)
-                quoted_pad_info[tmp_q] = (actual_left_pad, duration_s)
+            tmp_q = str(Path(tmp_dir) / f"chunk_{index:04d}_mute_raw.wav")
+            final_q = str(Path(tmp_dir) / f"chunk_{index:04d}_mute.wav")
+            
+            if not Path(final_q).exists():
+                if not Path(tmp_q).exists():
+                    actual_left_pad = extract_quoted_audio(
+                        video_path, seg.orig_start, seg.orig_end, tmp_q, pad_s=pad_s
+                    )
+                    if use_demucs:
+                        duration_s = (seg.orig_end - seg.orig_start) / 1000.0
+                        quoted_pad_info[tmp_q] = (actual_left_pad, duration_s, final_q, target_dur_s)
                 
-            if Path(tmp_q).exists():
-                prepared_inputs.append((tmp_q, seg.new_start))
-                
+                # Nếu không dùng demucs, tạo final chunk luôn bằng atrim/apad
+                if not use_demucs and Path(tmp_q).exists():
+                    cmd = [
+                        "ffmpeg", "-y", "-i", tmp_q,
+                        "-filter:a", f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}",
+                        "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le",
+                        final_q
+                    ]
+                    subprocess.run(cmd, check=True, capture_output=True)
+            return index, final_q
+            
         elif seg.block_type == "tts" and seg.tts_clip_path:
-            tmp_c = str(Path(tmp_dir) / f"processed_{int(seg.new_start)}.wav")
-            if not Path(tmp_c).exists():
-                compress_tts_clip(seg.tts_clip_path, seg.audio_speed, tmp_c, tts_provider)
-            if Path(tmp_c).exists():
-                prepared_inputs.append((tmp_c, seg.new_start))
+            final_c = str(Path(tmp_dir) / f"chunk_{index:04d}_tts.wav")
+            if not Path(final_c).exists():
+                compress_tts_clip(seg.tts_clip_path, seg.audio_speed, final_c, tts_provider, target_dur_s=target_dur_s)
+            return index, final_c
+            
+        else: # gap hoặc tail
+            final_s = str(Path(tmp_dir) / f"chunk_{index:04d}_{seg.block_type}.wav")
+            if not Path(final_s).exists():
+                cmd = [
+                    "ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=r={sample_rate}:cl=stereo",
+                    "-t", f"{target_dur_s:.6f}",
+                    final_s
+                ]
+                subprocess.run(cmd, check=True, capture_output=True)
+            return index, final_s
 
-    if use_demucs:
-        quoted_clips_paths = [path for path, delay in prepared_inputs if Path(path).name.startswith("quoted_")]
-        if quoted_clips_paths:
-            logger.info(f"Đang chạy Demucs trên {len(quoted_clips_paths)} đoạn quoted clips (batch, có padding {pad_s}s)...")
-            from cli.demucs_audio import separate_audio_batch
+    # Chạy prepare song song
+    cpu_count = os.cpu_count() or 2
+    max_workers = max(1, int(cpu_count * 0.8))
+    
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_prepare_chunk, i, seg) for i, seg in enumerate(timeline)]
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
             
-            demucs_outputs = [str(Path(p).with_name(f"{Path(p).stem}_vocals.wav")) for p in quoted_clips_paths]
+    # Sắp xếp lại theo đúng thứ tự
+    results.sort(key=lambda x: x[0])
+    ordered_chunk_paths = [path for _, path in results if path]
+
+    # Xử lý riêng cho Demucs (chạy batch trên các tmp_q)
+    if use_demucs and quoted_pad_info:
+        raw_quoted_paths = list(quoted_pad_info.keys())
+        logger.info(f"Đang chạy Demucs trên {len(raw_quoted_paths)} đoạn quoted clips (batch, có padding {pad_s}s)...")
+        from cli.demucs_audio import separate_audio_batch
+        
+        demucs_outputs = [str(Path(p).with_name(f"{Path(p).stem}_vocals.wav")) for p in raw_quoted_paths]
+        
+        try:
+            separate_audio_batch(
+                input_paths=raw_quoted_paths,
+                output_paths=demucs_outputs,
+                model="htdemucs",
+                keep="vocals",
+                device=None,
+                segment=7
+            )
             
-            try:
-                separate_audio_batch(
-                    input_paths=quoted_clips_paths,
-                    output_paths=demucs_outputs,
-                    model="htdemucs",
-                    keep="vocals",
-                    device=None,
-                    segment=7
-                )
+            # Cắt bỏ phần padding (trim) sau khi có kết quả Demucs, và apad/atrim chuẩn hóa
+            for raw_p, demucs_p in zip(raw_quoted_paths, demucs_outputs):
+                actual_left_pad, dur_s, final_q, target_dur_s = quoted_pad_info[raw_p]
                 
-                # Cắt bỏ phần padding (trim) sau khi có kết quả Demucs, ghi đè lại file `tmp_q` gốc
-                for orig_p, demucs_p in zip(quoted_clips_paths, demucs_outputs):
-                    if Path(demucs_p).exists():
-                        actual_left_pad, dur_s = quoted_pad_info[orig_p]
-                        trim_cmd = [
-                            "ffmpeg", "-y",
-                            "-i", demucs_p,
-                            "-ss", f"{actual_left_pad:.6f}",
-                            "-t", f"{dur_s:.6f}",
-                            "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
-                            orig_p
-                        ]
-                        subprocess.run(trim_cmd, check=True, capture_output=True)
-                logger.info("Hoàn tất tách lời và trim padding bằng Demucs.")
-            except Exception as e:
-                logger.error(f"Lỗi khi chạy Demucs batch, fallback dùng audio có nhạc nền: {e}")
-                # Nếu lỗi Demucs, ta vẫn phải trim padding của file gốc (do lúc extract đã thêm padding)
-                for orig_p in quoted_clips_paths:
-                    if orig_p in quoted_pad_info:
-                        actual_left_pad, dur_s = quoted_pad_info[orig_p]
-                        if actual_left_pad > 0:
-                            # Trim trực tiếp trên file gốc
-                            tmp_fallback = str(Path(orig_p).with_name(f"{Path(orig_p).stem}_fallback.wav"))
-                            trim_cmd = [
-                                "ffmpeg", "-y",
-                                "-i", orig_p,
-                                "-ss", f"{actual_left_pad:.6f}",
-                                "-t", f"{dur_s:.6f}",
-                                "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
-                                tmp_fallback
-                            ]
-                            subprocess.run(trim_cmd, check=True, capture_output=True)
-                            shutil.move(tmp_fallback, orig_p)
+                src_to_trim = demucs_p if Path(demucs_p).exists() else raw_p
+                
+                trim_cmd = [
+                    "ffmpeg", "-y",
+                    "-i", src_to_trim,
+                    "-ss", f"{actual_left_pad:.6f}",
+                    "-t", f"{dur_s:.6f}",
+                    "-filter:a", f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}",
+                    "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le",
+                    final_q
+                ]
+                subprocess.run(trim_cmd, check=True, capture_output=True)
+            logger.info("Hoàn tất tách lời và trim padding bằng Demucs.")
+        except Exception as e:
+            logger.error(f"Lỗi khi chạy Demucs batch, fallback dùng audio có nhạc nền: {e}")
+            for raw_p in raw_quoted_paths:
+                actual_left_pad, dur_s, final_q, target_dur_s = quoted_pad_info[raw_p]
+                trim_cmd = [
+                    "ffmpeg", "-y",
+                    "-i", raw_p,
+                    "-ss", f"{actual_left_pad:.6f}",
+                    "-t", f"{dur_s:.6f}",
+                    "-filter:a", f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}",
+                    "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le",
+                    final_q
+                ]
+                subprocess.run(trim_cmd, check=True, capture_output=True)
 
-    # 2. Xử lý Ambient Track
+    # 2. Xử lý Ambient Track (Song song với việc nối)
     ambient_processed_path = str(Path(tmp_dir) / "ambient_processed.wav")
     has_ambient = False
     if ambient_path and Path(ambient_path).exists():
@@ -393,108 +355,51 @@ def assemble_audio_track(
             ambient_path, timeline, total_ms, ambient_processed_path, sample_rate, use_demucs
         )
 
-    # 3. Chia lô (Batching) để mix
-    # Giới hạn số lượng file mở đồng thời của OS (thường là 1024 trên Linux)
-    # Ta chọn batch size an toàn là 100
-    BATCH_SIZE = 100
-    batch_outputs: List[str] = []
+    # 3. Concat tất cả các chunks
+    logger.info(f"Đang nối (concat) {len(ordered_chunk_paths)} audio chunks...")
+    concat_list_path = str(Path(tmp_dir) / "concat_list.txt")
+    with open(concat_list_path, "w", encoding="utf-8") as f:
+        for p in ordered_chunk_paths:
+            # Escape path cho ffconcat
+            safe_p = Path(p).as_posix().replace("'", "'\\''")
+            f.write(f"file '{safe_p}'\n")
 
-    if prepared_inputs:
-        logger.info(f"Đang mix {len(prepared_inputs)} file audio thành phần (Batch size: {BATCH_SIZE})...")
-
-        batches: List[Tuple[int, List[Tuple[str, float]], str]] = []
-        for i in range(0, len(prepared_inputs), BATCH_SIZE):
-            batch_index = i // BATCH_SIZE
-            batch = prepared_inputs[i:i+BATCH_SIZE]
-            batch_out = str(Path(tmp_dir) / f"mix_batch_{batch_index}.wav")
-            batches.append((batch_index, batch, batch_out))
-
-        # Tính toán số lượng worker dựa trên CPU thực tế
-        cpu_count = os.cpu_count() or 2
-        # Dùng khoảng 65% số core hiện có, tối thiểu 1, tối đa không vượt quá số batch
-        optimal_workers = max(1, int(cpu_count * 0.65))
-        max_workers = min(optimal_workers, len(batches)) or 1
-        
-        logger.info(f"Chạy song song {len(batches)} batch với tối đa {max_workers} worker (CPU cores: {cpu_count})...")
-
-        def _run_batch(
-            batch_index: int,
-            batch_data: List[Tuple[str, float]],
-            batch_out_path: str,
-        ) -> Tuple[int, str, bool]:
-            logger.info(f"[Worker] Bắt đầu xử lý batch {batch_index} ({len(batch_data)} files)...")
-            success = _mix_audio_batch(batch_data, batch_out_path, sample_rate)
-            if success:
-                logger.info(f"[Worker] Hoàn thành batch {batch_index}.")
-            else:
-                logger.error(f"[Worker] Thất bại tại batch {batch_index}.")
-            return batch_index, batch_out_path, success
-
-        successful_batches: List[Tuple[int, str]] = []
-        failed_batches: List[int] = []
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(_run_batch, batch_index, batch_data, batch_out_path)
-                for batch_index, batch_data, batch_out_path in batches
-            ]
-
-            for future in concurrent.futures.as_completed(futures):
-                batch_index, batch_out_path, success = future.result()
-                if success:
-                    successful_batches.append((batch_index, batch_out_path))
-                else:
-                    failed_batches.append(batch_index)
-                    logger.error(f"Lỗi khi mix batch {batch_index}")
-
-        if failed_batches:
-            failed_batches.sort()
-            raise RuntimeError(f"Quá trình mix audio thất bại tại các batch: {failed_batches}. Hủy toàn bộ tiến trình.")
-
-        batch_outputs = [path for _, path in sorted(successful_batches, key=lambda item: item[0])]
-
-    # 4. Mix Final (Các batch outputs + Ambient)
-    logger.info("Đang thực hiện mix cuối cùng (Final Mix)...")
-    final_inputs = []
+    concatenated_audio = str(Path(tmp_dir) / "concatenated_main.wav")
     
-    # Thêm một track im lặng có độ dài bằng total_ms làm nền tảng (đảm bảo độ dài video chính xác)
-    base_silence_path = str(Path(tmp_dir) / "base_silence.wav")
-    subprocess.run([
-        "ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=r={sample_rate}:cl=stereo",
-        "-t", f"{total_ms/1000.0:.3f}", base_silence_path
-    ], check=True, capture_output=True)
-    final_inputs.append(base_silence_path)
+    # Dùng concat demuxer, -c copy cực nhanh do tất cả đã cùng format (pcm_s16le 48000Hz stereo)
+    concat_cmd = [
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", concat_list_path,
+        "-c", "copy",
+        concatenated_audio
+    ]
+    
+    try:
+        subprocess.run(concat_cmd, check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Lỗi concat audio: {e.stderr.decode('utf-8', errors='ignore')}")
+        raise RuntimeError("Không thể concat audio chunks")
 
-    if has_ambient:
-        final_inputs.append(ambient_processed_path)
-        
-    final_inputs.extend(batch_outputs)
-
-    if len(final_inputs) == 1:
-        # Chỉ có base silence
-        shutil.copy(base_silence_path, output_path)
+    # 4. Mix Final (Concatenated Audio + Ambient)
+    logger.info("Đang thực hiện mix cuối cùng (Final Mix)...")
+    
+    if not has_ambient:
+        shutil.copy(concatenated_audio, output_path)
+        logger.info("Mix audio hoàn tất (chỉ có track chính, không có ambient).")
     else:
-        # Mix tất cả lại
-        filter_script_path = str(Path(tmp_dir) / "final_mix_filter.txt")
-        with open(filter_script_path, "w", encoding="utf-8") as f:
-            mix_inputs = "".join([f"[{i}:a]" for i in range(len(final_inputs))])
-            f.write(f"{mix_inputs}amix=inputs={len(final_inputs)}:dropout_transition=0:normalize=0[out]\n")
-
-        cmd = ["ffmpeg", "-y"]
-        for path in final_inputs:
-            cmd.extend(["-i", path])
-        
-        cmd.extend([
-            "-filter_complex_script", filter_script_path,
+        mix_cmd = [
+            "ffmpeg", "-y",
+            "-i", concatenated_audio,
+            "-i", ambient_processed_path,
+            "-filter_complex", "amix=inputs=2:duration=first:dropout_transition=0:normalize=0[out]",
             "-map", "[out]",
             "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le",
             output_path
-        ])
+        ]
         
         try:
-            subprocess.run(cmd, check=True, capture_output=True)
-            logger.info("Mix audio hoàn tất thành công.")
+            subprocess.run(mix_cmd, check=True, capture_output=True)
+            logger.info("Mix audio hoàn tất thành công (Main Track + Ambient).")
         except subprocess.CalledProcessError as e:
             logger.error(f"Lỗi final mix: {e.stderr.decode('utf-8', errors='ignore')}")
-            # Fallback: copy base silence nếu lỗi
-            shutil.copy(base_silence_path, output_path)
+            shutil.copy(concatenated_audio, output_path)
