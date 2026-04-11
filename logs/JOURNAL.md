@@ -36,8 +36,8 @@
 6. **`tests/test_audio_assembler.py` & `tests/test_analyzer.py`**
    - Thay thế test `_mix_audio_batch` cũ bằng bộ test `multi_segment_concat`, `compress_tts_clip_with_target_dur`.
    - Các test mới cover chuẩn xác workflow concat audio và assert độ chính xác tới tận mili-giây.
-   - Sửa lỗi trong `classify_and_compute_slots`: Chuyển thuật toán tính toán gap và slot từ vòng lặp có con trỏ hỗn loạn sang dạng State Machine 1 chiều. Giúp giải quyết dứt điểm tình trạng TTS và Mute bị lộn xộn/đảo vị trí khi nằm sát nhau, đồng thời đảm bảo không gian (slot_duration) luôn được khép kín 100% không đứt gãy.
-   - Thêm test case `test_classify_overlap_and_order` giả lập kịch bản sát mí, khẳng định tính toàn vẹn timeline.
+   - Sửa lỗi trong `classify_and_compute_slots`: Chuyển thuật toán tính toán gap và slot từ vòng lặp có con trỏ hỗn loạn sang dạng State Machine 1 chiều. Phục hồi hoàn toàn triết lý "Tận dụng khoảng trống" (Slot duration calculation) từ bản thiết kế `sync-video-plan.md` gốc để dãn video chính xác, khắc phục lỗi mất 27 giây timeline và các đoạn Mute bị cắt xén/thụt lùi do chia nhỏ block sai quy cách.
+   - Thêm test case `test_classify_overlap_and_order` và `test_user_real_world_overlap_case` giả lập kịch bản sát mí của người dùng (có overlap cực lớn cắt ngang câu TTS), khẳng định tính toàn vẹn timeline.
    - Toàn bộ test đã pass hoàn toàn thành công.
 
 ### Trạng thái hiện tại

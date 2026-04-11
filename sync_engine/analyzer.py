@@ -94,8 +94,8 @@ def classify_and_compute_slots(
 ) -> List[SubBlock]:
     """
     Phân loại block: "tts" | "mute" | "gap"
-    Tính slot_duration và hard_limit_ms theo logic Sequential Builder (chỉ tiến không lùi).
-    Đảm bảo 100% các block nối tiếp nhau khít rịt, không chồng lấn, không sai thứ tự.
+    Tính slot_duration và hard_limit_ms theo thiết kế gốc trong sync-video-plan.md,
+    nhưng khắc phục lỗi thứ tự do float overlap.
     """
     events = []
     
@@ -132,105 +132,94 @@ def classify_and_compute_slots(
         
     # Sắp xếp events:
     # Cấp 1: start_time tăng dần (làm tròn để khử sai số float)
-    # Cấp 2: Nếu start trùng, ưu tiên "mute" xếp trước (khung xương cứng)
-    events.sort(key=lambda x: (round(x["start"]), 0 if x["type"] == "mute" else 1))
+    # Cấp 2: Nếu start trùng, ưu tiên "tts" xếp trước nếu nó bị clip bởi "mute" ngay tại start đó,
+    # nhưng để đơn giản và chuẩn xác nhất theo test case của user (tts bắt đầu 122.5s, mute 124.233s -> clip tts end về 124.233s).
+    # Với trường hợp 1 tts kết thúc ĐÚNG LÚC 1 mute bắt đầu (hoặc ngược lại), ta ưu tiên event nào có start_time NHỎ HƠN thực sự.
+    # Hàm round() có thể gộp 2 event lệch nhau 0.4ms thành cùng 1 start, nên ta dùng start thực tế làm Cấp 1, và round làm Cấp 2 chỉ khi bằng nhau tuyệt đối.
+    # Sửa lại: Dùng trực tiếp start làm key, Python Timsort rất ổn định.
+    # Trong case của User: TTS start = 122.500, bị clip end = 124.233. Mute start = 124.233. 
+    # Khi sort bằng start, TTS (122.500) CHẮC CHẮN nằm trước Mute (124.233).
+    # Lỗi trước đây là do logic cursor gộp gap, không phải do sort. Ta sẽ sort đơn giản:
+    events.sort(key=lambda x: (x["start"], 0 if x["type"] == "mute" else 1))
     
     blocks: List[SubBlock] = []
-    cursor = 0.0
     
-    # 3. Tính gap và tạo blocks tuần tự (Sequential State Machine)
+    # 3. Tính gap và tạo blocks (Logic gốc phục hồi)
+    cursor = 0.0
     for i, ev in enumerate(events):
-        # Bỏ qua các event nằm hoàn toàn trong quá khứ do bị overlap
-        if ev["end"] <= cursor:
-            continue
-            
-        # Ép event bắt đầu từ cursor nếu nó bị lấn vào quá khứ (Overlap xử lý lỗi)
-        actual_start = max(cursor, ev["start"])
+        # Tránh các event bị nuốt chửng hoàn toàn (do overlap lỗi) sinh ra slot âm.
+        # Ta ép `ev_start` không bao giờ được lùi lại sau `cursor`.
+        ev_start = max(cursor, ev["start"])
         
-        # Nếu có khoảng trống từ cursor đến actual_start, lấp đầy bằng một block GAP
-        if actual_start > cursor:
-            gap_dur = actual_start - cursor
+        if ev_start > cursor:
+            # Có gap
             blocks.append(SubBlock(
                 type="gap",
                 start_time=cursor,
-                end_time=actual_start,
-                slot_duration=gap_dur,
+                end_time=ev_start,
+                slot_duration=ev_start - cursor,
                 hard_limit_ms=None,
                 tts_clip_path=None,
                 tts_duration=0.0
             ))
-            cursor = actual_start
+            cursor = ev_start
             
-        # Xử lý nội dung của chính event đó
+        slot_ms = 0.0
+        hard_limit = None
+        
         if ev["type"] == "mute":
-            # Mute là cứng, bắt buộc phải lấy hết duration thực tế của nó (end - start gốc)
-            mute_dur = ev["end"] - ev["start"]
-            actual_end = actual_start + mute_dur
-            blocks.append(SubBlock(
-                type="mute",
-                start_time=actual_start,
-                end_time=actual_end,
-                slot_duration=mute_dur,
-                hard_limit_ms=None,
-                tts_clip_path=None,
-                tts_duration=0.0
-            ))
-            cursor = actual_end
+            # Mute không bao giờ giãn, slot = thời lượng thật
+            # (Đảm bảo ev["end"] cũng không bị nhỏ hơn ev_start)
+            ev_end = max(ev_start, ev["end"])
+            slot_ms = ev_end - ev_start
+            hard_limit = None
             
         elif ev["type"] == "tts":
-            # Không gian của TTS có thể bị giới hạn bởi event kế tiếp.
-            # Ta tìm xem event tiếp theo (dù là TTS hay MUTE) sẽ bắt đầu khi nào.
+            # Tìm event tiếp theo bắt đầu SAU ev_start hiện tại
             next_start = video_duration_ms
-            next_mute_start = None
-            
-            for next_ev in events[i+1:]:
-                # Chỉ lấy những event thực sự nằm trong tương lai
-                if next_ev["start"] >= actual_start:
-                    if next_start == video_duration_ms: # Chỉ cập nhật next_start lần đầu tiên gặp
+            if i + 1 < len(events):
+                for next_ev in events[i+1:]:
+                    if next_ev["start"] >= ev_start:
                         next_start = next_ev["start"]
-                        
-                    if next_ev["type"] == "mute" and next_mute_start is None:
-                        next_mute_start = next_ev["start"]
-                        
-                    if next_start != video_duration_ms and next_mute_start is not None:
-                        break # Đã tìm đủ thông tin
-            
-            # Slot duration của TTS là khoảng trống từ lúc nó bắt đầu cho đến event kế tiếp
-            slot_ms = next_start - actual_start
-            
-            # Hard limit là khoảng trống cho đến block mute kế tiếp
-            # Tuy nhiên, nếu next event KHÔNG PHẢI là mute, ta không nên set hard_limit
-            # vì hard_limit chỉ dùng để giới hạn việc giãn video không vượt qua mute.
-            hard_limit = None
-            if next_mute_start is not None and next_mute_start == next_start:
-                hard_limit = next_mute_start - actual_start
+                        break
                 
-            # Fallback nếu slot_ms <= 0 (do các event trùng đè nhau quá gắt)
-            if slot_ms <= 0:
-                slot_ms = ev["end"] - ev["start"]
-                if hard_limit is not None and hard_limit < slot_ms:
-                    slot_ms = hard_limit
+            # Kiểm tra next mute
+            next_mute_start = None
+            for j in range(i+1, len(events)):
+                if events[j]["type"] == "mute" and events[j]["start"] >= ev_start:
+                    next_mute_start = events[j]["start"]
+                    break
                     
-            if slot_ms > 0:
-                blocks.append(SubBlock(
-                    type="tts",
-                    start_time=actual_start,
-                    end_time=actual_start + slot_ms,
-                    slot_duration=slot_ms,
-                    hard_limit_ms=hard_limit,
-                    tts_clip_path=ev["tts_clip_path"],
-                    tts_duration=ev["tts_duration"]
-                ))
-                cursor = actual_start + slot_ms
+            if next_mute_start is None or next_start < next_mute_start:
+                slot_ms = next_start - ev_start
+                hard_limit = None
+            else:
+                slot_ms = next_mute_start - ev_start
+                hard_limit = next_mute_start - ev_start
+                
+            # Nếu block cuối không có event sau, fallback
+            if slot_ms <= 0:
+                ev_end = max(ev_start, ev["end"])
+                slot_ms = ev_end - ev_start
+                
+        blocks.append(SubBlock(
+            type=ev["type"],
+            start_time=ev_start,
+            end_time=ev_start + slot_ms, # Logic gốc: kết thúc block này có thể bao gồm cả khoảng gap đến event tiếp theo
+            slot_duration=slot_ms,
+            hard_limit_ms=hard_limit,
+            tts_clip_path=ev["tts_clip_path"],
+            tts_duration=ev["tts_duration"]
+        ))
+        
+        cursor = ev_start + slot_ms
 
-    # Thêm gap cuối cùng nếu còn khoảng trống đến cuối video
     if cursor < video_duration_ms:
-        gap_dur = video_duration_ms - cursor
         blocks.append(SubBlock(
             type="gap",
             start_time=cursor,
             end_time=video_duration_ms,
-            slot_duration=gap_dur,
+            slot_duration=video_duration_ms - cursor,
             hard_limit_ms=None,
             tts_clip_path=None,
             tts_duration=0.0
