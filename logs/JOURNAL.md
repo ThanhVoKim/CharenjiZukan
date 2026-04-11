@@ -1,5 +1,23 @@
 # Project Journal
 
+## 2026-04-11: Fix lỗi mất âm thanh của đoạn Quoted Audio (Mute blocks)
+
+### Yêu cầu
+
+- Các đoạn Mute (Quoted audio từ video gốc) bị im lặng hoàn toàn hoặc bị cắt xén không đủ thời lượng trong final video. File `chunk_..._mute.wav` được tạo ra có dung lượng 78 bytes (trống rỗng).
+
+### Thay đổi đã thực hiện
+
+- Xác định nguyên nhân: Xung đột logic trong lệnh FFmpeg cắt padding. Tham số `-ss` và `-t` ở dạng output option (sau `-i`) khi kết hợp với bộ lọc `-filter:a atrim=start=0...` đã gây ra việc cắt hụt file (âm thanh vừa được trim dài 3.3s bị cắt tiếp 3.5s padding dẫn đến trống rỗng).
+- Trong `sync_engine/audio_assembler.py`: Đã loại bỏ hoàn toàn `-ss` và `-t` bên ngoài chuỗi lệnh FFmpeg, đưa tác vụ cắt padding vào chung 1 chuỗi bộ lọc tuyến tính `-filter:a atrim=start={actual_left_pad}:duration={dur_s},asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s},atrim=end={target_dur_s}`.
+- Điều này đảm bảo trích xuất chính xác thời lượng và bảo toàn nội dung audio mà không gặp xung đột PTS của FFmpeg.
+
+### Trạng thái hiện tại
+
+- ✅ Đã fix thành công, file âm thanh được trích xuất hoàn chỉnh với dung lượng chính xác, không còn bị mất tiếng hoặc bị cắt cụt.
+
+---
+
 ## 2026-04-10: Fix Video-Audio-Subtitle Sync Drift & Refactor Audio Assembly (Concat)
 
 ### Yêu cầu
@@ -1455,37 +1473,37 @@ uv run cli/demucs_audio.py --input audio_muted.wav --stems 4
 
 ## 2026-03-26: Tri?n khai TTS-Video Sync v?i Chunk-Based Stretch
 
-### Y�u c?u
+### Yu c?u
 
-- Tri?n khai pipeline d?ng b? video v� TTS s? d?ng phuong ph�p Chunk-Based Stretch v� Hybrid Audio Compression.
-- Kh?c ph?c c�c l?i k? thu?t trong b?n nh�p tru?c: stretch ph?n du�i (tail segment), freeze frame do PTS, c?t output sai th?i lu?ng, sync sai subtitle TTS, backslash Windows FFmpeg, stretch BGM, v� l?ch audio tr�ch d?n.
+- Tri?n khai pipeline d?ng b? video v TTS s? d?ng phuong php Chunk-Based Stretch v Hybrid Audio Compression.
+- Kh?c ph?c cc l?i k? thu?t trong b?n nhp tru?c: stretch ph?n dui (tail segment), freeze frame do PTS, c?t output sai th?i lu?ng, sync sai subtitle TTS, backslash Windows FFmpeg, stretch BGM, v l?ch audio trch d?n.
 
 ### Thay d?i
 
 1. **T?o `sync_engine` package:**
-   - `models.py`: D?nh nghia `SubBlock` v� `TimelineSegment`.
-   - `analyzer.py`: Ph�n lo?i block, t�nh slot duration v?i hard_limit_ms (Phase 1).
-   - `video_processor.py`: C?t v� stretch video theo t?ng chunk d�ng ThreadPoolExecutor, s?a l?i `setpts` v� `concat` (Phase 2).
-   - `audio_assembler.py`: N�n audio n?u c?n, mix c�c layer ambient, quoted audio v� TTS clips (Phase 3).
-   - `timestamp_remapper.py`: Recalculate timestamps cho file SRT v� ASS (Phase 4).
-   - `renderer.py`: Render video ho�n ch?nh b?ng FFmpeg v?i auto black bg v� note_overlay (Phase 5).
+   - `models.py`: D?nh nghia `SubBlock` v `TimelineSegment`.
+   - `analyzer.py`: Phn lo?i block, tnh slot duration v?i hard_limit_ms (Phase 1).
+   - `video_processor.py`: C?t v stretch video theo t?ng chunk dng ThreadPoolExecutor, s?a l?i `setpts` v `concat` (Phase 2).
+   - `audio_assembler.py`: Nn audio n?u c?n, mix cc layer ambient, quoted audio v TTS clips (Phase 3).
+   - `timestamp_remapper.py`: Recalculate timestamps cho file SRT v ASS (Phase 4).
+   - `renderer.py`: Render video hon ch?nh b?ng FFmpeg v?i auto black bg v note_overlay (Phase 5).
 2. **T?o CLI script `cli/sync_video.py`:**
-   - T�ch h?p t?t c? c�c phase th�nh 1 lu?ng pipeline th?ng nh?t.
+   - Tch h?p t?t c? cc phase thnh 1 lu?ng pipeline th?ng nh?t.
 
-### Tr?ng th�i
+### Tr?ng thi
 
-- ? Da tri?n khai ho�n t?t module `sync_engine` v� `sync_video.py`.
-- ? C?p nh?t `docs/workflow.md` m� t? workflow m?i.
+- ? Da tri?n khai hon t?t module `sync_engine` v `sync_video.py`.
+- ? C?p nh?t `docs/workflow.md` m t? workflow m?i.
 
 ### 2026-03-26: Test cho Sync Engine
 
 Da b? sung b? test cho `sync_engine`:
 
-- **Layer 1**: Unit tests tr�n `test_analyzer.py` (Phase 0/1), `test_video_processor.py` (build FFmpeg CMD), `test_audio_assembler.py` (build ambient mask), `test_timestamp_remapper.py` (Phase 4).
-- **Layer 2**: Component tests s? d?ng mock file v� FFmpeg (CPU-only) qua `cv2` v� `pydub`.
+- **Layer 1**: Unit tests trn `test_analyzer.py` (Phase 0/1), `test_video_processor.py` (build FFmpeg CMD), `test_audio_assembler.py` (build ambient mask), `test_timestamp_remapper.py` (Phase 4).
+- **Layer 2**: Component tests s? d?ng mock file v FFmpeg (CPU-only) qua `cv2` v `pydub`.
 - **Layer 3**: Integration pipeline test `test_sync_video_pipeline.py`.
 
-Da c?u h�nh v� th�m c�c entries v�o `tests/test_matrix.yaml`.
+Da c?u hnh v thm cc entries vo `tests/test_matrix.yaml`.
 
 ---
 

@@ -323,9 +323,7 @@ def assemble_audio_track(
                 trim_cmd = [
                     "ffmpeg", "-y",
                     "-i", src_to_trim,
-                    "-ss", f"{actual_left_pad:.6f}",
-                    "-t", f"{dur_s:.6f}",
-                    "-filter:a", f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}",
+                    "-filter:a", f"atrim=start={actual_left_pad:.6f}:duration={dur_s:.6f},asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}",
                     "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le",
                     final_q
                 ]
@@ -338,9 +336,7 @@ def assemble_audio_track(
                 trim_cmd = [
                     "ffmpeg", "-y",
                     "-i", raw_p,
-                    "-ss", f"{actual_left_pad:.6f}",
-                    "-t", f"{dur_s:.6f}",
-                    "-filter:a", f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}",
+                    "-filter:a", f"atrim=start={actual_left_pad:.6f}:duration={dur_s:.6f},asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}",
                     "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le",
                     final_q
                 ]
