@@ -13,6 +13,34 @@ import os
 import pytest
 import multiprocessing
 import shutil
+from pathlib import Path
+
+
+def pytest_addoption(parser):
+    """Đăng ký custom CLI options."""
+    parser.addoption(
+        "--video-path",
+        action="store",
+        default=None,
+        help="Đường dẫn đến video thật cho test Concat Demuxer desync",
+    )
+
+
+@pytest.fixture(scope="session")
+def real_video_path(request) -> Path:
+    """
+    Trả về Path đến video thật từ --video-path.
+    Skip test nếu không cung cấp.
+    """
+    path_str = request.config.getoption("--video-path", None)
+    if not path_str:
+        pytest.skip("Cần cung cấp --video-path=<đường_dẫn_video>")
+    
+    path = Path(path_str)
+    if not path.exists():
+        pytest.skip(f"Video không tồn tại: {path}")
+    
+    return path
 
 
 # ─────────────────────────────────────────────────────────────────────

@@ -194,6 +194,22 @@ tests:
   # SYNC ENGINE TESTS
   # ──────────────────────────────────────────────
 
+  - name: "Concat Demuxer — Layer 2: Synthetic Video Desync Tests"
+    file: "tests/test_concat_demuxer.py"
+    keyword: "Layer2"
+    timeout_sec: 300
+    pytest_args: ["-v", "-s"]
+    tags: ["integration", "ffmpeg", "sync_engine"]
+    enabled: true
+
+  - name: "Concat Demuxer — Layer 3: Real Video Full Analysis"
+    file: "tests/test_concat_demuxer.py"
+    keyword: "Layer3"
+    timeout_sec: 1800
+    pytest_args: ["-v", "-s"]
+    tags: ["integration", "ffmpeg", "sync_engine"]
+    enabled: false # Bật khi có --video-path
+
   - name: "Sync Engine — Analyzer (Phase 0 + 1)"
     file: "tests/test_analyzer.py"
     keyword: "Layer1"

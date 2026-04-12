@@ -1,5 +1,41 @@
 # Project Journal
 
+## 2026-04-12: Xây dựng Test Suite kiểm tra lỗi Desync do Concat Demuxer
+
+### Yêu cầu
+
+- Kiểm chứng nghi ngờ về việc `Concat Demuxer` (`-f concat -c copy`) trong flow `sync_video` gây ra lỗi desync video (video chạy chậm lại, audio chạy trước) khi xử lý số lượng chunk lớn (> 1000 chunks).
+- Xây dựng test case mô phỏng lại luồng xử lý: chia nhỏ video, random slow factor, tính độ dài sau khi slow, concat các chunk lại và kiểm tra độ dài/PTS.
+- Cho phép truyền file video thật qua tham số dòng lệnh (`pytest --video-path=`) để kiểm tra toàn diện.
+- Trích xuất báo cáo JSON chi tiết chứa các số liệu phân tích dù test Pass hay Fail.
+
+### Thay đổi đã thực hiện
+
+1. **Phân tích lỗi**:
+   - Chỉ kiểm tra tổng thời lượng (`duration`) là chưa đủ để kết luận về desync. Concat Demuxer có thể giữ đúng duration container nhưng lại gây sai lệch PTS (Presentation Timestamp) cục bộ ở các điểm nối (chunk boundary drift) do vấn đề B-frame hoặc timebase micro-inconsistency.
+   - Quyết định mở rộng lên 6 mức độ kiểm tra: (1) Tổng duration, (2) Frame count, (3) PTS boundary drift, (4) PTS monotonic, (5) Timebase consistency, (6) Frame delta uniformity.
+
+2. **Cập nhật `tests/conftest.py`**:
+   - Thêm `pytest_addoption` đăng ký biến `--video-path`.
+   - Thêm fixture `real_video_path` hỗ trợ lấy đường dẫn video và skip tự động nếu chưa được cấu hình, đảm bảo nguyên tắc R9 (No Hardcoded Secrets/Paths).
+
+3. **Viết test file mới `tests/test_concat_demuxer.py`**:
+   - Thiết kế tuân thủ cấu trúc chuẩn 4 Layer của dự án.
+   - **Layer 2 (Synthetic Video)**: Kiểm tra 6 thành phần tách biệt dùng video giả lập 10s tự render, tạo 10-50 chunk ngẫu nhiên, giúp phát hiện nhanh các dấu hiệu desync bất thường ngay ở CI.
+   - **Layer 3 (Real Video)**: Gộp 6 bài kiểm tra thành 1 luồng Test Full Analysis (tương tự như Production) trên video thật được cấp từ người dùng qua `--video-path`, tạo 1000-3000 chunk ngẫu nhiên mô phỏng chính xác hiện tượng stress-test gây lỗi desync.
+   - Sinh file report JSON (`tests/test_reports/concat_demuxer_full_analysis_<timestamp>.json`) cung cấp mọi dữ liệu (`expected`, `actual`, `delta_ms`, `verdict`) dù bài test pass hay fail, song hành với cơ chế traceback Markdown gốc của `run_colab_tests.py`.
+
+4. **Cập nhật `tests/test_matrix.yaml`**:
+   - Thêm cấu hình chạy Layer 2 và Layer 3 cho Concat Demuxer (Tag: `integration`, `ffmpeg`, `sync_engine`), Layer 3 được đặt mặc định là `enabled: false` để tránh lỗi CI khi không có input.
+
+### Trạng thái hiện tại
+
+- ✅ Hoàn tất việc viết test và cập nhật kiến trúc.
+- ✅ Người dùng/Developer giờ đã có công cụ Stress-test đầy đủ để đo lường chính xác xem nguyên nhân gây lệch hình ảnh - âm thanh có thật sự xuất phát từ FFmpeg Concat Demuxer ở quy mô lớn hay không, để từ đó có giải pháp fix chuẩn xác.
+- **Outstanding issues**: Đang chờ kết quả chạy test từ phía User (khi có môi trường Python đầy đủ thư viện `opencv-python`, `ffmpeg`).
+
+---
+
 ## 2026-04-11: Fix lỗi mất âm thanh của đoạn Quoted Audio (Mute blocks)
 
 ### Yêu cầu
