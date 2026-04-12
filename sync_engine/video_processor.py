@@ -90,6 +90,7 @@ def build_ffmpeg_chunk_cmd(
         "-i", input_path,
         # Bước 2 (Accurate Trimming & Stretching) thông qua filter thay vì Output Seek
         "-filter:v", filter_chain,
+        "-frames:v", str(duration_frames),  # Ép chính xác số frame output để tránh drift
         "-an",
         "-c:v", encoder,
         "-preset", preset,

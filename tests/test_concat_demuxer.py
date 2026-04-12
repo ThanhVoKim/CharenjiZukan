@@ -266,14 +266,15 @@ class TestLayer2_ConcatDemuxerSynthetic:
         assert delta_ms <= 500, f"Duration drift {delta_ms:.1f}ms > 500ms tolerance"
 
     def test_frame_count(self, setup_synthetic_concat):
-        """Test 2: Tổng frames = Σ actual frames của từng chunk (Tolerance: 0 frame)"""
+        """Test 2: Tổng frames = Σ expected frames (Tolerance: 0 frame)"""
         data = setup_synthetic_concat
         
-        # Lấy số frame thực tế của từng chunk thay vì tính bằng công thức
-        expected_frames = sum(_probe_frame_count(p) for p in data["chunk_paths"])
+        expected_frames = 0
+        for seg in data["timeline"]:
+            expected_frames += round((seg.new_chunk_dur / 1000.0) * data["fps"])
             
         actual_frames = _probe_frame_count(data["final"])
-        logger.info(f"[Frame Count] Expected (sum of chunks): {expected_frames}, Actual: {actual_frames}")
+        logger.info(f"[Frame Count] Expected: {expected_frames}, Actual: {actual_frames}")
         assert actual_frames == expected_frames, f"Frame count mismatch: {actual_frames} != {expected_frames}"
 
     def test_pts_boundary(self, setup_synthetic_concat):
@@ -373,13 +374,13 @@ class TestLayer3_ConcatDemuxerRealVideo:
         final_video = str(tmp_path / "final.mp4")
         _concat_chunks(chunk_paths, final_video)
         
-        # Tính số frame expected dựa trên frame thực tế của các chunk
-        expected_frames = sum(_probe_frame_count(p) for p in chunk_paths)
-        
-        # Thêm expected duration dựa trên duration thực tế của các chunk
-        expected_dur_ms = sum(_probe_duration(p) * 1000 for p in chunk_paths)
+        # --- THU THẬP SỐ LIỆU ---
+        expected_dur_ms = sum(seg.new_chunk_dur for seg in timeline)
         actual_dur_ms = _probe_duration(final_video) * 1000
         dur_delta_ms = abs(actual_dur_ms - expected_dur_ms)
+        
+        # Tính số frame expected
+        expected_frames = sum(round((seg.new_chunk_dur / 1000.0) * fps) for seg in timeline)
         
         # Probe thông tin (có thể chậm với video dài)
         actual_frames = _probe_frame_count(final_video)
