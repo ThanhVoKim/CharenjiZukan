@@ -19,6 +19,7 @@ import shutil
 import json
 import random
 import subprocess
+import logging
 from pathlib import Path
 from typing import List, Dict, Tuple
 from datetime import datetime
@@ -28,6 +29,9 @@ import pytest
 # ── Project root ─────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+# Thêm logger theo chuẩn
+logger = logging.getLogger(__name__)
 
 # ── Lazy imports ─────────────────────────────────────────────────────
 cv2 = pytest.importorskip("cv2", reason="pip install opencv-python")
@@ -217,6 +221,7 @@ class TestLayer2_ConcatDemuxerSynthetic:
         actual_dur_ms = _probe_duration(data["final"]) * 1000
         
         delta_ms = abs(actual_dur_ms - expected_dur_ms)
+        logger.info(f"[Duration Total] Expected: {expected_dur_ms:.1f}ms, Actual: {actual_dur_ms:.1f}ms, Delta: {delta_ms:.1f}ms")
         assert delta_ms <= 500, f"Duration drift {delta_ms:.1f}ms > 500ms tolerance"
 
     def test_frame_count(self, setup_synthetic_concat):
@@ -228,6 +233,7 @@ class TestLayer2_ConcatDemuxerSynthetic:
             expected_frames += round((seg.new_chunk_dur / 1000.0) * data["fps"])
             
         actual_frames = _probe_frame_count(data["final"])
+        logger.info(f"[Frame Count] Expected: {expected_frames}, Actual: {actual_frames}")
         assert actual_frames == expected_frames, f"Frame count mismatch: {actual_frames} != {expected_frames}"
 
     def test_pts_boundary(self, setup_synthetic_concat):
@@ -239,6 +245,9 @@ class TestLayer2_ConcatDemuxerSynthetic:
         all_pts = _probe_all_pts(data["final"])
         
         cumulative_frames = 0
+        max_delta = 0
+        worst_chunk = -1
+        
         for i, seg in enumerate(data["timeline"]):
             frames_in_chunk = round((seg.new_chunk_dur / 1000.0) * fps)
             cumulative_frames += frames_in_chunk
@@ -249,7 +258,11 @@ class TestLayer2_ConcatDemuxerSynthetic:
                 actual_pts = all_pts[cumulative_frames - 1]
                 
                 delta_s = abs(actual_pts - expected_pts)
+                if delta_s > max_delta:
+                    max_delta = delta_s
+                    worst_chunk = i
                 assert delta_s < frame_dur_s, f"Chunk {i} boundary PTS drift {delta_s*1000:.1f}ms >= {frame_dur_s*1000:.1f}ms"
+        logger.info(f"[PTS Boundary] Max drift: {max_delta*1000:.1f}ms at chunk {worst_chunk}")
 
     def test_pts_monotonic(self, setup_synthetic_concat):
         """Test 4: PTS tăng dần nghiêm ngặt (0 violations)"""
@@ -261,6 +274,7 @@ class TestLayer2_ConcatDemuxerSynthetic:
             if all_pts[i] <= all_pts[i-1]:
                 violations.append((i, all_pts[i-1], all_pts[i]))
                 
+        logger.info(f"[PTS Monotonic] Violations: {len(violations)}")
         assert len(violations) == 0, f"Found {len(violations)} non-monotonic PTS violations"
 
     def test_timebase_consistency(self, setup_synthetic_concat):
@@ -270,6 +284,7 @@ class TestLayer2_ConcatDemuxerSynthetic:
         first_info = _probe_stream_info(data["chunk_paths"][0])
         first_timebase = first_info.get("time_base")
         
+        logger.info(f"[Timebase Consistency] Target: {first_timebase}")
         for p in data["chunk_paths"][1:]:
             info = _probe_stream_info(p)
             assert info.get("time_base") == first_timebase, f"Timebase inconsistency: {info.get('time_base')} != {first_timebase}"
@@ -284,11 +299,15 @@ class TestLayer2_ConcatDemuxerSynthetic:
         all_pts = _probe_all_pts(data["final"])
         
         anomalies = []
+        max_anomaly = 0
         for i in range(1, len(all_pts)):
             delta = all_pts[i] - all_pts[i-1]
-            if abs(delta - expected_delta) > tolerance:
+            diff = abs(delta - expected_delta)
+            if diff > tolerance:
                 anomalies.append((i, delta))
+                if diff > max_anomaly: max_anomaly = diff
                 
+        logger.info(f"[Frame Delta] Anomalies: {len(anomalies)}, Max Diff: {max_anomaly*1000:.1f}ms")
         assert len(anomalies) == 0, f"Found {len(anomalies)} frame delta anomalies"
 
 
