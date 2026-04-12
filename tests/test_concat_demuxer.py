@@ -263,7 +263,9 @@ class TestLayer2_ConcatDemuxerSynthetic:
         
         delta_ms = abs(actual_dur_ms - expected_dur_ms)
         logger.info(f"[Duration Total] Expected: {expected_dur_ms:.1f}ms, Actual: {actual_dur_ms:.1f}ms, Delta: {delta_ms:.1f}ms")
-        assert delta_ms <= 500, f"Duration drift {delta_ms:.1f}ms > 500ms tolerance"
+        # Thay vì 500ms, dùng tolerance theo fps: 1 frame duration
+        frame_duration_ms = 1000.0 / data["fps"]
+        assert delta_ms <= frame_duration_ms, f"Duration drift {delta_ms:.1f}ms > {frame_duration_ms:.1f}ms (1 frame)"
 
     def test_frame_count(self, setup_synthetic_concat):
         """Test 2: Tổng frames = Σ expected frames (Tolerance: 0 frame)"""

@@ -80,7 +80,7 @@ def build_ffmpeg_chunk_cmd(
         f"trim=start={exact_offset_s:.6f}:duration={duration_s:.6f}",
         "setpts=PTS-STARTPTS",  # Đặt lại PTS về 0 ngay sau khi cắt
         f"setpts={pts_factor:.6f}*PTS", # Stretch video
-        f"fps={fps_str}:round=2:eof_action=pass" # Đảm bảo constant frame rate, không sinh thêm frame khi EOF
+        f"fps={fps_str}:eof_action=endall"  # ← Ngắt clean khi hết stream
     ])
 
     return [
