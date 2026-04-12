@@ -80,7 +80,7 @@ def build_ffmpeg_chunk_cmd(
         f"trim=start={exact_offset_s:.6f}:duration={duration_s:.6f}",
         "setpts=PTS-STARTPTS",  # Đặt lại PTS về 0 ngay sau khi cắt
         f"setpts={pts_factor:.6f}*PTS", # Stretch video
-        f"fps={fps_str}" # Đảm bảo constant frame rate
+        f"fps={fps_str}:round=1:eof_action=pass" # Đảm bảo constant frame rate, KHÔNG sinh frame thừa
     ])
 
     return [
@@ -260,3 +260,4 @@ def _concat_chunks(chunk_paths: List[str], output_path: str) -> None:
         # Xóa file text tạm
         if list_file.exists():
             list_file.unlink(missing_ok=True)
+

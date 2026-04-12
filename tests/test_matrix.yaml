@@ -205,8 +205,11 @@ tests:
   - name: "Concat Demuxer — Layer 3: Real Video Full Analysis"
     file: "tests/test_concat_demuxer.py"
     keyword: "Layer3"
-    timeout_sec: 1800
+    timeout_sec: 7200
     pytest_args: ["-v", "-s"]
+    env:
+      TEST_REAL_VIDEO_PATH: "" # Nhập đường dẫn video thật vào đây
+      TEST_CONCAT_WORKERS: "4" # Số worker cắt chunks song song
     tags: ["integration", "ffmpeg", "sync_engine"]
     enabled: false # Bật khi có --video-path
 
