@@ -80,7 +80,7 @@ def build_ffmpeg_chunk_cmd(
         f"trim=start={exact_offset_s:.6f}:duration={duration_s:.6f}",
         "setpts=PTS-STARTPTS",  # Đặt lại PTS về 0 ngay sau khi cắt
         f"setpts={pts_factor:.6f}*PTS", # Stretch video
-        f"fps={fps_str}:eof_action=pass" # Đảm bảo constant frame rate, không sinh thêm frame khi EOF
+        f"fps={fps_str}:round=2:eof_action=pass" # Đảm bảo constant frame rate, không sinh thêm frame khi EOF
     ])
 
     return [
@@ -90,7 +90,6 @@ def build_ffmpeg_chunk_cmd(
         "-i", input_path,
         # Bước 2 (Accurate Trimming & Stretching) thông qua filter thay vì Output Seek
         "-filter:v", filter_chain,
-        "-frames:v", str(duration_frames),  # Ép chính xác số frame output để tránh drift
         "-an",
         "-c:v", encoder,
         "-preset", preset,
