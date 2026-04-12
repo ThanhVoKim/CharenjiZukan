@@ -78,9 +78,10 @@ def build_ffmpeg_chunk_cmd(
 
     filter_chain = ",".join([
         f"trim=start={exact_offset_s:.6f}:duration={duration_s:.6f}",
-        "setpts=PTS-STARTPTS",  # Đặt lại PTS về 0 ngay sau khi cắt
-        f"setpts={pts_factor:.6f}*PTS", # Stretch video
-        f"fps={fps_str}:eof_action=endall"  # ← Ngắt clean khi hết stream
+        # Tính toán lại hoàn toàn PTS bằng công thức tuyệt đối:
+        # N là frame number (0, 1, 2...). Gắn PTS cứng cho từng frame,
+        # bỏ qua hoàn toàn bộ lọc fps, chặn triệt để việc FFmpeg sinh thêm frame.
+        f"setpts=N/({fps_float}*{video_speed})/TB"
     ])
 
     return [
