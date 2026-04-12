@@ -1,3 +1,4 @@
+import math
 import subprocess
 from pathlib import Path
 from typing import List, Tuple, Dict
@@ -71,6 +72,12 @@ def build_ffmpeg_chunk_cmd(
     exact_offset_s = start_s - rough_start_s
 
     pts_factor = 1.0 / video_speed
+    
+    # Bước 4: Tính toán chính xác lượng frame Output mà FFmpeg sẽ sinh ra
+    # Công thức nội bộ của fps filter: floor(thời_gian_đã_stretch * fps) + 1
+    # Do chúng ta dùng setpts=PTS-STARTPTS nên PTS bắt đầu từ 0.0 hoàn hảo.
+    stretched_duration_s = duration_s / video_speed
+    expected_output_frames = math.floor(stretched_duration_s * fps_float) + 1
 
     encoder = "h264_nvenc" if use_gpu else "libx264"
     preset  = "p5"         if use_gpu else "fast"
@@ -78,10 +85,9 @@ def build_ffmpeg_chunk_cmd(
 
     filter_chain = ",".join([
         f"trim=start={exact_offset_s:.6f}:duration={duration_s:.6f}",
-        # Tính toán lại hoàn toàn PTS bằng công thức tuyệt đối:
-        # N là frame number (0, 1, 2...). Gắn PTS cứng cho từng frame,
-        # bỏ qua hoàn toàn bộ lọc fps, chặn triệt để việc FFmpeg sinh thêm frame.
-        f"setpts=N/({fps_float}*{video_speed})/TB"
+        "setpts=PTS-STARTPTS",  # Đặt lại PTS về 0 ngay sau khi cắt
+        f"setpts={pts_factor:.6f}*PTS", # Stretch video
+        f"fps={fps_str}:eof_action=pass" # Đảm bảo constant frame rate, không sinh thêm frame khi EOF
     ])
 
     return [
@@ -91,6 +97,9 @@ def build_ffmpeg_chunk_cmd(
         "-i", input_path,
         # Bước 2 (Accurate Trimming & Stretching) thông qua filter thay vì Output Seek
         "-filter:v", filter_chain,
+        # CHỐT CHẶN OUTPUT: Ép FFmpeg phải xuất đúng lượng frame đã tính toán,
+        # loại trừ hoàn toàn việc trim bị lấn frame hoặc fps đẻ dư frame ở đuôi.
+        "-frames:v", str(expected_output_frames),
         "-an",
         "-c:v", encoder,
         "-preset", preset,

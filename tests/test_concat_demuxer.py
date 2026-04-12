@@ -229,7 +229,7 @@ def report_dir() -> Path:
 class TestLayer2_ConcatDemuxerSynthetic:
     
     @pytest.fixture(scope="class")
-    def setup_synthetic_concat(self, synthetic_video_path, tmp_path_factory):
+    def setup_synthetic_concat(self, synthetic_video_path, tmp_path_factory, concat_workers ):
         """Fixture chạy chung 1 lần cắt ghép cho tất cả test L2 để tiết kiệm thời gian."""
         tmp_dir = tmp_path_factory.mktemp("l2_concat")
         fps = 30.0
@@ -239,7 +239,7 @@ class TestLayer2_ConcatDemuxerSynthetic:
         timeline = _generate_chunks(dur_s * 1000, fps, num_chunks, (0.5, 1.0))
         
         # 1. Process chunks
-        chunk_paths = _process_chunks_parallel(str(synthetic_video_path), timeline, tmp_dir, fps, max_workers=4)
+        chunk_paths = _process_chunks_parallel(str(synthetic_video_path), timeline, tmp_dir, fps, max_workers=concat_workers)
         
         # 2. Concat
         final_video = str(tmp_dir / "final.mp4")
