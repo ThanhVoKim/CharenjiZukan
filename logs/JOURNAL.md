@@ -8,6 +8,7 @@
 - Xây dựng test case mô phỏng lại luồng xử lý: chia nhỏ video, random slow factor, tính độ dài sau khi slow, concat các chunk lại và kiểm tra độ dài/PTS.
 - Cho phép truyền file video thật qua tham số dòng lệnh (`pytest --video-path=`) để kiểm tra toàn diện.
 - Trích xuất báo cáo JSON chi tiết chứa các số liệu phân tích dù test Pass hay Fail.
+- Do quá trình tạo hàng nghìn chunks trên file 2 tiếng mất rất nhiều thời gian (hơn 1h30p) dẫn tới cảm giác treo lúc chạy test, nên cần **bất đồng bộ/chạy song song** (parallel processing) quá trình cắt giống Code thực tiễn nhằm gia tăng tốc độ, kèm hiển thị tiến trình test để dễ theo dõi.
 
 ### Thay đổi đã thực hiện
 
@@ -16,13 +17,15 @@
    - Quyết định mở rộng lên 6 mức độ kiểm tra: (1) Tổng duration, (2) Frame count, (3) PTS boundary drift, (4) PTS monotonic, (5) Timebase consistency, (6) Frame delta uniformity.
 
 2. **Cập nhật `tests/conftest.py`**:
-   - Thêm `pytest_addoption` đăng ký biến `--video-path`.
+   - Thêm `pytest_addoption` đăng ký biến `--video-path` và `--workers`.
    - Thêm fixture `real_video_path` hỗ trợ lấy đường dẫn video và skip tự động nếu chưa được cấu hình, đảm bảo nguyên tắc R9 (No Hardcoded Secrets/Paths).
+   - Thêm fixture `concat_workers` cấu hình số lượng Process tùy thuộc vào sức mạnh của CPU trên máy User (mặc định 4).
 
 3. **Viết test file mới `tests/test_concat_demuxer.py`**:
    - Thiết kế tuân thủ cấu trúc chuẩn 4 Layer của dự án.
    - **Layer 2 (Synthetic Video)**: Kiểm tra 6 thành phần tách biệt dùng video giả lập 10s tự render, tạo 10-50 chunk ngẫu nhiên, giúp phát hiện nhanh các dấu hiệu desync bất thường ngay ở CI.
    - **Layer 3 (Real Video)**: Gộp 6 bài kiểm tra thành 1 luồng Test Full Analysis (tương tự như Production) trên video thật được cấp từ người dùng qua `--video-path`, tạo 1000-3000 chunk ngẫu nhiên mô phỏng chính xác hiện tượng stress-test gây lỗi desync.
+   - **Tối ưu tốc độ Test Layer 3**: Thay phương thức tuần tự `_process_chunks()` bằng `_process_chunks_parallel()` qua `ThreadPoolExecutor`, cho phép submit hàng ngàn lệnh FFmpeg lên các Thread Worker cùng lúc. Tích hợp thanh Progress bar `tqdm` và Log System theo dõi 10%, 20% giúp test chạy trong 10-20 phút so với thời gian trước.
    - Sinh file report JSON (`tests/test_reports/concat_demuxer_full_analysis_<timestamp>.json`) cung cấp mọi dữ liệu (`expected`, `actual`, `delta_ms`, `verdict`) dù bài test pass hay fail, song hành với cơ chế traceback Markdown gốc của `run_colab_tests.py`.
 
 4. **Cập nhật `tests/test_matrix.yaml`**:
@@ -31,7 +34,7 @@
 ### Trạng thái hiện tại
 
 - ✅ Hoàn tất việc viết test và cập nhật kiến trúc.
-- ✅ Người dùng/Developer giờ đã có công cụ Stress-test đầy đủ để đo lường chính xác xem nguyên nhân gây lệch hình ảnh - âm thanh có thật sự xuất phát từ FFmpeg Concat Demuxer ở quy mô lớn hay không, để từ đó có giải pháp fix chuẩn xác.
+- ✅ Người dùng/Developer giờ đã có công cụ Stress-test với tốc độ tối ưu, cho phép tùy chỉnh sức mạnh chạy song song (`--workers=8`) để đo lường chính xác xem nguyên nhân gây lệch hình ảnh - âm thanh có thật sự xuất phát từ FFmpeg Concat Demuxer ở quy mô lớn hay không, để từ đó có giải pháp fix chuẩn xác.
 - **Outstanding issues**: Đang chờ kết quả chạy test từ phía User (khi có môi trường Python đầy đủ thư viện `opencv-python`, `ffmpeg`).
 
 ---

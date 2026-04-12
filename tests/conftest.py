@@ -24,6 +24,13 @@ def pytest_addoption(parser):
         default=None,
         help="Đường dẫn đến video thật cho test Concat Demuxer desync",
     )
+    parser.addoption(
+        "--workers",
+        action="store",
+        default=4,
+        type=int,
+        help="Số lượng worker chạy song song (mặc định: 4)",
+    )
 
 
 @pytest.fixture(scope="session")
@@ -41,6 +48,12 @@ def real_video_path(request) -> Path:
         pytest.skip(f"Video không tồn tại: {path}")
     
     return path
+
+
+@pytest.fixture(scope="session")
+def concat_workers(request) -> int:
+    """Trả về số worker chạy song song từ --workers."""
+    return request.config.getoption("--workers", 4)
 
 
 # ─────────────────────────────────────────────────────────────────────

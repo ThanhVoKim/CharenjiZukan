@@ -23,6 +23,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Tuple
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
 
@@ -129,11 +130,18 @@ def _generate_chunks(source_dur_ms: float, fps: float, num_chunks: int, speed_ra
         segments.append(seg)
     return segments
 
-def _process_chunks(video_path: str, timeline: List[TimelineSegment], output_dir: Path, fps_float: float = 30.0) -> List[str]:
-    """Cắt và stretch video chunks (tuần tự để debug dễ hơn)."""
-    chunk_paths = []
-    for i, seg in enumerate(timeline):
-        out_path = output_dir / f"chunk_{i:04d}.mp4"
+def _process_chunks_parallel(
+    video_path: str,
+    timeline: List[TimelineSegment],
+    output_dir: Path,
+    fps_float: float = 30.0,
+    max_workers: int = 4,
+) -> List[str]:
+    """Cắt và stretch video chunks chạy song song."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _run_single(args: tuple):
+        idx, seg, out_path = args
         cmd = build_ffmpeg_chunk_cmd(
             input_path=video_path,
             output_path=str(out_path),
@@ -142,11 +150,44 @@ def _process_chunks(video_path: str, timeline: List[TimelineSegment], output_dir
             video_speed=seg.video_speed,
             fps_str=f"{fps_float}/1",
             fps_float=fps_float,
-            use_gpu=False # Test trên CPU cho tính nhất quán CI
+            use_gpu=False,
         )
         subprocess.run(cmd, check=True, capture_output=True)
-        chunk_paths.append(str(out_path))
-    return chunk_paths
+        return idx, str(out_path)
+
+    tasks = [
+        (i, seg, output_dir / f"chunk_{i:04d}.mp4")
+        for i, seg in enumerate(timeline)
+    ]
+
+    results = {}
+    total_tasks = len(tasks)
+    
+    try:
+        from tqdm import tqdm
+        has_tqdm = True
+    except ImportError:
+        has_tqdm = False
+
+    logger.info(f"Đang xử lý {total_tasks} chunks bất đồng bộ ({max_workers} workers)...")
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_run_single, t): t[0] for t in tasks}
+        
+        future_iter = as_completed(futures)
+        if has_tqdm:
+            future_iter = tqdm(future_iter, total=total_tasks, desc="Processing chunks", unit="chunk")
+            
+        completed = 0
+        for f in future_iter:
+            idx, path = f.result()
+            results[idx] = path
+            completed += 1
+            if not has_tqdm and completed % max(1, total_tasks // 10) == 0:
+                logger.info(f"  Tiến độ: {completed}/{total_tasks} ({completed/total_tasks*100:.1f}%)")
+
+    # Trả về theo đúng thứ tự timeline gốc
+    return [results[i] for i in range(total_tasks)]
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -198,7 +239,7 @@ class TestLayer2_ConcatDemuxerSynthetic:
         timeline = _generate_chunks(dur_s * 1000, fps, num_chunks, (0.5, 1.0))
         
         # 1. Process chunks
-        chunk_paths = _process_chunks(str(synthetic_video_path), timeline, tmp_dir, fps)
+        chunk_paths = _process_chunks_parallel(str(synthetic_video_path), timeline, tmp_dir, fps, max_workers=4)
         
         # 2. Concat
         final_video = str(tmp_dir / "final.mp4")
@@ -318,7 +359,7 @@ class TestLayer2_ConcatDemuxerSynthetic:
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="FFmpeg không có trong PATH")
 class TestLayer3_ConcatDemuxerRealVideo:
     
-    def test_full_desync_analysis(self, real_video_path, report_dir, tmp_path):
+    def test_full_desync_analysis(self, real_video_path, concat_workers, report_dir, tmp_path):
         """Test 7: Full analysis với video thật, tổng hợp TẤT CẢ kiểm tra và ghi report."""
         
         video_path_str = str(real_video_path)
@@ -329,7 +370,7 @@ class TestLayer3_ConcatDemuxerRealVideo:
         timeline = _generate_chunks(dur_s * 1000, fps, num_chunks, (0.5, 1.0))
         
         # --- THỰC THI ---
-        chunk_paths = _process_chunks(video_path_str, timeline, tmp_path, fps)
+        chunk_paths = _process_chunks_parallel(video_path_str, timeline, tmp_path, fps, max_workers=concat_workers)
         final_video = str(tmp_path / "final.mp4")
         _concat_chunks(chunk_paths, final_video)
         
