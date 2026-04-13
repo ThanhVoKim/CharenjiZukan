@@ -68,6 +68,9 @@ python run_colab_tests.py --tags sync_engine
 - ✅ Test suite đã được cập nhật toàn bộ 3 layers theo flow mới, bao gồm test kiểm tra batch duration accuracy.
 - ✅ `test_matrix.yaml` đã đồng bộ.
 - ✅ Cú pháp `py_compile` pass.
+- ✅ Áp dụng Hybrid Seek (Fast Seek) cho `build_ffmpeg_batch_cmd`: chèn `-ss {rough_start_s}` trước `-i` để FFmpeg nhảy thẳng đến vị trí batch, loại bỏ hiện tượng chậm dần theo cấp số nhân (từ 42s/batch → 97s/batch).
+- ✅ Thêm fixture `use_gpu` vào `conftest.py`: tự động detect `h264_nvenc` qua `ffmpeg -encoders`, thay thế `use_gpu=False` cứng.
+- ✅ Cập nhật Layer 1 tests: thêm 2 test mới `test_hybrid_seek_offset` và `test_hybrid_seek_clamp_zero`, cập nhật assert cho Hybrid Seek.
 
 ### Outstanding / Pending
 

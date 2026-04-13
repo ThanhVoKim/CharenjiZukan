@@ -128,29 +128,55 @@ def build_ffmpeg_batch_cmd(
 ) -> List[str]:
     """
     Xây dựng lệnh Filter Complex để xử lý nối tiếp nhiều segment trong 1 mẻ (Batching).
-    [0:v]trim=start={S}:duration={D},setpts=PTS-STARTPTS,setpts={factor}*PTS,fps={fps_out}:eof_action=pass,trim=duration={new_D}[vN]
+    
+    Sử dụng Hybrid Seek (Fast Seek) để tránh FFmpeg phải decode từ đầu file:
+    - Tìm min(start_s) của tất cả segments trong batch
+    - Lùi 2 giây để tạo rough_start_s (đảm bảo keyframe an toàn)
+    - Chèn -ss {rough_start_s} trước -i → FFmpeg nhảy thẳng đến vị trí batch
+    - Trong filter, trừ rough_start_s để có exact_start_s (PTS đã được reset về 0)
+    
+    Điều này đảm bảo TẤT CẢ các batch đều chạy với tốc độ như nhau (không bị
+    chậm dần theo cấp số nhân như khi không có Fast Seek).
     """
+    if not segments:
+        raise RuntimeError("Danh sách segments rỗng, không thể build batch command.")
+
+    # ── Hybrid Seek: tính rough_start_s cho toàn bộ batch ──
+    # Tìm start sớm nhất trong batch
+    min_start_s = min(
+        round((seg.orig_start / 1000.0) * fps_float) / fps_float
+        for seg in segments
+    )
+    # Lùi 2 giây để đảm bảo keyframe an toàn (giống build_ffmpeg_chunk_cmd)
+    rough_start_s = max(0.0, min_start_s - 2.0)
+
     filter_parts = []
     stream_labels = []
-    
+
     for i, seg in enumerate(segments):
         start_frame = round((seg.orig_start / 1000.0) * fps_float)
         duration_frames = round(((seg.orig_end - seg.orig_start) / 1000.0) * fps_float)
-        
-        start_s = start_frame / fps_float
+
+        # start_s tuyệt đối trong video gốc
+        abs_start_s = start_frame / fps_float
         duration_s = duration_frames / fps_float
-        
+
+        # exact_start_s: vị trí tương đối so với rough_start_s
+        # Vì -ss trước -i reset PTS về 0 tại điểm seek,
+        # nên trim chỉ cần dùng offset từ điểm seek
+        exact_start_s = abs_start_s - rough_start_s
+
         pts_factor = 1.0 / seg.video_speed
         stretched_duration_s = duration_s / seg.video_speed
-        
+
         # Số frame thực tế dự kiến sẽ nở ra
         expected_output_frames = math.floor(stretched_duration_s * fps_float) + 1
         expected_duration_s = expected_output_frames / fps_float
-        
-        # Chuỗi filter cho 1 segment: 
-        # Cắt đúng thời gian -> Reset PTS -> Giãn PTS -> Nắn fps -> Chốt chặn đuôi trim
+
+        # Chuỗi filter cho 1 segment:
+        # Cắt đúng thời gian (từ offset) -> Reset PTS -> Giãn PTS -> Nắn fps -> Chốt chặn đuôi trim
         chain = (
-            f"[0:v]trim=start={start_s:.6f}:duration={duration_s:.6f},"
+            f"[0:v]trim=start={exact_start_s:.6f}:duration={duration_s:.6f},"
             f"setpts=PTS-STARTPTS,"
             f"setpts={pts_factor:.6f}*PTS,"
             f"fps={fps_str}:eof_action=pass,"
@@ -159,19 +185,21 @@ def build_ffmpeg_batch_cmd(
         )
         filter_parts.append(chain)
         stream_labels.append(f"[v{i}]")
-        
+
     # Gom các luồng lại bằng filter concat
     concat_inputs = "".join(stream_labels)
     filter_parts.append(f"{concat_inputs}concat=n={len(segments)}:v=1:a=0[outv]")
-    
+
     filter_complex = ";".join(filter_parts)
-    
+
     encoder = "h264_nvenc" if use_gpu else "libx264"
     preset  = "p5"         if use_gpu else "fast"
     quality = ["-cq", "23"] if use_gpu else ["-crf", "23"]
 
-    return [
+    cmd = [
         "ffmpeg", "-y",
+        # Hybrid Seek: nhảy thẳng đến vị trí của batch (Fast Seek)
+        "-ss", f"{rough_start_s:.6f}",
         "-i", input_path,
         "-filter_complex", filter_complex,
         "-map", "[outv]",
@@ -182,6 +210,14 @@ def build_ffmpeg_batch_cmd(
         "-video_track_timescale", "90000",
         output_path,
     ]
+
+    logger.debug(
+        f"Batch command: rough_start={rough_start_s:.3f}s, "
+        f"min_abs_start={min_start_s:.3f}s, "
+        f"segments={len(segments)}, seek_offset={rough_start_s:.3f}s"
+    )
+
+    return cmd
 
 def process_video_chunks_parallel(
     video_path: str,

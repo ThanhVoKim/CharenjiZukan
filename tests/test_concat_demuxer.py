@@ -213,7 +213,7 @@ class TestLayer1_FilterComplexBatchUnit:
     """Test thuần Python: kiểm tra lệnh FFmpeg được build đúng."""
 
     def test_single_segment_1x_speed(self):
-        """1 segment, speed=1.0 → filter chain không stretch."""
+        """1 segment, speed=1.0, orig_start=0 → filter chain không stretch, rough_start=0."""
         seg = TimelineSegment(
             orig_start=0.0, orig_end=1000.0,
             new_start=0.0, new_end=1000.0,
@@ -228,10 +228,14 @@ class TestLayer1_FilterComplexBatchUnit:
             fps_float=30.0,
             use_gpu=False,
         )
+        # Hybrid Seek: rough_start = max(0, 0-2) = 0
+        assert "-ss" in cmd
+        ss_idx = cmd.index("-ss")
+        assert cmd[ss_idx + 1] == "0.000000"
         assert "-filter_complex" in cmd
         filter_val = cmd[cmd.index("-filter_complex") + 1]
-        # Phải có trim, setpts, fps, concat
-        assert "trim=start=" in filter_val
+        # exact_start = 0 - 0 = 0
+        assert "trim=start=0.000000:duration=1.000000" in filter_val
         assert "setpts=PTS-STARTPTS" in filter_val
         assert "setpts=1.000000*PTS" in filter_val  # speed=1.0 → factor=1.0
         assert "fps=30/1" in filter_val
@@ -241,7 +245,7 @@ class TestLayer1_FilterComplexBatchUnit:
         assert "libx264" in cmd
 
     def test_single_segment_slow_speed(self):
-        """1 segment, speed=0.5 → setpts factor=2.0."""
+        """1 segment, speed=0.5, orig_start=1s → rough_start=0, exact_start=1."""
         seg = TimelineSegment(
             orig_start=1000.0, orig_end=3000.0,
             new_start=0.0, new_end=4000.0,
@@ -256,12 +260,17 @@ class TestLayer1_FilterComplexBatchUnit:
             fps_float=30.0,
             use_gpu=False,
         )
+        # Hybrid Seek: rough_start = max(0, 1-2) = 0
+        assert "-ss" in cmd
+        ss_idx = cmd.index("-ss")
+        assert cmd[ss_idx + 1] == "0.000000"
         filter_val = cmd[cmd.index("-filter_complex") + 1]
         assert "setpts=2.000000*PTS" in filter_val  # 1/0.5 = 2.0
+        # exact_start = 1.0 - 0.0 = 1.0
         assert "trim=start=1.000000:duration=2.000000" in filter_val
 
     def test_multiple_segments_concat_labels(self):
-        """3 segments → phải có [v0], [v1], [v2] và concat=n=3."""
+        """3 segments (0-1s, 1-2s, 2-3s) → rough_start=0, exact_starts=0,1,2."""
         segments = [
             TimelineSegment(
                 orig_start=i * 1000.0, orig_end=(i + 1) * 1000.0,
@@ -279,11 +288,60 @@ class TestLayer1_FilterComplexBatchUnit:
             fps_float=30.0,
             use_gpu=False,
         )
+        # Hybrid Seek: rough_start = max(0, 0-2) = 0
+        assert "-ss" in cmd
+        assert cmd[cmd.index("-ss") + 1] == "0.000000"
         filter_val = cmd[cmd.index("-filter_complex") + 1]
         assert "[v0]" in filter_val
         assert "[v1]" in filter_val
         assert "[v2]" in filter_val
         assert "concat=n=3:v=1:a=0[outv]" in filter_val
+
+    def test_hybrid_seek_offset(self):
+        """Segments bắt đầu ở giây 30 → rough_start=28, exact_start=2."""
+        seg = TimelineSegment(
+            orig_start=30000.0, orig_end=31000.0,
+            new_start=0.0, new_end=1000.0,
+            video_speed=1.0, audio_speed=1.0, new_chunk_dur=1000.0,
+            block_type="gap", tts_clip_path=None, tts_duration=0.0,
+        )
+        cmd = build_ffmpeg_batch_cmd(
+            input_path="input.mp4",
+            output_path="output.mp4",
+            segments=[seg],
+            fps_str="30/1",
+            fps_float=30.0,
+            use_gpu=False,
+        )
+        # Hybrid Seek: rough_start = max(0, 30-2) = 28
+        assert "-ss" in cmd
+        ss_idx = cmd.index("-ss")
+        assert cmd[ss_idx + 1] == "28.000000"
+        filter_val = cmd[cmd.index("-filter_complex") + 1]
+        # exact_start = 30 - 28 = 2
+        assert "trim=start=2.000000:duration=1.000000" in filter_val
+
+    def test_hybrid_seek_clamp_zero(self):
+        """Segment bắt đầu ở giây 1 → rough_start=0 (clamp, không âm)."""
+        seg = TimelineSegment(
+            orig_start=1000.0, orig_end=2000.0,
+            new_start=0.0, new_end=1000.0,
+            video_speed=1.0, audio_speed=1.0, new_chunk_dur=1000.0,
+            block_type="gap", tts_clip_path=None, tts_duration=0.0,
+        )
+        cmd = build_ffmpeg_batch_cmd(
+            input_path="input.mp4",
+            output_path="output.mp4",
+            segments=[seg],
+            fps_str="30/1",
+            fps_float=30.0,
+            use_gpu=False,
+        )
+        # rough_start = max(0, 1-2) = 0
+        assert cmd[cmd.index("-ss") + 1] == "0.000000"
+        # exact_start = 1 - 0 = 1
+        filter_val = cmd[cmd.index("-filter_complex") + 1]
+        assert "trim=start=1.000000:duration=1.000000" in filter_val
 
     def test_gpu_encoder_selection(self):
         """use_gpu=True → h264_nvenc, preset=p5."""
