@@ -341,7 +341,7 @@ class TestLayer2_FilterComplexBatchSynthetic:
     """Test Filter Complex Batching với video tổng hợp 10 giây."""
 
     @pytest.fixture(scope="class")
-    def setup_batch_concat(self, synthetic_video_path, tmp_path_factory, concat_workers):
+    def setup_batch_concat(self, synthetic_video_path, tmp_path_factory, concat_workers, use_gpu):
         """Fixture chạy chung 1 lần xử lý batch cho tất cả test L2."""
         tmp_dir = tmp_path_factory.mktemp("l2_batch")
         fps = 30.0
@@ -359,7 +359,7 @@ class TestLayer2_FilterComplexBatchSynthetic:
             timeline=timeline,
             output_dir=str(output_dir),
             max_workers=concat_workers,
-            use_gpu=False,
+            use_gpu=use_gpu,
             fps_str=fps_str,
             fps_float=fps,
             batch_size=batch_size,
@@ -560,7 +560,7 @@ class TestLayer2_FilterComplexBatchSynthetic:
 class TestLayer3_FilterComplexBatchRealVideo:
     """Test Filter Complex Batching với video thật."""
 
-    def test_full_desync_analysis(self, real_video_path, concat_workers, report_dir, tmp_path):
+    def test_full_desync_analysis(self, real_video_path, concat_workers, report_dir, tmp_path, use_gpu):
         """Test 7: Full analysis với video thật, tổng hợp TẤT CẢ kiểm tra và ghi report."""
 
         video_path_str = str(real_video_path)
@@ -579,7 +579,7 @@ class TestLayer3_FilterComplexBatchRealVideo:
             timeline=timeline,
             output_dir=str(output_dir),
             max_workers=concat_workers,
-            use_gpu=False,
+            use_gpu=use_gpu,
             fps_str=fps_str,
             fps_float=fps,
             batch_size=batch_size,

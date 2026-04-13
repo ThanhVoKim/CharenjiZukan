@@ -10,6 +10,7 @@ Chứa các fixtures cho:
 """
 
 import os
+import subprocess
 import pytest
 import multiprocessing
 import shutil
@@ -48,6 +49,26 @@ def real_video_path(request) -> Path:
         pytest.skip(f"Video không tồn tại: {path}")
     
     return path
+
+
+@pytest.fixture(scope="session")
+def use_gpu() -> bool:
+    """Tự động phát hiện NVIDIA NVENC (h264_nvenc) có sẵn hay không.
+    
+    Kiểm tra bằng `ffmpeg -encoders` thay vì dùng torch.cuda,
+    vì FFmpeg NVENC phụ thuộc vào NVIDIA driver + NVENC SDK,
+    không nhất thiết cần PyTorch.
+    """
+    if not shutil.which("ffmpeg"):
+        return False
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-encoders"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return "h264_nvenc" in result.stdout
+    except (subprocess.TimeoutExpired, OSError):
+        return False
 
 
 @pytest.fixture(scope="session")
