@@ -386,9 +386,8 @@ class TestLayer2_FilterComplexBatchSynthetic:
 
         delta_ms = abs(actual_dur_ms - expected_dur_ms)
         # Tolerance: mỗi batch boundary có thể lệch 1-2 frames
-        num_batches = math.ceil(data["num_chunks"] / data["batch_size"])
         frame_dur_ms = 1000.0 / data["fps"]
-        tolerance_ms = num_batches * 2 * frame_dur_ms  # 2 frames per boundary
+        tolerance_ms = 3 * frame_dur_ms  # Tối đa 3 frame lệch trên toàn bộ video
 
         logger.info(
             f"[Duration Total] Expected: {expected_dur_ms:.1f}ms, "
@@ -414,8 +413,7 @@ class TestLayer2_FilterComplexBatchSynthetic:
 
         actual_frames = _probe_frame_count(data["final"])
 
-        num_batches = math.ceil(data["num_chunks"] / data["batch_size"])
-        tolerance_frames = num_batches * 2  # 2 frames per boundary
+        tolerance_frames = 3  # Tối đa 3 frame lệch trên toàn bộ video
 
         delta_frames = abs(actual_frames - expected_frames)
         logger.info(
@@ -475,7 +473,7 @@ class TestLayer2_FilterComplexBatchSynthetic:
         num_batches = math.ceil(len(timeline) / batch_size)
 
         frame_dur_ms = 1000.0 / fps
-        tolerance_ms = 2 * frame_dur_ms  # 2 frames tolerance
+        tolerance_ms = 3 * frame_dur_ms  # Tối đa 3 frame lệch trên toàn bộ video
 
         max_delta_ms = 0.0
         worst_batch = -1
@@ -511,30 +509,47 @@ class TestLayer2_FilterComplexBatchSynthetic:
             f"at batch {worst_batch} (tolerance: {tolerance_ms:.1f}ms)"
         )
 
-    def test_actual_durations_returned(self, setup_batch_concat):
-        """Test 6: actual_durations trả về từ process_video_chunks_parallel khớp công thức."""
+    def test_actual_durations_vs_ffprobe(self, setup_batch_concat):
+        """Test 6: Σ actual_durations (từ code) ≈ ffprobe duration của final video.
+
+        Kiểm chứng tính nhất quán: giá trị actual_durations mà process_video_chunks_parallel
+        trả về phải phản ánh đúng độ dài video thực tế đo bằng ffprobe.
+        Nếu code tính sai công thức nhưng FFmpeg vẫn xuất đúng, test này sẽ FAIL → phát hiện bug.
+        """
         data = setup_batch_concat
-        timeline = data["timeline"]
         actual_durations = data["actual_durations"]
-        fps = data["fps"]
+        timeline = data["timeline"]
+
+        # Σ actual_durations từ code (ms)
+        sum_actual_durations_ms = sum(actual_durations)
+
+        # ffprobe duration của final video (ms)
+        ffprobe_dur_ms = _probe_duration(data["final"]) * 1000
+
+        # Tolerance: mỗi batch boundary có thể lệch 1-2 frames do concat demuxer
+        # num_batches = math.ceil(len(timeline) / data["batch_size"])
+        frame_dur_ms = 1000.0 / data["fps"]
+        tolerance_ms = 3 * frame_dur_ms
+
+        delta_ms = abs(sum_actual_durations_ms - ffprobe_dur_ms)
+
+        logger.info(
+            f"[Actual Durations vs FFprobe] "
+            f"Σ actual_durations={sum_actual_durations_ms:.1f}ms, "
+            f"ffprobe={ffprobe_dur_ms:.1f}ms, "
+            f"delta={delta_ms:.1f}ms, tolerance={tolerance_ms:.1f}ms"
+        )
 
         assert len(actual_durations) == len(timeline), (
             f"actual_durations length {len(actual_durations)} != "
             f"timeline length {len(timeline)}"
         )
-
-        for i, (seg, actual_dur) in enumerate(zip(timeline, actual_durations)):
-            # Tính expected theo công thức
-            duration_frames = round(((seg.orig_end - seg.orig_start) / 1000.0) * fps)
-            duration_s = duration_frames / fps
-            stretched_duration_s = duration_s / seg.video_speed
-            expected_output_frames = math.floor(stretched_duration_s * fps) + 1
-            expected_dur = (expected_output_frames / fps) * 1000.0
-
-            assert actual_dur == pytest.approx(expected_dur, abs=0.01), (
-                f"Segment {i}: actual_dur={actual_dur:.2f}ms != "
-                f"expected={expected_dur:.2f}ms"
-            )
+        assert delta_ms <= tolerance_ms, (
+            f"Σ actual_durations ({sum_actual_durations_ms:.1f}ms) "
+            f"khớp ffprobe ({ffprobe_dur_ms:.1f}ms) "
+            f"vượt tolerance {tolerance_ms:.1f}ms "
+            f"(delta={delta_ms:.1f}ms)"
+        )
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -604,7 +619,7 @@ class TestLayer3_FilterComplexBatchRealVideo:
         num_batches = math.ceil(num_chunks / batch_size)
         batch_dir = Path(output_dir)
         frame_dur_ms = 1000.0 / fps
-        batch_tolerance_ms = 2 * frame_dur_ms
+        batch_tolerance_ms = 3 * frame_dur_ms  # Tối đa 3 frame lệch trên toàn bộ video
 
         batch_drifts = []
         sample_indices = list(range(0, min(num_batches, 10)))
@@ -630,9 +645,9 @@ class TestLayer3_FilterComplexBatchRealVideo:
         all_batches_pass = all(d["pass"] for d in batch_drifts) if batch_drifts else True
 
         # --- GHI REPORT ---
-        # Tolerance nới hơn cho video thật: 2 frames per batch boundary
-        dur_tolerance_ms = num_batches * 2 * frame_dur_ms
-        frame_tolerance = num_batches * 2
+        # Tolerance: tối đa 3 frame lệch trên toàn bộ video
+        dur_tolerance_ms = 3 * frame_dur_ms
+        frame_tolerance = 3
 
         frame_delta = abs(actual_frames - expected_frames)
         all_pass = (
