@@ -392,11 +392,11 @@ class TestLayer2_FilterComplexBatchSynthetic:
         logger.info(
             f"[Duration Total] Expected: {expected_dur_ms:.1f}ms, "
             f"Actual: {actual_dur_ms:.1f}ms, Delta: {delta_ms:.1f}ms, "
-            f"Tolerance: {tolerance_ms:.1f}ms ({num_batches} batches)"
+            f"Tolerance: {tolerance_ms:.1f}ms (3 frames)"
         )
         assert delta_ms <= tolerance_ms, (
             f"Duration drift {delta_ms:.1f}ms > {tolerance_ms:.1f}ms "
-            f"({num_batches} batch boundaries)"
+            f"(3 frames max)"
         )
 
     def test_frame_count(self, setup_batch_concat):
