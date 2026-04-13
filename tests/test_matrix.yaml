@@ -194,7 +194,15 @@ tests:
   # SYNC ENGINE TESTS
   # ──────────────────────────────────────────────
 
-  - name: "Concat Demuxer — Layer 2: Synthetic Video Desync Tests"
+  - name: "Filter Complex Batch — Layer 1: Unit Tests (Command Generation)"
+    file: "tests/test_concat_demuxer.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit", "sync_engine"]
+    enabled: true
+
+  - name: "Filter Complex Batch — Layer 2: Synthetic Video Desync Tests"
     file: "tests/test_concat_demuxer.py"
     keyword: "Layer2"
     timeout_sec: 300
@@ -202,14 +210,14 @@ tests:
     tags: ["integration", "ffmpeg", "sync_engine"]
     enabled: true
 
-  - name: "Concat Demuxer — Layer 3: Real Video Full Analysis"
+  - name: "Filter Complex Batch — Layer 3: Real Video Full Analysis"
     file: "tests/test_concat_demuxer.py"
     keyword: "Layer3"
     timeout_sec: 7200
     pytest_args: ["-v", "-s"]
     env:
       TEST_REAL_VIDEO_PATH: "" # Nhập đường dẫn video thật vào đây
-      TEST_CONCAT_WORKERS: "4" # Số worker cắt chunks song song
+      TEST_CONCAT_WORKERS: "4" # Số worker xử lý batch song song
     tags: ["integration", "ffmpeg", "sync_engine"]
     enabled: false # Bật khi có --video-path
 

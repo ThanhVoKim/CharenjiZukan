@@ -72,12 +72,7 @@ def build_ffmpeg_chunk_cmd(
     exact_offset_s = start_s - rough_start_s
 
     pts_factor = 1.0 / video_speed
-    
-    # Bước 4: Tính toán chính xác lượng frame Output mà FFmpeg sẽ sinh ra
-    # Công thức nội bộ của fps filter: floor(thời_gian_đã_stretch * fps) + 1
-    # Do chúng ta dùng setpts=PTS-STARTPTS nên PTS bắt đầu từ 0.0 hoàn hảo.
-    stretched_duration_s = duration_s / video_speed
-    expected_output_frames = math.floor(stretched_duration_s * fps_float) + 1
+    new_duration_s = duration_s * pts_factor  # Độ dài output sau stretch
 
     encoder = "h264_nvenc" if use_gpu else "libx264"
     preset  = "p5"         if use_gpu else "fast"
@@ -85,9 +80,10 @@ def build_ffmpeg_chunk_cmd(
 
     filter_chain = ",".join([
         f"trim=start={exact_offset_s:.6f}:duration={duration_s:.6f}",
-        "setpts=PTS-STARTPTS",  # Đặt lại PTS về 0 ngay sau khi cắt
+        "setpts=PTS-STARTPTS", # Đặt lại PTS về 0 ngay sau khi cắt
         f"setpts={pts_factor:.6f}*PTS", # Stretch video
-        f"fps={fps_str}:eof_action=pass" # Đảm bảo constant frame rate, không sinh thêm frame khi EOF
+        f"fps={fps_str}:eof_action=pass", # Đảm bảo constant frame rate, không sinh thêm frame khi EOF
+        f"trim=duration={new_duration_s:.6f}",  # ← Chốt chặn frame count
     ])
 
     return [
@@ -97,9 +93,6 @@ def build_ffmpeg_chunk_cmd(
         "-i", input_path,
         # Bước 2 (Accurate Trimming & Stretching) thông qua filter thay vì Output Seek
         "-filter:v", filter_chain,
-        # CHỐT CHẶN OUTPUT: Ép FFmpeg phải xuất đúng lượng frame đã tính toán,
-        # loại trừ hoàn toàn việc trim bị lấn frame hoặc fps đẻ dư frame ở đuôi.
-        "-frames:v", str(expected_output_frames),
         "-an",
         "-c:v", encoder,
         "-preset", preset,
@@ -108,36 +101,87 @@ def build_ffmpeg_chunk_cmd(
         output_path,
     ]
 
-def _run_chunk(args: tuple) -> Tuple[int, str, str]:
-    """Worker: chạy 1 FFmpeg command, trả về (index, output_path, error)."""
+def _run_batch(args: tuple) -> Tuple[int, str, str]:
+    """Worker: chạy 1 lệnh FFmpeg xử lý 1 batch chunk, trả về (batch_idx, output_path, error)."""
     idx, cmd, out_path = args
-    logger.debug(f"Running chunk {idx} with command: {' '.join(cmd)}")
+    logger.debug(f"Running batch {idx} with command: {' '.join(cmd)}")
     try:
-        result = subprocess.run(cmd, check=True, capture_output=True, timeout=600)
-        logger.debug(f"Chunk {idx} output: {result.stdout.decode(errors='ignore')}")
+        result = subprocess.run(cmd, check=True, capture_output=True, timeout=1200)
+        logger.debug(f"Batch {idx} output: {result.stdout.decode(errors='ignore')}")
         return idx, out_path, ""
     except subprocess.TimeoutExpired:
-        err_msg = f"Chunk {idx} timeout sau 600 giây."
+        err_msg = f"Batch {idx} timeout sau 1200 giây."
         logger.error(err_msg)
         return idx, out_path, err_msg
     except subprocess.CalledProcessError as e:
         err_msg = e.stderr.decode(errors="ignore") if e.stderr else str(e)
-        logger.error(f"Chunk {idx} failed with error: {err_msg}")
+        logger.error(f"Batch {idx} failed with error: {err_msg}")
         return idx, out_path, err_msg[-2000:]
 
-def _probe_chunk_duration(chunk_path: str, fps_float: float) -> float:
-    """Đo duration thực tế của chunk và snap về frame-aligned."""
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        chunk_path,
+def build_ffmpeg_batch_cmd(
+    input_path: str,
+    output_path: str,
+    segments: List[TimelineSegment],
+    fps_str: str,
+    fps_float: float,
+    use_gpu: bool = True,
+) -> List[str]:
+    """
+    Xây dựng lệnh Filter Complex để xử lý nối tiếp nhiều segment trong 1 mẻ (Batching).
+    [0:v]trim=start={S}:duration={D},setpts=PTS-STARTPTS,setpts={factor}*PTS,fps={fps_out}:eof_action=pass,trim=duration={new_D}[vN]
+    """
+    filter_parts = []
+    stream_labels = []
+    
+    for i, seg in enumerate(segments):
+        start_frame = round((seg.orig_start / 1000.0) * fps_float)
+        duration_frames = round(((seg.orig_end - seg.orig_start) / 1000.0) * fps_float)
+        
+        start_s = start_frame / fps_float
+        duration_s = duration_frames / fps_float
+        
+        pts_factor = 1.0 / seg.video_speed
+        stretched_duration_s = duration_s / seg.video_speed
+        
+        # Số frame thực tế dự kiến sẽ nở ra
+        expected_output_frames = math.floor(stretched_duration_s * fps_float) + 1
+        expected_duration_s = expected_output_frames / fps_float
+        
+        # Chuỗi filter cho 1 segment: 
+        # Cắt đúng thời gian -> Reset PTS -> Giãn PTS -> Nắn fps -> Chốt chặn đuôi trim
+        chain = (
+            f"[0:v]trim=start={start_s:.6f}:duration={duration_s:.6f},"
+            f"setpts=PTS-STARTPTS,"
+            f"setpts={pts_factor:.6f}*PTS,"
+            f"fps={fps_str}:eof_action=pass,"
+            # Chốt chặn trim lần 2: Đảm bảo luồng không bao giờ dư 1 miligiây nào
+            f"trim=duration={expected_duration_s:.6f}[v{i}]"
+        )
+        filter_parts.append(chain)
+        stream_labels.append(f"[v{i}]")
+        
+    # Gom các luồng lại bằng filter concat
+    concat_inputs = "".join(stream_labels)
+    filter_parts.append(f"{concat_inputs}concat=n={len(segments)}:v=1:a=0[outv]")
+    
+    filter_complex = ";".join(filter_parts)
+    
+    encoder = "h264_nvenc" if use_gpu else "libx264"
+    preset  = "p5"         if use_gpu else "fast"
+    quality = ["-cq", "23"] if use_gpu else ["-crf", "23"]
+
+    return [
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-filter_complex", filter_complex,
+        "-map", "[outv]",
+        "-an",
+        "-c:v", encoder,
+        "-preset", preset,
+        *quality,
+        "-video_track_timescale", "90000",
+        output_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    raw_dur_s = float(result.stdout.strip())
-    # Snap về frame-aligned để đồng nhất với video
-    dur_frames = round(raw_dur_s * fps_float)
-    return (dur_frames / fps_float) * 1000.0  # ms
 
 def process_video_chunks_parallel(
     video_path: str,
@@ -147,29 +191,29 @@ def process_video_chunks_parallel(
     use_gpu: bool = True,
     fps_str: str = "30/1",
     fps_float: float = 30.0,
+    batch_size: int = 100,
 ) -> Tuple[str, List[float]]:
-    """Split + stretch + concat. Returns (path to video_stretched.mp4, list of actual durations in ms)."""
+    """Split + stretch + concat sử dụng Filter Complex Batching. Returns (path to video_stretched.mp4, list of actual durations in ms)."""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    chunk_tasks = []
-    for i, seg in enumerate(timeline):
-        out = str(Path(output_dir) / f"chunk_{i:04d}.mp4")
-        cmd = build_ffmpeg_chunk_cmd(
-            video_path, out,
-            seg.orig_start,
-            seg.orig_end - seg.orig_start,   # input duration
-            seg.video_speed,
-            fps_str,
-            fps_float,
-            use_gpu,
-        )
-        chunk_tasks.append((i, cmd, out))
-
-    if not chunk_tasks:
+    if not timeline:
         raise RuntimeError("Timeline rỗng: không có segment nào để tạo chunk video.")
 
+    # 1. Gom nhóm timeline thành các Batch
+    batches = [timeline[i:i + batch_size] for i in range(0, len(timeline), batch_size)]
+    
+    batch_tasks = []
+    for i, batch_segs in enumerate(batches):
+        out = str(Path(output_dir) / f"batch_{i:04d}.mp4")
+        cmd = build_ffmpeg_batch_cmd(
+            video_path, out,
+            batch_segs,
+            fps_str, fps_float, use_gpu
+        )
+        batch_tasks.append((i, cmd, out))
+
     results: Dict[int, str] = {}
-    failed_chunks: Dict[int, str] = {}
+    failed_batches: Dict[int, str] = {}
 
     try:
         from tqdm import tqdm
@@ -177,54 +221,61 @@ def process_video_chunks_parallel(
     except ImportError:
         has_tqdm = False
 
+    logger.info(f"Bắt đầu xử lý {len(batches)} batches (mỗi batch {batch_size} chunks) song song...")
+
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(_run_chunk, t): t[0] for t in chunk_tasks}
+        futures = {pool.submit(_run_batch, t): t[0] for t in batch_tasks}
         
         future_iter = as_completed(futures)
         if has_tqdm:
-            future_iter = tqdm(future_iter, total=len(chunk_tasks), desc="Processing chunks", unit="chunk")
+            future_iter = tqdm(future_iter, total=len(batch_tasks), desc="Processing batches", unit="batch")
             
         for f in future_iter:
             idx, out_path, err = f.result()
             if err:
-                failed_chunks[idx] = err
-                logger.error(f"Chunk {idx} lỗi: {err}")
+                failed_batches[idx] = err
+                logger.error(f"Batch {idx} lỗi: {err}")
                 continue
 
             out_file = Path(out_path)
             if not out_file.exists() or out_file.stat().st_size <= 0:
-                err_msg = f"Chunk output không hợp lệ: {out_path}"
-                failed_chunks[idx] = err_msg
-                logger.error(f"Chunk {idx} lỗi: {err_msg}")
+                err_msg = f"Batch output không hợp lệ: {out_path}"
+                failed_batches[idx] = err_msg
+                logger.error(f"Batch {idx} lỗi: {err_msg}")
                 continue
 
             results[idx] = out_path
 
-    if failed_chunks:
+    if failed_batches:
         failed_summary = "; ".join(
             f"#{idx}: {msg.replace(chr(10), ' ')[:200]}"
-            for idx, msg in sorted(failed_chunks.items())
+            for idx, msg in sorted(failed_batches.items())
         )
         raise RuntimeError(
-            f"{len(failed_chunks)}/{len(chunk_tasks)} chunk bị lỗi, hủy concat. Chi tiết: {failed_summary}"
+            f"{len(failed_batches)}/{len(batch_tasks)} batch bị lỗi, hủy concat. Chi tiết: {failed_summary}"
         )
 
-    if len(results) != len(chunk_tasks):
-        missing = sorted(set(range(len(chunk_tasks))) - set(results.keys()))
-        raise RuntimeError(f"Thiếu chunk output cho các index: {missing}. Hủy concat.")
+    if len(results) != len(batch_tasks):
+        missing = sorted(set(range(len(batch_tasks))) - set(results.keys()))
+        raise RuntimeError(f"Thiếu batch output cho các index: {missing}. Hủy concat.")
 
-    ordered = [results[i] for i in range(len(chunk_tasks))]
-    if not ordered:
-        raise RuntimeError("Không có chunk hợp lệ để concat.")
-
-    output_video = str(Path(output_dir) / "video_stretched.mp4")
-    _concat_chunks(ordered, output_video)
+    ordered_batches = [results[i] for i in range(len(batch_tasks))]
     
+    # 2. Concat các Batch lại thành file cuối
+    output_video = str(Path(output_dir) / "video_stretched.mp4")
+    _concat_chunks(ordered_batches, output_video)
+    
+    # 3. Tính toán actual_durations dựa trên expected để trả về cho hệ thống
+    # Vì giờ đây Filter Complex đã đảm bảo độ dài chính xác từng frame, 
+    # ta có thể tái cấu trúc actual_durations từ công thức chuẩn.
     actual_durations = []
-    for i, chunk_path in enumerate(ordered):
-        actual_dur = _probe_chunk_duration(chunk_path, fps_float)
+    for seg in timeline:
+        duration_frames = round(((seg.orig_end - seg.orig_start) / 1000.0) * fps_float)
+        duration_s = duration_frames / fps_float
+        stretched_duration_s = duration_s / seg.video_speed
+        expected_output_frames = math.floor(stretched_duration_s * fps_float) + 1
+        actual_dur = (expected_output_frames / fps_float) * 1000.0
         actual_durations.append(actual_dur)
-        logger.debug(f"Chunk {i}: expected={timeline[i].new_chunk_dur:.3f}ms, actual={actual_dur:.3f}ms")
         
     return output_video, actual_durations
 

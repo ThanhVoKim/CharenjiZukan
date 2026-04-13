@@ -1,5 +1,81 @@
 # Project Journal
 
+## 2026-04-13: Chuyển đổi kiến trúc xử lý Video từ Physical Concat sang Filter Complex Batching
+
+### Yêu cầu
+
+- Khắc phục lỗi desync (lệch hình/tiếng) tồi tệ trên video dài (lên tới 55 giây trên video 60 phút). Lỗi này được phát hiện sau khi hoàn thiện test suite từ ngày 12/04.
+- Nguyên nhân gốc: FFmpeg `-ss` (Fast Seek) nhảy đến Keyframe gần nhất, không phải mốc cắt chính xác. Khi nối 1935 chunks vật lý rời rạc, sai số Keyframe tích tụ gây dư 1649 frames (55 giây).
+- Các phần mềm Video Editor chuyên nghiệp (NLE) không bao giờ cắt file vật lý mà hoạt động trên Timeline ảo và Encode 1 lần duy nhất để đếm sinh ra từng frame chuẩn xác.
+- Đề xuất thay thế hoàn toàn phương pháp "Cắt file vật lý rồi nối" bằng phương pháp **Filter Complex Batching** (`trim` kết hợp `concat filter`) của FFmpeg để dựng Timeline ảo, kết hợp gom nhóm (batching) để tránh cạn kiệt RAM do "Filtergraph too complex".
+
+### Thay đổi đã thực hiện
+
+1. **`sync_engine/video_processor.py`** — Kiến trúc mới:
+   - Đập bỏ kiến trúc cũ `process_video_chunks_parallel` tạo file `.mp4` rời rạc.
+   - Viết mới hàm `build_ffmpeg_batch_cmd` sử dụng FFmpeg `filter_complex`:
+     - Gom các segment thành từng Batch (VD: 100 segments/batch) để tạo thành các file `batch_XXXX.mp4`.
+     - Thay vì seek và sinh file vật lý, dùng filter `trim=start=...:duration=...`, `setpts` trên chung một input video duy nhất.
+     - Sau đó nối các luồng (streams) lại bằng filter `concat=n=...:v=1:a=0` trong cùng một lệnh.
+     - Các file batch cuối cùng được nối lại bằng `_concat_chunks` (concat demuxer), giảm sai số từ hàng nghìn lần xuống chỉ còn vài lần.
+   - Viết mới hàm `_run_batch` làm worker cho ThreadPoolExecutor.
+   - Cập nhật `process_video_chunks_parallel` trả về `Tuple[str, List[float]]` (path video + actual durations).
+   - Điều này mô phỏng cách làm việc của các phần mềm NLE, sinh frame liên tục mà không bị đứt gãy timeline do sai số container.
+
+2. **`tests/test_concat_demuxer.py`** — Cập nhật toàn bộ test suite theo flow mới:
+   - **Layer 1 (`TestLayer1_FilterComplexBatchUnit`)**: 5 unit tests thuần Python kiểm tra command generation:
+     - `test_single_segment_1x_speed` — filter chain không stretch khi speed=1.0
+     - `test_single_segment_slow_speed` — `setpts=2.000000*PTS` khi speed=0.5
+     - `test_multiple_segments_concat_labels` — `[v0]`, `[v1]`, `[v2]` và `concat=n=3`
+     - `test_gpu_encoder_selection` — `h264_nvenc`/`p5`/`-cq` khi `use_gpu=True`
+     - `test_expected_duration_formula` — xác nhận công thức tính expected duration khớp code
+   - **Layer 2 (`TestLayer2_FilterComplexBatchSynthetic`)**: 6 component tests với video tổng hợp 10s:
+     - `test_duration_total` — tổng duration ≈ Σ expected (tolerance: 2 frames/batch boundary)
+     - `test_frame_count` — tổng frames ≈ Σ expected frames
+     - `test_pts_monotonic` — PTS tăng dần nghiêm ngặt (0 violations)
+     - `test_frame_delta_uniformity` — khoảng cách frame đồng đều
+     - `test_batch_duration_accuracy` _(mới)_ — mỗi file `batch_XXXX.mp4` có duration khớp dự đoán
+     - `test_actual_durations_returned` _(mới)_ — `actual_durations` trả về khớp công thức
+   - **Layer 3 (`TestLayer3_FilterComplexBatchRealVideo`)**: Full analysis với video thật, bổ sung kiểm tra batch duration accuracy sampling trong JSON report.
+   - Thêm helper `_compute_expected_batch_duration()` tính expected duration cho 1 batch theo đúng công thức trong `process_video_chunks_parallel`.
+
+3. **`tests/test_matrix.yaml`** — Cập nhật entries:
+   - Thêm entry Layer 1 (unit, timeout 30s, tags: `unit sync_engine`).
+   - Đổi tên Layer 2/3 từ "Concat Demuxer" sang "Filter Complex Batch".
+
+### Cách chạy test
+
+```bash
+# Layer 1 — Unit Tests (thuần Python, không cần FFmpeg)
+pytest tests/test_concat_demuxer.py -v -k "Layer1"
+
+# Layer 2 — Component Tests (cần FFmpeg, synthetic video 10s)
+pytest tests/test_concat_demuxer.py -v -k "Layer2"
+
+# Layer 3 — Real Video Full Analysis (cần FFmpeg + video thật)
+pytest tests/test_concat_demuxer.py -v -k "Layer3" --video-path="D:/videos/my_test.mp4"
+
+# Chạy tất cả 3 layers
+pytest tests/test_concat_demuxer.py -v
+
+# Qua test_matrix runner
+python run_colab_tests.py --tags sync_engine
+```
+
+### Trạng thái hiện tại
+
+- ✅ Đã chuyển đổi hoàn toàn kiến trúc nối chunk vật lý sang sử dụng Filter Complex Batching.
+- ✅ Test suite đã được cập nhật toàn bộ 3 layers theo flow mới, bao gồm test kiểm tra batch duration accuracy.
+- ✅ `test_matrix.yaml` đã đồng bộ.
+- ✅ Cú pháp `py_compile` pass.
+
+### Outstanding / Pending
+
+- Chạy thử nghiệm Layer 2 trên môi trường có FFmpeg + opencv-python để xác nhận pass end-to-end.
+- Chạy thử nghiệm Layer 3 trên video thực tế dài để đo mức độ đồng bộ và tối ưu hóa `batch_size` để cân bằng giữa RAM và tốc độ.
+
+---
+
 ## 2026-04-12: Xây dựng Test Suite kiểm tra lỗi Desync do Concat Demuxer
 
 ### Yêu cầu
