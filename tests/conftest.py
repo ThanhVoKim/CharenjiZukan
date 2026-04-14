@@ -54,19 +54,39 @@ def real_video_path(request) -> Path:
 @pytest.fixture(scope="session")
 def use_gpu() -> bool:
     """Tự động phát hiện NVIDIA NVENC (h264_nvenc) có sẵn hay không.
-    
-    Kiểm tra bằng `ffmpeg -encoders` thay vì dùng torch.cuda,
-    vì FFmpeg NVENC phụ thuộc vào NVIDIA driver + NVENC SDK,
-    không nhất thiết cần PyTorch.
+
+    Phát hiện 2 bước:
+      1. ``torch.cuda.is_available()`` — kiểm tra nhanh GPU hardware + driver.
+         PyTorch đã có sẵn trong project nên không cần thêm dependency.
+      2. Dummy encode test — thực sự gọi FFmpeg encode 1 frame bằng h264_nvenc
+         để xác nhận encoder hoạt động (tránh trường hợp driver lỗi / libcuda thiếu).
+
+    Trả về True chỉ khi CẢ HAI bước đều pass.
     """
+    # ── Bước 1: PyTorch CUDA check (nhanh, ~50ms) ──────────────────────
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return False
+    except ImportError:
+        # Không có PyTorch → không thể xác nhận GPU → fallback qua bước 2
+        pass
+
+    # ── Bước 2: Dummy encode test (chậm hơn, ~2-5s) ────────────────────
     if not shutil.which("ffmpeg"):
         return False
     try:
+        # Tạo 1 frame đen 64x64, encode bằng h264_nvenc, pipe ra null
         result = subprocess.run(
-            ["ffmpeg", "-encoders"],
-            capture_output=True, text=True, timeout=10,
+            [
+                "ffmpeg", "-y",
+                "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.04",
+                "-c:v", "h264_nvenc",
+                "-f", "null", "-",
+            ],
+            capture_output=True, text=True, timeout=30,
         )
-        return "h264_nvenc" in result.stdout
+        return result.returncode == 0
     except (subprocess.TimeoutExpired, OSError):
         return False
 
