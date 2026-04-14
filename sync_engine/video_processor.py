@@ -169,9 +169,8 @@ def build_ffmpeg_batch_cmd(
         pts_factor = 1.0 / seg.video_speed
         stretched_duration_s = duration_s / seg.video_speed
 
-        # Số frame thực tế dự kiến sẽ nở ra
-        expected_output_frames = math.floor(stretched_duration_s * fps_float) + 1
-        expected_duration_s = expected_output_frames / fps_float
+        # Độ dài output sau khi giãn — KHÔNG cộng thêm frame dư
+        expected_duration_s = stretched_duration_s
 
         # Chuỗi filter cho 1 segment:
         # Cắt đúng thời gian (từ offset) -> Reset PTS -> Giãn PTS -> Nắn fps -> Chốt chặn đuôi trim
@@ -301,16 +300,16 @@ def process_video_chunks_parallel(
     output_video = str(Path(output_dir) / "video_stretched.mp4")
     _concat_chunks(ordered_batches, output_video)
     
-    # 3. Tính toán actual_durations dựa trên expected để trả về cho hệ thống
-    # Vì giờ đây Filter Complex đã đảm bảo độ dài chính xác từng frame, 
-    # ta có thể tái cấu trúc actual_durations từ công thức chuẩn.
+    # 3. Tính toán actual_durations dựa trên công thức chuẩn (KHÔNG +1 frame dư)
+    # Công thức: stretched_duration = (orig_duration / video_speed)
+    # Điều này đảm bảo actual_durations khớp chính xác với video output,
+    # tránh Audio/Subtitle bị lệch (delayed) so với hình ảnh.
     actual_durations = []
     for seg in timeline:
         duration_frames = round(((seg.orig_end - seg.orig_start) / 1000.0) * fps_float)
         duration_s = duration_frames / fps_float
         stretched_duration_s = duration_s / seg.video_speed
-        expected_output_frames = math.floor(stretched_duration_s * fps_float) + 1
-        actual_dur = (expected_output_frames / fps_float) * 1000.0
+        actual_dur = stretched_duration_s * 1000.0
         actual_durations.append(actual_dur)
         
     return output_video, actual_durations

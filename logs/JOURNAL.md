@@ -1,5 +1,43 @@
 # Project Journal
 
+## 2026-04-14: Loại bỏ công thức +1 frame dư gây desync Audio/Subtitle
+
+### Yêu cầu
+
+- Sau khi chạy test Layer 3 trên video thật (5108s, 1350 chunks), kết quả JSON report PASS hoàn hảo (duration drift 94.7ms, frame drift 3, PTS monotonic 0 violations).
+- Tuy nhiên, final video render ra lại bị lỗi: **Audio + Subtitle hiển thị chậm hơn Video khoảng 5 giây** (10:56 → 11:01).
+
+### Phân tích nguyên nhân
+
+- Công thức cũ `expected_output_frames = math.floor(stretched_duration_s * fps) + 1` tự ý cộng thêm 1 frame cho mỗi chunk.
+- FFmpeg filter complex xử lý video **chính xác tuyệt đối** (dài đúng 10:56), nhưng `actual_durations` trả về cho hệ thống lại dài hơn do `+1` frame.
+- Hệ thống Audio Assembler và Subtitle Remapper tin tưởng con số `actual_durations` này, tạo ra Audio/Subtitle dài hơn Video.
+- Tích lũy qua 1350 chunks: mỗi chunk dư ~33ms (1 frame), tổng dư ~45s → nhưng do công thức `floor` nên thực tế dư ~5 giây.
+- **Hai lỗi desync "ngược chiều"**: Lỗi cũ (Physical Concat) làm Video dư 55s. Lỗi mới (Filter Complex +1 frame) làm Audio dư 5s.
+
+### Thay đổi đã thực hiện
+
+1. **`sync_engine/video_processor.py` — `build_ffmpeg_batch_cmd`**:
+   - Xóa `expected_output_frames = math.floor(...) + 1` và `expected_duration_s = expected_output_frames / fps_float`.
+   - Thay bằng `expected_duration_s = stretched_duration_s` (đúng bằng độ dài vật lý).
+
+2. **`sync_engine/video_processor.py` — `process_video_chunks_parallel`**:
+   - Xóa `expected_output_frames = math.floor(...) + 1` và `actual_dur = (expected_output_frames / fps_float) * 1000.0`.
+   - Thay bằng `actual_dur = stretched_duration_s * 1000.0` (khớp chính xác với video output).
+
+3. **`tests/test_concat_demuxer.py`**:
+   - `_compute_expected_batch_duration()`: Xóa `+1`, dùng `stretched_duration_s * 1000.0`.
+   - `test_expected_duration_formula`: Cập nhật assert từ `2033.333ms` → `2000.0ms`.
+   - `test_frame_count` (Layer 2 & 3): Đổi `math.floor(...) + 1` → `round(...)`.
+
+### Trạng thái hiện tại
+
+- ✅ Đã loại bỏ hoàn toàn `+1` frame dư khỏi cả code production và test.
+- ✅ Cú pháp `py_compile` pass.
+- ⏳ Chờ chạy lại pipeline thực tế trên video thật để xác nhận Audio/Subtitle khớp Video.
+
+---
+
 ## 2026-04-13: Chuyển đổi kiến trúc xử lý Video từ Physical Concat sang Filter Complex Batching
 
 ### Yêu cầu

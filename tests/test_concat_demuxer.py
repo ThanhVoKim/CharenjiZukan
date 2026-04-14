@@ -161,15 +161,14 @@ def _compute_expected_batch_duration(
     """
     Tính toán expected duration (ms) của một batch segments
     dựa trên công thức giống hệt process_video_chunks_parallel.
+    KHÔNG cộng thêm frame dư (+1) để khớp với video output thực tế.
     """
     total_ms = 0.0
     for seg in segments:
         duration_frames = round(((seg.orig_end - seg.orig_start) / 1000.0) * fps_float)
         duration_s = duration_frames / fps_float
         stretched_duration_s = duration_s / seg.video_speed
-        expected_output_frames = math.floor(stretched_duration_s * fps_float) + 1
-        actual_dur = (expected_output_frames / fps_float) * 1000.0
-        total_ms += actual_dur
+        total_ms += stretched_duration_s * 1000.0
     return total_ms
 
 
@@ -383,11 +382,9 @@ class TestLayer1_FilterComplexBatchUnit:
         stretched_duration_s = duration_s / seg.video_speed
         assert stretched_duration_s == 2.0
 
-        expected_output_frames = math.floor(stretched_duration_s * fps) + 1
-        assert expected_output_frames == 61  # floor(60) + 1
-
-        actual_dur_ms = (expected_output_frames / fps) * 1000.0
-        assert actual_dur_ms == pytest.approx(2033.333, abs=0.01)
+        # Công thức mới: KHÔNG cộng thêm frame dư
+        actual_dur_ms = stretched_duration_s * 1000.0
+        assert actual_dur_ms == pytest.approx(2000.0, abs=0.01)
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -466,8 +463,7 @@ class TestLayer2_FilterComplexBatchSynthetic:
             duration_frames = round(((seg.orig_end - seg.orig_start) / 1000.0) * data["fps"])
             duration_s = duration_frames / data["fps"]
             stretched_duration_s = duration_s / seg.video_speed
-            expected_output_frames = math.floor(stretched_duration_s * data["fps"]) + 1
-            expected_frames += expected_output_frames
+            expected_frames += round(stretched_duration_s * data["fps"])
 
         actual_frames = _probe_frame_count(data["final"])
 
@@ -654,8 +650,7 @@ class TestLayer3_FilterComplexBatchRealVideo:
             duration_frames = round(((seg.orig_end - seg.orig_start) / 1000.0) * fps)
             duration_s = duration_frames / fps
             stretched_duration_s = duration_s / seg.video_speed
-            expected_output_frames = math.floor(stretched_duration_s * fps) + 1
-            expected_frames += expected_output_frames
+            expected_frames += round(stretched_duration_s * fps)
 
         # Probe thông tin (có thể chậm với video dài)
         actual_frames = _probe_frame_count(output_video)
