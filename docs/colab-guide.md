@@ -924,6 +924,7 @@ Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
 | `--output-name`        | Tên base cho tất cả file output                           | `video_synced`       |
 | `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap         | (tắt)                |
 | `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video     | `4`                  |
+| `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)  | `100`                |
 | `--no-gpu`             | Dùng `libx264` thay `h264_nvenc` (CPU mode)               | (tắt)                |
 | `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug        | (tắt)                |
 | `--subtitle-fontname`  | Font subtitle dùng khi burn hardsub                       | `Noto Sans CJK JP`   |

@@ -183,7 +183,8 @@ def run_sync_pipeline(args):
             max_workers=args.workers,
             use_gpu=not args.no_gpu,
             fps_str=fps_str,
-            fps_float=fps_float
+            fps_float=fps_float,
+            batch_size=args.batch_size,
         )
         
         if not Path(stretched_video_chunked).exists():
@@ -326,6 +327,7 @@ def main():
     
     # Performance
     parser.add_argument("--workers", type=int, default=4, help="FFmpeg workers song song")
+    parser.add_argument("--batch-size", type=int, default=100, help="Số segments mỗi batch Filter Complex (mặc định: 100)")
     parser.add_argument("--no-gpu", action="store_true", help="Dùng libx264 thay vì h264_nvenc")
     
     # Subtitle Style
