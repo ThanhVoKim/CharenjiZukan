@@ -169,8 +169,9 @@ def build_ffmpeg_batch_cmd(
         pts_factor = 1.0 / seg.video_speed
         stretched_duration_s = duration_s / seg.video_speed
 
-        # Độ dài output sau khi giãn — KHÔNG cộng thêm frame dư
-        expected_duration_s = stretched_duration_s
+        # Sử dụng math.ceil() để phản ánh chính xác hành vi AV_ROUND_UP của hàm av_rescale_q_rnd khi có eof_action=pass
+        expected_output_frames = math.ceil(stretched_duration_s * fps_float)
+        expected_duration_s = expected_output_frames / fps_float
 
         # Chuỗi filter cho 1 segment:
         # Cắt đúng thời gian (từ offset) -> Reset PTS -> Giãn PTS -> Nắn fps -> Chốt chặn đuôi trim
@@ -309,7 +310,8 @@ def process_video_chunks_parallel(
         duration_frames = round(((seg.orig_end - seg.orig_start) / 1000.0) * fps_float)
         duration_s = duration_frames / fps_float
         stretched_duration_s = duration_s / seg.video_speed
-        actual_dur = stretched_duration_s * 1000.0
+        expected_output_frames = math.ceil(stretched_duration_s * fps_float)
+        actual_dur = (expected_output_frames / fps_float) * 1000.0
         actual_durations.append(actual_dur)
         
     return output_video, actual_durations
