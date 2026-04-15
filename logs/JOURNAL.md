@@ -1,5 +1,50 @@
 # Project Journal
 
+## 2026-04-15: Cập nhật logic làm tròn AV_ROUND_UP + safe trim window cho video stretch
+
+### Yêu cầu
+
+- Đồng bộ toàn bộ công thức tính độ dài stretch theo hướng frame-based với hành vi FFmpeg `AV_ROUND_UP`.
+- Áp dụng công thức mới cho các vị trí liên quan đến video length và duration trả về để Audio/Subtitle map theo đúng timeline video đã encode.
+- Cập nhật test để phản ánh chính xác logic mới.
+
+### Thay đổi đã thực hiện
+
+1. **`sync_engine/video_processor.py` — `build_ffmpeg_batch_cmd`**:
+   - Đổi công thức làm tròn frame:
+     - Từ: `math.ceil(stretched_duration_s * fps_float)`
+     - Sang: `math.ceil(round(stretched_duration_s * fps_float, 4))`
+   - Đổi cơ chế chốt đầu ra từ `trim=duration=...` sang `trim=end_frame=...` để khóa cứng frame count.
+   - Thêm safe window cho trim đầu vào:
+     - `safe_start_s = max(0.0, exact_start_s - (0.5 / fps_float))`
+     - `safe_duration_s = (duration_frames - 0.5) / fps_float`
+   - Mục tiêu: giảm rủi ro hụt frame đầu do sai số timestamp ở biên frame.
+
+2. **`sync_engine/video_processor.py` — `build_ffmpeg_chunk_cmd`**:
+   - Đồng bộ cùng công thức frame-based:
+     - `expected_output_frames = math.ceil(round(stretched_duration_s * fps_float, 4))`
+     - `expected_duration_s = expected_output_frames / fps_float`
+   - Áp dụng safe trim window như batch mode và chốt bằng `trim=end_frame=...`.
+
+3. **`sync_engine/video_processor.py` — `process_video_chunks_parallel`**:
+   - Đồng bộ `actual_durations` theo đúng công thức frame-based mới:
+     - `expected_output_frames = math.ceil(round(stretched_duration_s * fps_float, 4))`
+     - `actual_dur = (expected_output_frames / fps_float) * 1000.0`
+   - Mục tiêu: giá trị duration dùng cho audio/subtitle remap khớp hành vi render video.
+
+4. **`tests/test_concat_demuxer.py`**:
+   - Cập nhật helper `_compute_expected_batch_duration()` theo công thức mới.
+   - Cập nhật `test_expected_duration_formula` dùng `ceil(round(..., 4))`.
+   - Cập nhật `test_frame_count` (Layer 2) và phần frame expectation (Layer 3) từ `round(...)` sang `math.ceil(round(..., 4))`.
+
+### Trạng thái hiện tại
+
+- ✅ Code production và test đã đồng bộ công thức làm tròn mới.
+- ✅ `actual_durations` hiện được tính theo đúng frame count đã chốt ở filter.
+- ⏳ Bước tiếp theo đề xuất: chạy lại Layer 2/Layer 3 để xác nhận drift duration/frame tiếp tục nằm trong tolerance 3 frames.
+
+---
+
 ## 2026-04-14: Loại bỏ công thức +1 frame dư gây desync Audio/Subtitle
 
 ### Yêu cầu

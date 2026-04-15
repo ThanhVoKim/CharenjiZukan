@@ -72,18 +72,26 @@ def build_ffmpeg_chunk_cmd(
     exact_offset_s = start_s - rough_start_s
 
     pts_factor = 1.0 / video_speed
-    new_duration_s = duration_s * pts_factor  # Độ dài output sau stretch
+    stretched_duration_s = duration_s * pts_factor
+
+    # Khử sai số float trước khi làm tròn frame count theo AV_ROUND_UP
+    expected_output_frames = math.ceil(round(stretched_duration_s * fps_float, 4))
+    expected_duration_s = expected_output_frames / fps_float
+
+    # Cắt sớm hơn nửa frame để tránh mất frame đầu do sai số timestamp
+    safe_start_s = max(0.0, exact_offset_s - (0.5 / fps_float))
+    safe_duration_s = (duration_frames - 0.5) / fps_float
 
     encoder = "h264_nvenc" if use_gpu else "libx264"
     preset  = "p5"         if use_gpu else "fast"
     quality = ["-cq", "23"] if use_gpu else ["-crf", "23"]
 
     filter_chain = ",".join([
-        f"trim=start={exact_offset_s:.6f}:duration={duration_s:.6f}",
+        f"trim=start={safe_start_s:.6f}:duration={safe_duration_s:.6f}",
         "setpts=PTS-STARTPTS", # Đặt lại PTS về 0 ngay sau khi cắt
         f"setpts={pts_factor:.6f}*PTS", # Stretch video
         f"fps={fps_str}:eof_action=pass", # Đảm bảo constant frame rate, không sinh thêm frame khi EOF
-        f"trim=duration={new_duration_s:.6f}",  # ← Chốt chặn frame count
+        f"trim=end_frame={expected_output_frames}",  # Chốt cứng số frame đầu ra
     ])
 
     return [
@@ -169,19 +177,24 @@ def build_ffmpeg_batch_cmd(
         pts_factor = 1.0 / seg.video_speed
         stretched_duration_s = duration_s / seg.video_speed
 
-        # Sử dụng math.ceil() để phản ánh chính xác hành vi AV_ROUND_UP của hàm av_rescale_q_rnd khi có eof_action=pass
-        expected_output_frames = math.ceil(stretched_duration_s * fps_float)
+        # 1) Khử sai số float trước khi làm tròn theo AV_ROUND_UP
+        expected_output_frames = math.ceil(round(stretched_duration_s * fps_float, 4))
+
+        # 2) Thời lượng "vàng" dùng để đồng bộ Audio/Subtitle
         expected_duration_s = expected_output_frames / fps_float
 
+        # 3) Cửa sổ trim an toàn để không hụt frame đầu vào
+        safe_start_s = max(0.0, exact_start_s - (0.5 / fps_float))
+        safe_duration_s = (duration_frames - 0.5) / fps_float
+
         # Chuỗi filter cho 1 segment:
-        # Cắt đúng thời gian (từ offset) -> Reset PTS -> Giãn PTS -> Nắn fps -> Chốt chặn đuôi trim
+        # Cắt đầu vào an toàn -> Reset PTS -> Giãn PTS -> Nắn fps -> Chốt cứng frame count
         chain = (
-            f"[0:v]trim=start={exact_start_s:.6f}:duration={duration_s:.6f},"
+            f"[0:v]trim=start={safe_start_s:.6f}:duration={safe_duration_s:.6f},"
             f"setpts=PTS-STARTPTS,"
             f"setpts={pts_factor:.6f}*PTS,"
             f"fps={fps_str}:eof_action=pass,"
-            # Chốt chặn trim lần 2: Đảm bảo luồng không bao giờ dư 1 miligiây nào
-            f"trim=duration={expected_duration_s:.6f}[v{i}]"
+            f"trim=end_frame={expected_output_frames}[v{i}]"
         )
         filter_parts.append(chain)
         stream_labels.append(f"[v{i}]")
@@ -301,17 +314,16 @@ def process_video_chunks_parallel(
     output_video = str(Path(output_dir) / "video_stretched.mp4")
     _concat_chunks(ordered_batches, output_video)
     
-    # 3. Tính toán actual_durations dựa trên công thức chuẩn (KHÔNG +1 frame dư)
-    # Công thức: stretched_duration = (orig_duration / video_speed)
-    # Điều này đảm bảo actual_durations khớp chính xác với video output,
-    # tránh Audio/Subtitle bị lệch (delayed) so với hình ảnh.
+    # 3. Tính toán actual_durations theo cùng công thức frame-based với batch filter
+    # để đảm bảo Audio/Subtitle luôn đồng bộ với video output.
     actual_durations = []
     for seg in timeline:
         duration_frames = round(((seg.orig_end - seg.orig_start) / 1000.0) * fps_float)
         duration_s = duration_frames / fps_float
         stretched_duration_s = duration_s / seg.video_speed
-        expected_output_frames = math.ceil(stretched_duration_s * fps_float)
-        actual_dur = (expected_output_frames / fps_float) * 1000.0
+        expected_output_frames = math.ceil(round(stretched_duration_s * fps_float, 4))
+        expected_duration_s = expected_output_frames / fps_float
+        actual_dur = expected_duration_s * 1000.0
         actual_durations.append(actual_dur)
         
     return output_video, actual_durations

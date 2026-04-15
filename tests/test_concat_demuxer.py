@@ -160,15 +160,16 @@ def _compute_expected_batch_duration(
 ) -> float:
     """
     Tính toán expected duration (ms) của một batch segments
-    dựa trên công thức giống hệt process_video_chunks_parallel.
-    KHÔNG cộng thêm frame dư (+1) để khớp với video output thực tế.
+    theo cùng công thức frame-based trong process_video_chunks_parallel.
     """
     total_ms = 0.0
     for seg in segments:
         duration_frames = round(((seg.orig_end - seg.orig_start) / 1000.0) * fps_float)
         duration_s = duration_frames / fps_float
         stretched_duration_s = duration_s / seg.video_speed
-        total_ms += stretched_duration_s * 1000.0
+        expected_output_frames = math.ceil(round(stretched_duration_s * fps_float, 4))
+        expected_duration_s = expected_output_frames / fps_float
+        total_ms += expected_duration_s * 1000.0
     return total_ms
 
 
@@ -233,11 +234,12 @@ class TestLayer1_FilterComplexBatchUnit:
         assert cmd[ss_idx + 1] == "0.000000"
         assert "-filter_complex" in cmd
         filter_val = cmd[cmd.index("-filter_complex") + 1]
-        # exact_start = 0 - 0 = 0
-        assert "trim=start=0.000000:duration=1.000000" in filter_val
+        # exact_start = 0 - 0 = 0 -> safe_start = max(0, 0 - 0.5/30) = 0
+        assert "trim=start=0.000000:duration=0.983333" in filter_val
         assert "setpts=PTS-STARTPTS" in filter_val
         assert "setpts=1.000000*PTS" in filter_val  # speed=1.0 → factor=1.0
         assert "fps=30/1" in filter_val
+        assert "trim=end_frame=30[v0]" in filter_val
         assert "concat=n=1:v=1:a=0[outv]" in filter_val
         assert "-map" in cmd
         assert "[outv]" in cmd
@@ -265,8 +267,9 @@ class TestLayer1_FilterComplexBatchUnit:
         assert cmd[ss_idx + 1] == "0.000000"
         filter_val = cmd[cmd.index("-filter_complex") + 1]
         assert "setpts=2.000000*PTS" in filter_val  # 1/0.5 = 2.0
-        # exact_start = 1.0 - 0.0 = 1.0
-        assert "trim=start=1.000000:duration=2.000000" in filter_val
+        # exact_start = 1.0 - 0.0 = 1.0 -> safe_start = 0.983333, safe_duration=1.983333
+        assert "trim=start=0.983333:duration=1.983333" in filter_val
+        assert "trim=end_frame=60[v0]" in filter_val
 
     def test_multiple_segments_concat_labels(self):
         """3 segments (0-1s, 1-2s, 2-3s) → rough_start=0, exact_starts=0,1,2."""
@@ -317,8 +320,9 @@ class TestLayer1_FilterComplexBatchUnit:
         ss_idx = cmd.index("-ss")
         assert cmd[ss_idx + 1] == "28.000000"
         filter_val = cmd[cmd.index("-filter_complex") + 1]
-        # exact_start = 30 - 28 = 2
-        assert "trim=start=2.000000:duration=1.000000" in filter_val
+        # exact_start = 30 - 28 = 2 -> safe_start = 1.983333, safe_duration=0.983333
+        assert "trim=start=1.983333:duration=0.983333" in filter_val
+        assert "trim=end_frame=30[v0]" in filter_val
 
     def test_hybrid_seek_clamp_zero(self):
         """Segment bắt đầu ở giây 1 → rough_start=0 (clamp, không âm)."""
@@ -340,7 +344,8 @@ class TestLayer1_FilterComplexBatchUnit:
         assert cmd[cmd.index("-ss") + 1] == "0.000000"
         # exact_start = 1 - 0 = 1
         filter_val = cmd[cmd.index("-filter_complex") + 1]
-        assert "trim=start=1.000000:duration=1.000000" in filter_val
+        assert "trim=start=0.983333:duration=0.983333" in filter_val
+        assert "trim=end_frame=30[v0]" in filter_val
 
     def test_gpu_encoder_selection(self):
         """use_gpu=True → h264_nvenc, preset=p5."""
@@ -382,8 +387,10 @@ class TestLayer1_FilterComplexBatchUnit:
         stretched_duration_s = duration_s / seg.video_speed
         assert stretched_duration_s == 2.0
 
-        # Công thức mới: KHÔNG cộng thêm frame dư
-        actual_dur_ms = stretched_duration_s * 1000.0
+        # Công thức mới: ceil(round(stretched_duration_s * fps, 4))
+        expected_output_frames = math.ceil(round(stretched_duration_s * fps, 4))
+        actual_dur_ms = (expected_output_frames / fps) * 1000.0
+        assert expected_output_frames == 60
         assert actual_dur_ms == pytest.approx(2000.0, abs=0.01)
 
 
@@ -463,7 +470,7 @@ class TestLayer2_FilterComplexBatchSynthetic:
             duration_frames = round(((seg.orig_end - seg.orig_start) / 1000.0) * data["fps"])
             duration_s = duration_frames / data["fps"]
             stretched_duration_s = duration_s / seg.video_speed
-            expected_frames += round(stretched_duration_s * data["fps"])
+            expected_frames += math.ceil(round(stretched_duration_s * data["fps"], 4))
 
         actual_frames = _probe_frame_count(data["final"])
 
@@ -650,7 +657,7 @@ class TestLayer3_FilterComplexBatchRealVideo:
             duration_frames = round(((seg.orig_end - seg.orig_start) / 1000.0) * fps)
             duration_s = duration_frames / fps
             stretched_duration_s = duration_s / seg.video_speed
-            expected_frames += round(stretched_duration_s * fps)
+            expected_frames += math.ceil(round(stretched_duration_s * fps, 4))
 
         # Probe thông tin (có thể chậm với video dài)
         actual_frames = _probe_frame_count(output_video)
