@@ -66,13 +66,11 @@ token = userdata.get('github_token')
 
 ### 1.3. Cài đặt WhisperX (tùy chọn - cho Speech-to-Text)
 
-Nếu cần chuyển video thành subtitle, cài đặt thêm WhisperX:
+Nếu cần chuyển video thành subtitle, cài đặt thêm WhisperX bằng Optional Dependency `whisper` đã cấu hình sẵn trong project:
 
 ```colab
-# Tạo virtual environment và cài whisperx
-!uv venv
-!uv pip install -p .venv/bin/python whisperx
-!uv pip install -p .venv/bin/python pyrubberband
+# Tải và cài đặt các phụ thuộc nặng của WhisperX (Torch, Faster-Whisper,...)
+!uv pip install -e .[whisper]
 
 !apt install libcudnn8 libcudnn8-dev -y
 
@@ -127,34 +125,64 @@ Nếu muốn dùng Qwen3-VL thay cho DeepSeek-OCR-2 (có tốc độ chậm hơn
 
 ### 2.0 Speech-to-Text với WhisperX (cho video có giọng đọc rõ ràng)
 
-Chuyển audio thành file subtitle .srt:
+Chuyển video/audio thành file subtitle `.srt` dùng WhisperX. Công cụ đã được tối ưu hóa cho **Batch Processing** (chạy nhiều file cùng lúc) giúp tiết kiệm VRAM và giảm thời gian tải mô hình.
 
-#### Tham số WhisperX
-
-| Tham số          | Mô tả           | Giá trị khuyến nghị                              |
-| ---------------- | --------------- | ------------------------------------------------ |
-| `--model`        | Model Whisper   | `large-v2` (chính xác cao nhất)                  |
-| `--language`     | Ngôn ngữ audio  | `zh` (Trung), `ja` (Nhật), `en` (Anh)            |
-| `--align_model`  | Model alignment | Xem [HuggingFace](https://huggingface.co/models) |
-| `--device`       | Thiết bị xử lý  | `cuda` (GPU)                                     |
-| `--compute_type` | Precision       | `float16` (GPU), `int8` (CPU)                    |
-| `--batch_size`   | Batch size      | `16` (GPU L4)                                    |
-
-#### Output
-
-- File `.srt` tại thư mục output
-- File `.json` với thông tin chi tiết
+#### Chạy 1 file đơn lẻ
 
 ```colab
-!uv run whisperx "/content/audio_muted.wav" \
-  --model large-v2 \
-  --language zh \
-  --align_model jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn \
-  --device cuda \
-  --compute_type float16 \
-  --batch_size 16 \
-  --output_dir "/content/output"
+!uv run whisper-srt \
+  --input /content/video.mp4 \
+  --model large-v3 \
+  --lang ja
 ```
+
+_Output mặc định sẽ lưu cùng thư mục với file input: `/content/video.srt`_
+
+#### Chạy hàng loạt nhiều file (Tối ưu VRAM) bằng JSON Batch
+
+Để tối ưu, hãy truyền vào một file JSON chứa danh sách các task. WhisperX sẽ tải model đúng **1 lần** cho toàn bộ danh sách, giúp tăng tốc cực nhanh.
+
+Ví dụ file `tasks.json`:
+
+```json
+[
+  {
+    "input": "/content/Video/bai1.mp4",
+    "output": "/content/drive/MyDrive/PhuDe/bai1.srt"
+  },
+  {
+    "input": "/content/Video/bai2.mp4",
+    "output": "/content/drive/MyDrive/PhuDe/bai2.srt"
+  }
+]
+```
+
+Chạy CLI với file JSON:
+
+```colab
+!uv run whisper-srt \
+  --task-file tasks.json \
+  --model large-v3 \
+  --batch-size 32
+```
+
+#### Bảng tham số chính
+
+| Tham số             | Mô tả                                                                     | Mặc định                            |
+| ------------------- | ------------------------------------------------------------------------- | ----------------------------------- |
+| `--input`, `-i`     | File video hoặc audio đầu vào                                             | (bắt buộc nếu không dùng task-file) |
+| `--task-file`, `-t` | File JSON cấu hình chạy hàng loạt (`{"input": "...", "output": "..."}`)   | (không dùng)                        |
+| `--output`, `-o`    | File .srt đầu ra (chỉ dùng với `--input`)                                 | `<input_dir>/<name>.srt`            |
+| `--model`, `-m`     | Model Whisper (`tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3`) | `large-v3`                          |
+| `--lang`, `-l`      | Ép buộc mã ngôn ngữ (`vi`, `en`, `ja`, `zh`...)                           | (auto-detect)                       |
+| `--batch-size`      | Batch size quá trình nhận dạng                                            | `16` (GPU L4 dùng `32`)             |
+| `--max-speech-ms`   | Cắt các câu thoại dài hơn ngưỡng này (milliseconds)                       | `6000`                              |
+| `--min-seg-ms`      | Gộp các câu thoại ngắn hơn ngưỡng này (tránh đọc cụt lủn)                 | `1000`                              |
+| `--maxlen`          | Ký tự tối đa mỗi dòng (ngắt dòng nếu dài hơn)                             | `0` (KHÔNG ngắt dòng)               |
+| `--vad-chunk`       | Giới hạn cứng (giây) cho mỗi đoạn audio mà VAD cắt ra                     | `0` (mặc định 30s của WhisperX)     |
+| `--max-chars`       | Tách câu theo độ dài ký tự tối đa                                         | `0` (auto: CJK 35, Latin 80)        |
+| `--no-align`        | Bỏ qua bước Forced Alignment (nhanh hơn nhưng kém chính xác thời gian)    | (tắt)                               |
+| `--verbose`         | Bật log chi tiết                                                          | (tắt)                               |
 
 ### 2.1. Mute Audio (mute-srt)
 

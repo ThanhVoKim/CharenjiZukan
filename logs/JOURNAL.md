@@ -1,5 +1,49 @@
 # Project Journal
 
+## 2026-04-22: Đồng bộ và Tối ưu hóa WhisperX CLI (Batch Processing)
+
+### Yêu cầu
+
+- Đồng bộ file độc lập `cli/whisper_srt.py` vào hệ thống kiến trúc chung của dự án.
+- Khắc phục tình trạng "nuốt RAM/VRAM" khi chạy trên Colab bằng vòng lặp, bằng cách tái thiết kế luồng xử lý sang dạng **Batch Processing** (tải AI 1 lần, xử lý N file).
+- Cho phép nhận input cấu hình qua file JSON (Batch Task Config) để dễ dàng mapping đường dẫn input -> output.
+- Quản lý dependencies nặng (`whisperx`) thông qua cơ chế Optional Dependencies (`[extras]`) trong `pyproject.toml` để giữ nhẹ môi trường mặc định.
+- Tái sử dụng các tiện ích nội bộ (utils) thay vì tự viết lại các hàm xử lý lặp lại.
+
+### Thay đổi đã thực hiện
+
+1. **`pyproject.toml` và Dependencies**:
+   - Thêm `whisper = ["whisperx"]` vào mục `[project.optional-dependencies]`.
+   - Đăng ký lệnh `whisper-srt` vào mục `[project.scripts]`.
+
+2. **`utils/audio_utils.py`**:
+   - Bổ sung hàm `extract_audio_direct()` và `get_audio_duration_direct()` dùng `subprocess` gọi `ffmpeg/ffprobe` trực tiếp để tránh ngốn RAM khi load audio dài vào `pydub`.
+
+3. **`cli/whisper_srt.py` — Refactor toàn diện**:
+   - Thay thế `logging.getLogger` thành `from utils.logger import get_logger`.
+   - Thay thế việc tự tạo chuỗi SRT bằng `segments_to_srt` từ `utils.srt_parser`.
+   - Bỏ hoàn toàn các thư mục cứng (`cli/output`, `cli/tmp`), sử dụng `tempfile` và xuất output theo cấu hình linh hoạt.
+   - Sửa mặc định tham số `--maxlen` thành `0` (không tự ngắt dòng).
+
+4. **Kiến trúc Batch Processing**:
+   - Tái thiết kế hàm `transcribe_whisperx` thành `run_batch_transcribe` xử lý một mảng tasks `[{"input": "...", "output": "..."}]`.
+   - Tách làm 2 giai đoạn (Phases):
+     - **Phase 1**: Tải model Whisper -> Transcribe toàn bộ danh sách video -> Xóa model & Xả VRAM.
+     - **Phase 2**: Tải model Align -> Align toàn bộ kết quả -> Xóa model & Xả VRAM.
+   - Thêm tham số CLI `--task-file` nhận file JSON làm input.
+
+5. **Tài liệu (`docs/colab-guide.md`)**:
+   - Cập nhật hướng dẫn cài đặt dùng `!uv pip install -e .[whisper]`.
+   - Viết lại mục hướng dẫn WhisperX, bổ sung cách dùng file JSON batch task và liệt kê toàn bộ các tham số như `--vad-chunk`, `--max-chars`, `--verbose`.
+
+### Trạng thái hiện tại
+
+- ✅ Chức năng Batch Processing xử lý song song nhiều video chỉ với 1 lần load mô hình AI đã hoàn tất.
+- ✅ CLI đã được đồng bộ hoàn toàn với kiến trúc hệ thống (logger, utils, config).
+- ✅ Tài liệu đã phản ánh đúng phương pháp sử dụng mới nhất.
+
+---
+
 ## 2026-04-15: Cập nhật logic làm tròn AV_ROUND_UP + safe trim window cho video stretch
 
 ### Yêu cầu

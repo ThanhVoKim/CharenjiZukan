@@ -5,6 +5,10 @@ import subprocess
 import time
 import sys
 
+# Dọn dẹp tiến trình cũ...
+os.system("pkill -f 'run.py'")
+time.sleep(2)
+
 def main():
     print("=======================================================")
     print("  🚀 BẮT ĐẦU QUY TRÌNH SETUP VOICEVOX NEMO ENGINE 🚀  ")
@@ -92,6 +96,53 @@ def main():
         sys.exit(1)
     else:
         print(f"✅ ĐÃ ÉP CÀI ĐẶT VÀO LÕI THÀNH CÔNG:\n{check_file}")
+
+    # ---------------------------------------------------------
+    # PHẦN 3: KHỞI ĐỘNG SERVER NGẦM (BACKGROUND)
+    # ---------------------------------------------------------
+    print("\n🚀 7. Khởi động Server ngầm...")
+    os.chdir("/content/voicevox_nemo_engine")
+    # Định vị thư mục Core AI
+    found_core = glob.glob("/content/voicevox_nemo_engine/nemo_core/**/libvoicevox_core.so", recursive=True)
+    real_core_dir = os.path.dirname(os.path.abspath(found_core[0])) if found_core else "/content/voicevox_nemo_engine/nemo_core"
+    log_file = open("engine.log", "w")
+    # Chạy Server và cắt đứt liên kết với Cell bằng start_new_session=True
+    process = subprocess.Popen(
+        ["uv", "run", "run.py", 
+         "--use_gpu", 
+         "--host", "127.0.0.1", 
+         "--port", "50121", 
+         "--voicelib_dir", real_core_dir,  
+         "--runtime_dir", real_core_dir],
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,  # <--- BÍ QUYẾT 1: Chặn luồng gõ phím từ Colab
+        start_new_session=True,    # <--- BÍ QUYẾT 2: Đẩy Server thành một Group độc lập
+        close_fds=True             # <--- BÍ QUYẾT 3: Đóng toàn bộ các cổng kết nối thừa
+    )
+
+    # Giải phóng file log ở tiến trình cha (Server con vẫn đang giữ để ghi)
+    log_file.close() 
+
+    print("⏳ Đang đợi Server khởi động...")
+    with open("engine.log", "r") as f:
+        while True:
+            line = f.readline()
+            if line:
+                print(line.strip())
+                if "Uvicorn running on" in line or "Application startup complete" in line:
+                    print("-" * 50)
+                    print("\n🎉 THÀNH CÔNG TUYỆT ĐỐI! SERVER ĐANG CHẠY NGẦM.")
+                    print("👉 File Setup kết thúc tại đây. Colab sẽ nhả cell ngay bây giờ!")
+                    break # Thoát vòng lặp
+            else:
+                if process.poll() is not None:
+                    print("\n❌ Server bị Crash. Hãy xem file engine.log.")
+                    break
+                time.sleep(0.5)
+
+    # Ép Python Script kết thúc dứt điểm ngay tại đây, nhả Cell cho Colab
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()
