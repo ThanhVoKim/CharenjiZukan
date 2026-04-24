@@ -177,6 +177,7 @@ Chạy CLI với file JSON:
 | `--lang`, `-l`      | Ép buộc mã ngôn ngữ (`vi`, `en`, `ja`, `zh`...)                           | (auto-detect)                       |
 | `--batch-size`      | Batch size quá trình nhận dạng                                            | `16` (GPU L4 dùng `32`)             |
 | `--max-speech-ms`   | Cắt các câu thoại dài hơn ngưỡng này (milliseconds)                       | `6000`                              |
+| `--pause-thresh`    | Khoảng lặng tối thiểu để cắt câu (nếu < 300ms sẽ tắt cắt thông minh)      | `800`                               |
 | `--min-seg-ms`      | Gộp các câu thoại ngắn hơn ngưỡng này (tránh đọc cụt lủn)                 | `1000`                              |
 | `--maxlen`          | Ký tự tối đa mỗi dòng (ngắt dòng nếu dài hơn)                             | `0` (KHÔNG ngắt dòng)               |
 | `--vad-chunk`       | Giới hạn cứng (giây) cho mỗi đoạn audio mà VAD cắt ra                     | `0` (mặc định 30s của WhisperX)     |

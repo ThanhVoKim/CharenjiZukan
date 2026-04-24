@@ -37,7 +37,7 @@ def _is_cjk(lang: str) -> bool:
 # PHẦN 1 — TEXT PROCESSING & SEGMENTATION
 # ═══════════════════════════════════════════════════════════════
 
-def _resegment(texts: List[Dict], language: str, max_speech_ms: int) -> List[Dict]:
+def _resegment(texts: List[Dict], language: str, max_speech_ms: int, pause_thresh_ms: int = 800) -> List[Dict]:
     use_space  = not _is_cjk(language)
     end_punc   = set(".?!。？！\n")
     comma_punc = set(",;:，；：、")
@@ -89,11 +89,11 @@ def _resegment(texts: List[Dict], language: str, max_speech_ms: int) -> List[Dic
                 if chunk:
                     if has_punc(prev_word_text, end_punc):
                         split = True
-                    elif pause >= 800:
+                    elif pause >= pause_thresh_ms:
                         split = True
-                    elif has_punc(prev_word_text, comma_punc) and pause >= 300:
+                    elif pause_thresh_ms >= 400 and has_punc(prev_word_text, comma_punc) and pause >= (pause_thresh_ms * 0.375):
                         split = True
-                    elif cur_dur > max_speech_ms * 0.5 and pause >= 400:
+                    elif pause_thresh_ms >= 400 and cur_dur > max_speech_ms * 0.5 and pause >= (pause_thresh_ms * 0.5):
                         split = True
 
             if split:
@@ -322,6 +322,7 @@ def run_batch_transcribe(
     compute_type:    str   = "float16",
     batch_size:      int   = 16,
     max_speech_ms:   int   = 6000,
+    pause_thresh_ms: int   = 800,
     min_seg_ms:      int   = 1000,
     max_chars:       int   = 0,
     vad_chunk_size:  int   = 0,
@@ -459,7 +460,7 @@ def run_batch_transcribe(
             })
 
         # Resegment
-        srt_list = _resegment(texts, detected_lang, max_speech_ms)
+        srt_list = _resegment(texts, detected_lang, max_speech_ms, pause_thresh_ms=pause_thresh_ms)
         
         # Merge short
         srt_list = _merge_short_segments(srt_list, min_dur_ms=min_seg_ms, use_space=not _is_cjk(detected_lang))
@@ -521,6 +522,7 @@ def build_parser() -> argparse.ArgumentParser:
     seg = parser.add_argument_group("Segmentation")
     seg.add_argument("--vad-chunk", type=int, default=0, help="VAD chunk_size (0=mặc định 30s)")
     seg.add_argument("--max-speech-ms", type=int, default=6000, help="Cắt câu dài hơn N ms (mặc định: 6000)")
+    seg.add_argument("--pause-thresh", type=int, default=800, help="Khoảng lặng tối thiểu để cắt câu (mặc định: 800ms)")
     seg.add_argument("--min-seg-ms", type=int, default=1000, help="Gộp câu ngắn hơn N ms (mặc định: 1000)")
     seg.add_argument("--max-chars", type=int, default=0, help="Tách câu theo độ dài ký tự (0=auto)")
     seg.add_argument("--maxlen", type=int, default=0, help="Ký tự tối đa/dòng (mặc định: 0 = KHÔNG ngắt dòng)")
@@ -583,6 +585,7 @@ def main():
             compute_type  = compute_type,
             batch_size    = args.batch_size,
             max_speech_ms = args.max_speech_ms,
+            pause_thresh_ms = args.pause_thresh,
             min_seg_ms    = args.min_seg_ms,
             max_chars     = args.max_chars,
             vad_chunk_size= args.vad_chunk,
