@@ -1,5 +1,44 @@
 # Project Journal
 
+## 2026-04-25: WhisperX CLI — Hỗ trợ Output Folder và Xuất Transcript TXT
+
+### Yêu cầu
+
+- Thay đổi cách xử lý tham số `output` trong `cli/whisper_srt.py`:
+  - `output` giờ có thể là một **thư mục** thay vì chỉ là đường dẫn file `.srt`.
+  - Khi `output` là thư mục, code tự động lấy `stem` từ tên file video gốc và tạo 2 file trong thư mục đó:
+    - `[stem].srt`: File phụ đề.
+    - `[stem].txt`: File transcript nguyên bản (full text).
+- Trích xuất `full_text` từ kết quả WhisperX (`result.get("text", "")`) nếu có.
+- Giữ backward compatibility: nếu `output` là file `.srt`, hành vi cũ vẫn hoạt động.
+
+### Thay đổi đã thực hiện
+
+1. **`cli/whisper_srt.py`**:
+   - Thêm hàm `_resolve_output_paths(task)` để phân biệt output là folder hay file `.srt`.
+   - Thêm hàm `_write_transcript_txt(full_text, srt_list, txt_path, use_space)`:
+     - Ưu tiên dùng `full_text` từ WhisperX nếu có.
+     - Fallback nối các segment text thành đoạn văn liền mạch.
+   - Trong `run_batch_transcribe` (Phase 3):
+     - Sau khi transcribe, lưu `full_text` vào `raw_results`.
+     - Sau post-processing, resolve `output_dir` và `stem`, tạo cả `.srt` và `.txt`.
+   - Trong `main()`:
+     - Khi dùng `--input` + `--output`, nếu `--output` không phải file `.srt` → coi là thư mục và append `[stem].srt`.
+   - Cập nhật help text của `--output` để phản ánh hành vi mới.
+
+### Trạng thái hiện tại
+
+- ✅ Code đã pass kiểm tra cú pháp (`python -m py_compile`).
+- ✅ Backward compatible với task JSON cũ có `output` là file `.srt`.
+- ✅ Hỗ trợ task JSON mới có `output` là folder.
+
+### Đối chiếu Data Flow
+
+- Thay đổi chỉ nằm ở cơ chế resolve đường dẫn output và ghi thêm file `.txt` trong Phase 3.
+- Không ảnh hưởng đến luồng transcribe/align/post-process.
+
+---
+
 ## 2026-04-22: Đồng bộ và Tối ưu hóa WhisperX CLI (Batch Processing)
 
 ### Yêu cầu

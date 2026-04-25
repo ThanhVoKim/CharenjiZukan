@@ -69,12 +69,18 @@ token = userdata.get('github_token')
 Nếu cần chuyển video thành subtitle, cài đặt thêm WhisperX bằng Optional Dependency `whisper` đã cấu hình sẵn trong project:
 
 ```colab
-# Tải và cài đặt các phụ thuộc nặng của WhisperX (Torch, Faster-Whisper,...)
-!uv pip install -e .[whisper]
+# !uv pip install -e .[whisper]
 
+# Tạo môi trường ảo riêng biệt cho Whisper
+!uv venv .venv-whisper
+
+# Cài đặt whisperx và các thư viện cần thiết vào môi trường này
+!uv pip install -p .venv-whisper/bin/python whisperx pydub
+
+# Cài đặt thư viện hệ thống
 !apt install libcudnn8 libcudnn8-dev -y
 
-# Set environment variables
+# Đặt biến môi trường
 %env MPLBACKEND=agg
 %env TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=true
 %env LD_LIBRARY_PATH=/usr/lib64-nvidia:/usr/local/lib/python3.12/dist-packages/nvidia/cudnn/lib/
@@ -130,10 +136,14 @@ Chuyển video/audio thành file subtitle `.srt` dùng WhisperX. Công cụ đã
 #### Chạy 1 file đơn lẻ
 
 ```colab
-!uv run whisper-srt \
-  --input /content/video.mp4 \
-  --model large-v3 \
-  --lang ja
+# Lưu ý: Gọi file python bên trong .venv-whisper
+!.venv-whisper/bin/python cli/whisper_srt.py \
+  --input /content/7620801394840177960_hd.mp4 \
+  --model large-v2 \
+  --lang zh \
+  --pause-thresh 100 \
+  --batch-size 32 \
+  --verbose
 ```
 
 _Output mặc định sẽ lưu cùng thư mục với file input: `/content/video.srt`_
@@ -160,7 +170,7 @@ Ví dụ file `tasks.json`:
 Chạy CLI với file JSON:
 
 ```colab
-!uv run whisper-srt \
+!.venv-whisper/bin/python cli/whisper_srt.py \
   --task-file tasks.json \
   --model large-v3 \
   --batch-size 32

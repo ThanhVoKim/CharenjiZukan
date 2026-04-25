@@ -33,6 +33,55 @@ def _is_cjk(lang: str) -> bool:
     return lang.lower().split("-")[0] in _CJK_LANGS
 
 
+def _resolve_output_paths(task: Dict[str, str]) -> Tuple[Path, str]:
+    """
+    Xác định output directory và file stem từ task.
+
+    - Nếu `task["output"]` không có suffix `.srt` → coi là thư mục.
+      File sẽ được tạo trong thư mục đó với tên `[stem của input]`.
+    - Nếu `task["output"]` có suffix `.srt` → backward compatible,
+      dùng parent làm thư mục và stem từ file output.
+
+    Returns:
+        (output_dir, stem)
+    """
+    inp_path = Path(task["input"])
+    out_path = Path(task["output"])
+
+    if out_path.suffix.lower() != ".srt":
+        output_dir = out_path
+        stem = inp_path.stem
+    else:
+        output_dir = out_path.parent
+        stem = out_path.stem
+
+    return output_dir, stem
+
+
+def _write_transcript_txt(
+    full_text: Optional[str],
+    srt_list: List[Dict],
+    txt_path: Path,
+    use_space: bool = True,
+) -> None:
+    """
+    Ghi transcript nguyên bản ra file `.txt`.
+
+    Ưu tiên dùng `full_text` từ WhisperX nếu có.
+    Nếu không, nối các segment text thành đoạn văn liền mạch.
+    """
+    if full_text:
+        content = full_text.strip()
+    else:
+        sep = " " if use_space else ""
+        parts = [seg["text"].strip() for seg in srt_list if seg.get("text")]
+        content = sep.join(parts)
+        if use_space:
+            content = re.sub(r"\s+", " ", content).strip()
+
+    txt_path.write_text(content, encoding="utf-8")
+
+
 # ═══════════════════════════════════════════════════════════════
 # PHẦN 1 — TEXT PROCESSING & SEGMENTATION
 # ═══════════════════════════════════════════════════════════════
@@ -371,12 +420,18 @@ def run_batch_transcribe(
                 
                 # Transcribe
                 result = model.transcribe(audio, batch_size=batch_size)
-                
+
+                # Trích xuất full text nếu WhisperX cung cấp
+                full_text = result.get("text", "")
+                if full_text:
+                    full_text = full_text.strip()
+
                 # Store raw result and keep audio for alignment
                 raw_results.append({
                     "task": task,
-                    "audio": audio, # Tương đối nhỏ vì là 16kHz mono NumPy array
-                    "result": result
+                    "audio": audio,  # Tương đối nhỏ vì là 16kHz mono NumPy array
+                    "result": result,
+                    "full_text": full_text,
                 })
             except Exception as e:
                 logger.error(f"❌ Lỗi xử lý {inp}: {e}")
@@ -475,19 +530,33 @@ def run_batch_transcribe(
             for seg in srt_list:
                 seg["text"] = split_text_by_maxlen(seg["text"], effective_maxlen)
 
+        # Resolve output directory and stem
+        output_dir, stem = _resolve_output_paths(task)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        srt_path = output_dir / f"{stem}.srt"
+        txt_path = output_dir / f"{stem}.txt"
+
         # Write SRT
-        out_path = Path(task["output"])
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        
         srt_content = segments_to_srt(srt_list)
-        out_path.write_text(srt_content, encoding="utf-8")
-        
+        srt_path.write_text(srt_content, encoding="utf-8")
+
+        # Write TXT transcript
+        _write_transcript_txt(
+            item.get("full_text"),
+            srt_list,
+            txt_path,
+            use_space=not _is_cjk(detected_lang),
+        )
+
         final_outputs.append({
             "input": task["input"],
-            "output": str(out_path),
-            "lines": len(srt_list)
+            "output": str(srt_path),
+            "txt_output": str(txt_path),
+            "lines": len(srt_list),
         })
-        logger.info(f"   ✅ Saved {len(srt_list)} lines -> {out_path}")
+        logger.info(f"   ✅ Saved {len(srt_list)} lines -> {srt_path}")
+        logger.info(f"   ✅ Saved transcript -> {txt_path}")
 
     elapsed = time.time() - t0
     logger.info(f"🎉 Hoàn thành xử lý {len(tasks)} file trong {elapsed:.1f}s")
@@ -507,7 +576,9 @@ def build_parser() -> argparse.ArgumentParser:
     io = parser.add_argument_group("Input / Output")
     # Cho phép truyền 1 file hoặc truyền 1 file JSON chứa danh sách task
     io.add_argument("--input",  "-i", default=None, metavar="FILE", help="Đường dẫn 1 file video/audio đầu vào")
-    io.add_argument("--output", "-o", default=None, metavar="FILE", help="Đường dẫn file .srt đầu ra (dùng cùng --input)")
+    io.add_argument("--output", "-o", default=None, metavar="FILE_OR_DIR",
+                    help="Đường dẫn file .srt hoặc thư mục đầu ra (dùng cùng --input). "
+                         "Nếu là thư mục, sẽ tạo [tên_video].srt và [tên_video].txt")
     io.add_argument("--task-file", "-t", default=None, metavar="JSON_FILE", help="File JSON chứa danh sách [{'input': '...', 'output': '...'}]")
 
     mdl = parser.add_argument_group("Model")
@@ -558,7 +629,15 @@ def main():
         if not inp.exists():
             logger.error(f"File input không tồn tại: {inp}")
             sys.exit(1)
-        out = args.output or str(inp.parent / f"{inp.stem}.srt")
+
+        if args.output:
+            out = Path(args.output)
+            # Nếu output không phải file .srt → coi là thư mục
+            if out.suffix.lower() != ".srt":
+                out = out / f"{inp.stem}.srt"
+        else:
+            out = inp.parent / f"{inp.stem}.srt"
+
         tasks.append({"input": str(inp), "output": str(out)})
     else:
         parser.error("Phải cung cấp --input hoặc --task-file")
