@@ -25,6 +25,7 @@ from utils.media_utils import (
     parse_ass_timestamp_to_ms,
     ms_to_ass_timestamp,
     get_default_output_path,
+    clear_vram,
 )
 
 __all__ = [
@@ -59,4 +60,5 @@ __all__ = [
     'parse_ass_timestamp_to_ms',
     'ms_to_ass_timestamp',
     'get_default_output_path',
+    'clear_vram',
 ]

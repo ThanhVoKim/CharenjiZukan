@@ -20,6 +20,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from utils.logger import get_logger
 from utils.srt_parser import segments_to_srt
 from utils.audio_utils import extract_audio_direct
+from utils.media_utils import clear_vram
 
 logger = get_logger(__name__)
 
@@ -348,15 +349,6 @@ def _split_by_punctuation(srt_list: List[Dict], max_chars: int = 50, min_seg_ms:
     return result
 
 
-def _clear_vram():
-    """Giải phóng VRAM sau mỗi bước nặng."""
-    try:
-        import torch, gc
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        gc.collect()
-    except ImportError:
-        pass
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -439,7 +431,7 @@ def run_batch_transcribe(
     # XÓA MODEL WHISPER VÀ XẢ VRAM
     logger.info("🧹 Giải phóng Model WhisperX để nhường VRAM cho Align...")
     del model
-    _clear_vram()
+    clear_vram()
 
     # ========================================================
     # PHASE 2: ALIGN TẤT CẢ KẾT QUẢ (NẾU CẦN)
@@ -484,7 +476,7 @@ def run_batch_transcribe(
         # XÓA MODEL ALIGN VÀ XẢ VRAM
         logger.info("🧹 Giải phóng Model Align...")
         del align_models
-        _clear_vram()
+        clear_vram()
 
     # ========================================================
     # PHASE 3: HẬU XỬ LÝ (POST-PROCESSING) VÀ GHI FILE

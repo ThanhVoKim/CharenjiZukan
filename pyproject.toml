@@ -41,6 +41,7 @@ sync-video = "cli.sync_video:main"
 video-ocr = "cli.video_ocr:main"
 video-ocr-native = "cli.video_ocr_native:main"
 whisper-srt = "cli.whisper_srt:main"
+qwen3-asr-srt = "cli.qwen3_asr:main"
 
 [tool.setuptools.packages.find]
 include = ["cli*", "utils*", "sync_engine*", "video_subtitle_extractor*", "translation*"]
@@ -55,6 +56,10 @@ all-providers = [
 ]
 whisper = [
     "whisperx",
+]
+qwen-asr = [
+    "flash-attn @ https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.0/flash_attn-2.8.3+cu128torch2.9-cp312-cp312-linux_x86_64.whl",
+    "qwen-asr",
 ]
 
 [dependency-groups]

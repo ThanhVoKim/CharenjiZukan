@@ -1,5 +1,40 @@
 # Project Journal
 
+## 2026-04-25: Tạo CLI Qwen3-ASR — qwen3-asr-srt
+
+### Yêu cầu
+
+- Chuyển notebook Colab `qwen3_asr.py` thành CLI tool `qwen3-asr-srt`.
+- Sử dụng Transformers backend (`Qwen3ASRModel.from_pretrained`), không dùng vLLM.
+- Hỗ trợ batch processing qua file JSON (`--task-file`) hoặc single file (`--input`/`--output`).
+- Tối ưu cho GPU L4 (bfloat16, FlashAttention-2, batch_size=32 mặc định).
+- Đảm bảo giải phóng VRAM hoàn toàn sau khi chạy.
+
+### Thay đổi đã thực hiện
+
+1. **Cập nhật `pyproject.toml`**:
+   - Thêm `qwen-asr` vào `[project.optional-dependencies]` với `flash-attn` prebuilt wheel và `qwen-asr`.
+   - Đăng ký lệnh `qwen3-asr-srt = "cli.qwen3_asr:main"` vào `[project.scripts]`.
+
+2. **Tạo `cli/qwen3_asr.py`**:
+   - CLI arguments: `--input`, `--output`, `--task-file`, `--language`, `--max-chars`, `--batch-size`, `--offset-seconds`, `--model-path`, `--aligner-path`, `--device`.
+   - Tích hợp các hàm `extract_audio`, `format_srt_time`, `merge_punctuation` từ notebook.
+   - Khởi tạo model trong `try...finally`, xóa model và gọi `torch.cuda.empty_cache()` + `gc.collect()` sau khi chạy.
+   - Xuất 3 file: `.srt`, `.txt`, `.json`.
+
+### Trạng thái hiện tại
+
+- ✅ Code CLI đã hoàn thành.
+- ✅ `pyproject.toml` đã cập nhật optional dependencies và script entry.
+- ⏳ Chờ cài đặt `pip install -e .[qwen-asr]` và chạy thử nghiệm trên môi trường có GPU.
+
+### Outstanding / Pending
+
+1. Chạy smoke test trên Colab L4 để xác nhận inference hoạt động đúng.
+2. Đánh giá mức tiêu thụ VRAM thực tế với `batch_size=32`.
+
+---
+
 ## 2026-04-25: WhisperX CLI — Hỗ trợ Output Folder và Xuất Transcript TXT
 
 ### Yêu cầu

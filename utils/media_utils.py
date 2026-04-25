@@ -670,6 +670,22 @@ def get_default_output_path(input_path: str, speed: float) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# VRAM MANAGEMENT
+# ─────────────────────────────────────────────────────────────────────
+
+def clear_vram():
+    """Giải phóng VRAM và RAM sau khi chạy model nặng."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+    import gc
+    gc.collect()
+
+
+# ─────────────────────────────────────────────────────────────────────
 # MAIN (for testing)
 # ─────────────────────────────────────────────────────────────────────
 

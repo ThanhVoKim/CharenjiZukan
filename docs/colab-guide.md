@@ -182,7 +182,7 @@ Chạy CLI với file JSON:
 | ------------------- | ------------------------------------------------------------------------- | ----------------------------------- |
 | `--input`, `-i`     | File video hoặc audio đầu vào                                             | (bắt buộc nếu không dùng task-file) |
 | `--task-file`, `-t` | File JSON cấu hình chạy hàng loạt (`{"input": "...", "output": "..."}`)   | (không dùng)                        |
-| `--output`, `-o`    | File .srt đầu ra (chỉ dùng với `--input`)                                 | `<input_dir>/<name>.srt`            |
+| `--output`, `-o`    | File .srt hoặc folder đầu ra (chỉ dùng với `--input`)                     | `<input_dir>/<name>.srt`            |
 | `--model`, `-m`     | Model Whisper (`tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3`) | `large-v3`                          |
 | `--lang`, `-l`      | Ép buộc mã ngôn ngữ (`vi`, `en`, `ja`, `zh`...)                           | (auto-detect)                       |
 | `--batch-size`      | Batch size quá trình nhận dạng                                            | `16` (GPU L4 dùng `32`)             |
@@ -194,6 +194,91 @@ Chạy CLI với file JSON:
 | `--max-chars`       | Tách câu theo độ dài ký tự tối đa                                         | `0` (auto: CJK 35, Latin 80)        |
 | `--no-align`        | Bỏ qua bước Forced Alignment (nhanh hơn nhưng kém chính xác thời gian)    | (tắt)                               |
 | `--verbose`         | Bật log chi tiết                                                          | (tắt)                               |
+
+### 2.0 b. Speech-to-Text với Qwen3-ASR (qwen3-asr-srt)
+
+Chuyển video/audio thành file subtitle `.srt` dùng mô hình **Qwen3-ASR** (backend Transformers, không dùng vLLM). Đây là lựa chọn thay thế WhisperX khi cần nhận dạng giọng nói tiếng Trung (CJK) với độ chính xác cao và timestamp chi tiết từng từ.
+
+#### Cài đặt môi trường
+
+Qwen3-ASR yêu cầu `transformers` và `flash-attn`. Do `flash-attn` là package biên dịch nặng, project đã cấu hình sẵn prebuilt wheel trong optional dependency `[qwen-asr]`:
+
+> **⚠️ Lưu ý phiên bản môi trường:**
+> Prebuilt wheel hiện tại yêu cầu: **Python 3.12**, **CUDA 12.8**, **PyTorch 2.9**, **Linux x86_64**.
+
+```colab
+# Cài đặt optional dependency qwen-asr
+!uv pip install -e .[qwen-asr]
+```
+
+#### Chạy 1 file đơn lẻ
+
+```colab
+!uv run qwen3-asr-srt \
+  --input /content/video.mp4 \
+  --output /content/subs/ \
+  --language Chinese \
+  --max-chars 15 \
+  --batch-size 32 \
+  --offset-seconds 0.24
+```
+
+_Output mặc định sẽ tạo 3 file trong thư mục output:_
+
+- `/content/subs/video.srt` — File phụ đề
+- `/content/subs/video.txt` — Toàn bộ văn bản transcript
+- `/content/subs/video.json` — Dữ liệu timestamp gốc (đã merge dấu câu)
+
+#### Chạy hàng loạt nhiều file (Batch JSON)
+
+Tương tự WhisperX, truyền vào file JSON chứa danh sách task để xử lý batch:
+
+Ví dụ file `tasks.json`:
+
+```json
+[
+  {
+    "input": "/content/Video/bai1.mp4",
+    "output": "/content/drive/MyDrive/PhuDe/bai1.srt"
+  },
+  {
+    "input": "/content/Video/bai2.mp4",
+    "output": "/content/drive/MyDrive/PhuDe/bai2.srt"
+  }
+]
+```
+
+Chạy CLI với file JSON:
+
+```colab
+!uv run qwen3-asr-srt \
+  --task-file tasks.json \
+  --language Chinese \
+  --batch-size 32
+```
+
+#### Bảng tham số chính
+
+| Tham số             | Mô tả                                                                   | Mặc định                            |
+| ------------------- | ----------------------------------------------------------------------- | ----------------------------------- |
+| `--input`, `-i`     | File video hoặc audio đầu vào                                           | (bắt buộc nếu không dùng task-file) |
+| `--task-file`, `-t` | File JSON cấu hình chạy hàng loạt (`{"input": "...", "output": "..."}`) | (không dùng)                        |
+| `--output`, `-o`    | File .srt hoặc folder đầu ra (chỉ dùng với `--input`)                   | `<input_dir>/<name>.srt`            |
+| `--language`, `-l`  | Ngôn ngữ audio (`Chinese`, `English`, `Japanese`...)                    | `Chinese`                           |
+| `--max-chars`       | Số ký tự tối đa trên mỗi dòng phụ đề (CJK thường 15, Latin 40)          | `15`                                |
+| `--batch-size`      | Batch size cho inference (tăng lên 32~64 nếu GPU L4 22GB)               | `32`                                |
+| `--offset-seconds`  | Độ lệch bù trừ thời gian (giây, ví dụ: 0.24 = 6 frames @ 25fps)         | `0.24`                              |
+| `--model-path`      | Đường dẫn model ASR trên HuggingFace hoặc local                         | `Qwen/Qwen3-ASR-1.7B`               |
+| `--aligner-path`    | Đường dẫn model Forced Aligner                                          | `Qwen/Qwen3-ForcedAligner-0.6B`     |
+| `--device`, `-d`    | Thiết bị chạy (`cuda:0`, `cuda:1`, `cpu`)                               | `cuda:0`                            |
+| `--verbose`         | Bật log chi tiết                                                        | (tắt)                               |
+
+#### Lưu ý quan trọng
+
+- **Flash Attention**: Bắt buộc phải có `flash-attn` để tối ưu VRAM. Nếu không cài được prebuilt wheel, có thể cài từ source (rất lâu trên Colab):
+  ```colab
+  !uv pip install flash-attn --no-build-isolation
+  ```
 
 ### 2.1. Mute Audio (mute-srt)
 
