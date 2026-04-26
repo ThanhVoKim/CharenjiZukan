@@ -20,7 +20,8 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from cli.qwen3_asr import merge_punctuation, segment_subtitles
+from cli.qwen3_asr import merge_punctuation
+from utils.text_segmenter import smart_segment
 
 
 # Mock object for ASR result words
@@ -104,14 +105,14 @@ class TestLayer1_Qwen3ASRPunctuation:
         assert merged[0]["text"] == "他说："
         assert merged[1]["text"] == "“你好！”"
 
-        # Test segment_subtitles (split priority at colon)
-        subs = segment_subtitles(merged, max_chars=15)
-        assert len(subs) == 2
-        assert "".join([w["text"] for w in subs[0]]) == "他说："
-        assert "".join([w["text"] for w in subs[1]]) == "“你好！”"
+        # Test smart_segment — tổng 8 ký tự nằm trong [min, max] nên giữ nguyên 1 block
+        subs = smart_segment(merged, min_chars=8, max_chars=15)
+        assert len(subs) == 1
+        assert "".join([w["text"] for w in subs[0]]) == "他说：“你好！”"
 
     def test_case_13_comma_inside_brackets(self):
-        """Case 13: Dấu phẩy nằm bên trong cặp ngoặc không gây cắt dòng.
+        """Case 13: Dấu phẩy nằm bên trong cặp ngoặc — GĐ1 cắt tại dấu phẩy
+        (Phương án 1: không bảo vệ ngoặc), sau đó GĐ2 gộp lại.
 
         Input: 这是（测试，文本）结束。
         Tokens: 这是 | 测试 | 文本 | 结束
@@ -120,8 +121,8 @@ class TestLayer1_Qwen3ASRPunctuation:
         full_text = '这是（测试，文本）结束。'
         merged = merge_punctuation(words, full_text)
 
-        subs = segment_subtitles(merged, max_chars=15)
-        # Không được phép cắt giữa dấu ngoặc （ ）
+        subs = smart_segment(merged, min_chars=8, max_chars=15)
+        # GĐ1 cắt tại dấu phẩy bên trong ngoặc, GĐ2 gộp lại vì tổng < max
         assert len(subs) == 1
         joined = "".join([w["text"] for w in subs[0]])
         assert joined == "这是（测试，文本）结束。"
@@ -137,7 +138,7 @@ class TestLayer1_Qwen3ASRPunctuation:
         full_text = '我，来了。'
         merged = merge_punctuation(words, full_text)
 
-        subs = segment_subtitles(merged, max_chars=15)
+        subs = smart_segment(merged, min_chars=8, max_chars=15)
         assert len(subs) == 1
         joined = "".join([w["text"] for w in subs[0]])
         assert joined == "我，来了。"
@@ -155,7 +156,7 @@ class TestLayer1_Qwen3ASRPunctuation:
         assert merged[1]["text"] == "走吧。"
 
         # Giả lập dòng đã dài, dấu ellipsis sẽ gây cắt
-        subs = segment_subtitles(merged, max_chars=5)
+        subs = smart_segment(merged, min_chars=3, max_chars=5)
         assert len(subs) == 2
         assert subs[0][0]["text"] == "等等……"
         assert subs[1][0]["text"] == "走吧。"
@@ -184,7 +185,7 @@ class TestLayer1_Qwen3ASRPunctuation:
         full_text = long_str
         merged = merge_punctuation(words, full_text)
 
-        subs = segment_subtitles(merged, max_chars=15)
+        subs = smart_segment(merged, min_chars=8, max_chars=15)
         assert len(subs) == 1
         assert subs[0][0]["text"] == long_str
 
@@ -206,18 +207,18 @@ class TestLayer1_Qwen3ASRPunctuation:
         assert merged[4]["text"] == "今天还要去吗？”"
 
         # 2. Kiểm tra cắt câu với max_chars = 15
-        subs = segment_subtitles(merged, max_chars=15)
+        subs = smart_segment(merged, min_chars=8, max_chars=15)
 
         # Đảm bảo:
-        # - Sub 1 cắt ngay sau dấu hai chấm.
-        # - Các Sub tiếp theo cắt theo độ dài, không dòng nào quá 18 ký tự
-        assert len(subs) >= 2
-        assert "".join([w["text"] for w in subs[0]]) == "他说："
+        # - GĐ1 cắt tại mọi dấu câu (không bảo vệ ngoặc — Phương án 1).
+        # - GĐ2 gộp/chia để không dòng nào vượt max.
+        assert len(subs) == 2
+        assert "".join([w["text"] for w in subs[0]]).strip() == "他说：“你好！他来了。"
+        assert "".join([w["text"] for w in subs[1]]).strip() == "你知道吗？今天还要去吗？”"
 
         for s in subs:
             text = "".join([w["text"] for w in s]).strip()
-            # Yêu cầu dòng cắt thông minh không được vượt quá xa ngưỡng 15
-            assert len(text) <= 18
+            assert len(text) <= 15
 
     def test_case_39_trailing_punct_at_end(self):
         """Case 39: Dấu câu liên tiếp ở cuối full text được gắn vào token cuối.
@@ -270,7 +271,7 @@ class TestLayer1_Qwen3ASRPunctuation:
 
         # Với max_chars=15, toàn bộ "hello-world." chỉ có 12 ký tự
         # nên không bị cắt
-        subs = segment_subtitles(merged, max_chars=15)
+        subs = smart_segment(merged, min_chars=8, max_chars=15)
         assert len(subs) == 1
         assert "".join([w["text"] for w in subs[0]]) == "hello-world."
 

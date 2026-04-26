@@ -77,6 +77,14 @@ tests:
     tags: ["unit"]
     enabled: true
 
+  - name: "Text Segmenter — Layer 1: Grammar & Min/Max Logic"
+    file: "tests/utils/test_text_segmenter.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
   # ──────────────────────────────────────────────
   # INTEGRATION TESTS — Cần FFmpeg, không cần GPU
   # ──────────────────────────────────────────────

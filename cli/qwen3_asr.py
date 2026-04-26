@@ -20,14 +20,13 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.logger import get_logger
 from utils.media_utils import clear_vram
+from utils.text_segmenter import smart_segment
 
 logger = get_logger(__name__)
 
-# Bộ dấu câu
+# Bộ dấu câu (chỉ còn dùng trong merge_punctuation)
 CJK_PUNCT = set("，。！？；：“”‘’（）《》【】、")
 ALL_PUNCT_SET = set(string.punctuation) | CJK_PUNCT
-SPLIT_PUNCT_SET = set(".,!?:;。，！？：；、")
-ELLIPSIS_PUNCT = "……"
 OPENING_PUNCT = set("“‘（《【")
 CLOSING_PUNCT = set("”’）》】")
 BRACKET_PAIRS = {"（": "）", "《": "》", "【": "】", "“": "”", "‘": "’"}
@@ -130,99 +129,6 @@ def merge_punctuation(words, full_text: str) -> List[Dict]:
     return merged_words
 
 
-def _recalc_brackets(sentence: List[Dict]) -> int:
-    """Tính lại số ngoặc mở chưa đóng cho một sentence."""
-    count = 0
-    for w in sentence:
-        for c in w["text"]:
-            if c in BRACKET_PAIRS:
-                count += 1
-            elif c in BRACKET_PAIRS.values():
-                count = max(0, count - 1)
-    return count
-
-
-def segment_subtitles(merged_words: List[Dict], max_chars: int = 15) -> List[List[Dict]]:
-    """Cắt phụ đề thông minh với kiểm soát ngoặc bọc và độ dài tối thiểu.
-
-    - Không cắt tại dấu phẩy/chấm phẩy nếu đang nằm trong cặp ngoặc.
-    - Không cắt vụn câu quá ngắn (dưới MIN_LENGTH ký tự) tại dấu phẩy.
-    - Ưu tiên cắt tại dấu hai chấm `:` / `：` (hard break).
-    - Nếu token đơn lẻ đã vượt quá max_chars, giữ nguyên (không ép cắt).
-    """
-    subtitles: List[List[Dict]] = []
-    current_sentence: List[Dict] = []
-    in_brackets = 0
-    MIN_LENGTH = 8  # Ngưỡng tối thiểu để tránh cắt vụn câu ngắn
-
-    for item in merged_words:
-        text = item["text"]
-
-        # Cập nhật trạng thái ngoặc
-        for char in text:
-            if char in BRACKET_PAIRS:
-                in_brackets += 1
-            elif char in BRACKET_PAIRS.values():
-                in_brackets = max(0, in_brackets - 1)
-
-        # Nếu thêm item vào làm vượt max_chars và current đã có token trước đó,
-        # cắt TRƯỚC item này để giữ sentence cũ trong giới hạn.
-        if current_sentence:
-            prev_text = "".join([w["text"] for w in current_sentence]).strip()
-            candidate_len = len(prev_text) + len(text.strip())
-            if candidate_len > max_chars and len(prev_text) > 0:
-                # Chỉ cắt trước nếu prev_text không quá ngắn (tránh cắt vụn)
-                if len(prev_text) >= MIN_LENGTH or len(prev_text) >= max_chars * 0.5:
-                    subtitles.append(current_sentence)
-                    current_sentence = []
-                    in_brackets = 0
-                    # recalc brackets cho item mới
-                    for c in text:
-                        if c in BRACKET_PAIRS:
-                            in_brackets += 1
-                        elif c in BRACKET_PAIRS.values():
-                            in_brackets = max(0, in_brackets - 1)
-
-        current_sentence.append(item)
-        current_text = "".join([w["text"] for w in current_sentence]).strip()
-        current_len = len(current_text)
-
-        # Nếu chỉ có 1 token và đã vượt max_chars → giữ nguyên, không ép cắt
-        if len(current_sentence) == 1 and current_len > max_chars:
-            subtitles.append(current_sentence)
-            current_sentence = []
-            in_brackets = 0
-            continue
-
-        has_strong_split = any(char in "。！？：；" for char in text)
-        has_weak_split = any(char in "，、" for char in text) or ELLIPSIS_PUNCT in text
-        is_too_long = current_len >= max_chars
-
-        should_split = False
-
-        if is_too_long:
-            should_split = True
-        elif in_brackets == 0:
-            if has_strong_split:
-                # Dấu kết thúc/2 chấm/chấm phẩy luôn cắt (hard break)
-                should_split = True
-            elif has_weak_split and current_len >= MIN_LENGTH:
-                # Dấu phẩy/chấm chỉ cắt khi đã đủ dài
-                should_split = True
-
-        if should_split:
-            subtitles.append(current_sentence)
-            current_sentence = []
-            in_brackets = 0
-
-    if current_sentence:
-        subtitles.append(current_sentence)
-
-    return subtitles
-
-
-
-
 def _resolve_output_paths(task: Dict[str, str]) -> Tuple[Path, str]:
     """Xác định output directory và file stem từ task."""
     inp_path = Path(task["input"])
@@ -242,6 +148,7 @@ def run_batch_transcribe(
     tasks: List[Dict[str, str]],
     language: str = "Chinese",
     max_chars: int = 15,
+    min_chars: int = 8,
     batch_size: int = 32,
     offset_seconds: float = 0.24,
     model_path: str = "Qwen/Qwen3-ASR-1.7B",
@@ -331,7 +238,16 @@ def run_batch_transcribe(
                 json.dump(json_data, f, ensure_ascii=False, indent=4)
 
             # Xử lý cắt câu Subtitle
-            subtitles = segment_subtitles(merged_words, max_chars=max_chars)
+            if max_chars == 0 and min_chars == 0:
+                # Tắt hoàn toàn segmentation → 1 block duy nhất
+                subtitles = [merged_words]
+            else:
+                subtitles = smart_segment(
+                    merged_words,
+                    min_chars=min_chars,
+                    max_chars=max_chars,
+                    ideal_chars=max_chars if max_chars > 0 else None,
+                )
 
             # Lưu SRT
             with open(task["srt_path"], "w", encoding="utf-8") as f:
@@ -392,7 +308,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     seg = parser.add_argument_group("Segmentation / Language")
     seg.add_argument("--language", "-l", default="Chinese", help="Ngôn ngữ audio (mặc định: Chinese)")
-    seg.add_argument("--max-chars", type=int, default=15, help="Số ký tự tối đa trên mỗi dòng phụ đề (mặc định: 15)")
+    seg.add_argument("--max-chars", type=int, default=15, help="Số ký tự tối đa trên mỗi dòng phụ đề (mặc định: 15, đặt 0 để tắt)")
+    seg.add_argument("--min-chars", type=int, default=8, help="Số ký tự tối thiểu trên mỗi dòng phụ đề (mặc định: 8, đặt 0 để tắt)")
     seg.add_argument("--batch-size", type=int, default=32, help="Batch size cho inference (mặc định: 32)")
     seg.add_argument("--offset-seconds", type=float, default=0.24, help="Độ lệch thời gian bù trừ (giây, mặc định: 0.24)")
 
@@ -443,6 +360,7 @@ def main():
             tasks=tasks,
             language=args.language,
             max_chars=args.max_chars,
+            min_chars=args.min_chars,
             batch_size=args.batch_size,
             offset_seconds=args.offset_seconds,
             model_path=args.model_path,

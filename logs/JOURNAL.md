@@ -1,5 +1,51 @@
 # Project Journal
 
+## 2026-04-26: Tách logic text segmentation ra utils/text_segmenter.py (Phương án 1)
+
+### Yêu cầu
+
+- Tách logic chia max-chars từ `cli/qwen3_asr.py` thành một utils chung `utils/text_segmenter.py`.
+- Mục tiêu: Không chỉ dùng cho subtitle mà còn cho title, text, paragraph, v.v.
+- Thêm tham số `min-chars` và cải tiến thuật toán chia subtitle theo 2 giai đoạn.
+- **Chốt Phương án 1: KHÔNG bảo vệ ngoặc bọc** — cắt tại mọi dấu câu để tối đa hóa số điểm cắt theo ngữ pháp, hạn chế cắt cơ học ở GĐ2.
+- Thêm khả năng **tắt min/max** (`min_chars == 0` và `max_chars == 0`) để trả về grammar blocks thuần.
+
+### Quyết định kiến trúc
+
+1. **Tạo `utils/text_segmenter.py`**:
+   - Thuật toán 2-phase:
+     - **Giai đoạn 1 (Grammar Split)**: Cắt toàn bộ văn bản dựa vào dấu câu (tất cả dấu `.!?。，！？：；、`). **KHÔNG bảo vệ ngoặc bọc** — cắt tại mọi dấu câu để tối đa hóa số điểm cắt theo ngữ pháp.
+     - **Giai đoạn 2 (Min/Max Post-processing)**:
+       - `< min` → gộp với block liền kề nếu không vượt `max`.
+       - `min–max` → giữ nguyên.
+       - `> max` → chia đều thành `N = ceil(len / ideal)` khúc, cắt ở điểm gần `target_len` nhất, ưu tiên khoảng trắng/khoảng lặng âm thanh (pause).
+       - **`max_chars == 0`** → tắt GĐ2, trả về grammar blocks thuần.
+       - **`min_chars == 0`** → tắt merge block ngắn.
+   - Hỗ trợ cả text có timestamp (`start_time`, `end_time`) và text thuần (không timestamp).
+   - Xử lý được cả Latin và CJK.
+
+2. **Cập nhật `cli/qwen3_asr.py`**:
+   - Xóa hàm `segment_subtitles` và `_recalc_brackets` (logic cũ).
+   - Import `smart_segment` từ `utils.text_segmenter`.
+   - Thêm CLI argument `--min-chars` (mặc định 8, đặt 0 để tắt).
+   - Thêm CLI argument `--max-chars` (mặc định 15, đặt 0 để tắt).
+   - Truyền `min_chars` và `max_chars` vào `smart_segment`.
+   - Nếu cả hai đều == 0 → trả về 1 block duy nhất (tắt segmentation hoàn toàn).
+
+3. **Viết tests `tests/utils/test_text_segmenter.py`**:
+   - Layer 1 Unit Tests cho `_split_by_grammar`, `_merge_short_blocks`, `smart_segment`.
+   - Cover: không bảo vệ ngoặc, chia đều block dài, ưu tiên pause, gộp block ngắn, preserve timestamp, CJK+Latin mixed.
+
+### Trạng thái hiện tại
+
+- ✅ `utils/text_segmenter.py` đã tạo với thuật toán 2-phase (Phương án 1).
+- ✅ `cli/qwen3_asr.py` đã refactor, xóa `segment_subtitles` cũ, dùng `smart_segment`.
+- ✅ `tests/utils/test_text_segmenter.py` đã tạo với 12 test cases Layer 1 — **all PASS**.
+- ✅ `tests/cli/test_qwen3_asr.py` đã cập nhật import và assertions — **16 PASS**.
+- ✅ `tests/test_matrix.yaml` đã thêm entry cho `test_text_segmenter.py`.
+
+---
+
 ## 2026-04-26: Nâng cấp thuật toán Gom dấu câu và Cắt phụ đề cho Qwen3-ASR
 
 ### Yêu cầu

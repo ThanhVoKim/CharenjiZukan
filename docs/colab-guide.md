@@ -257,19 +257,20 @@ Chạy CLI với file JSON:
 
 #### Bảng tham số chính
 
-| Tham số             | Mô tả                                                                   | Mặc định                            |
-| ------------------- | ----------------------------------------------------------------------- | ----------------------------------- |
-| `--input`, `-i`     | File video hoặc audio đầu vào                                           | (bắt buộc nếu không dùng task-file) |
-| `--task-file`, `-t` | File JSON cấu hình chạy hàng loạt (`{"input": "...", "output": "..."}`) | (không dùng)                        |
-| `--output`, `-o`    | File .srt hoặc folder đầu ra (chỉ dùng với `--input`)                   | `<input_dir>/<name>.srt`            |
-| `--language`, `-l`  | Ngôn ngữ audio (`Chinese`, `English`, `Japanese`...)                    | `Chinese`                           |
-| `--max-chars`       | Số ký tự tối đa trên mỗi dòng phụ đề (CJK thường 15, Latin 40)          | `15`                                |
-| `--batch-size`      | Batch size cho inference (tăng lên 32~64 nếu GPU L4 22GB)               | `32`                                |
-| `--offset-seconds`  | Độ lệch bù trừ thời gian (giây, ví dụ: 0.24 = 6 frames @ 25fps)         | `0.24`                              |
-| `--model-path`      | Đường dẫn model ASR trên HuggingFace hoặc local                         | `Qwen/Qwen3-ASR-1.7B`               |
-| `--aligner-path`    | Đường dẫn model Forced Aligner                                          | `Qwen/Qwen3-ForcedAligner-0.6B`     |
-| `--device`, `-d`    | Thiết bị chạy (`cuda:0`, `cuda:1`, `cpu`)                               | `cuda:0`                            |
-| `--verbose`         | Bật log chi tiết                                                        | (tắt)                               |
+| Tham số             | Mô tả                                                                        | Mặc định                            |
+| ------------------- | ---------------------------------------------------------------------------- | ----------------------------------- |
+| `--input`, `-i`     | File video hoặc audio đầu vào                                                | (bắt buộc nếu không dùng task-file) |
+| `--task-file`, `-t` | File JSON cấu hình chạy hàng loạt (`{"input": "...", "output": "..."}`)      | (không dùng)                        |
+| `--output`, `-o`    | File .srt hoặc folder đầu ra (chỉ dùng với `--input`)                        | `<input_dir>/<name>.srt`            |
+| `--language`, `-l`  | Ngôn ngữ audio (`Chinese`, `English`, `Japanese`...)                         | `Chinese`                           |
+| `--max-chars`       | Số ký tự tối đa trên mỗi dòng phụ đề (CJK thường 15, Latin 40), đặt 0 để tắt | `15`                                |
+| `--min-chars`       | Số ký tự tối thiểu trên mỗi dòng phụ đề, đặt 0 để tắt                        | `8`                                 |
+| `--batch-size`      | Batch size cho inference (tăng lên 32~64 nếu GPU L4 22GB)                    | `32`                                |
+| `--offset-seconds`  | Độ lệch bù trừ thời gian (giây, ví dụ: 0.24 = 6 frames @ 25fps)              | `0.24`                              |
+| `--model-path`      | Đường dẫn model ASR trên HuggingFace hoặc local                              | `Qwen/Qwen3-ASR-1.7B`               |
+| `--aligner-path`    | Đường dẫn model Forced Aligner                                               | `Qwen/Qwen3-ForcedAligner-0.6B`     |
+| `--device`, `-d`    | Thiết bị chạy (`cuda:0`, `cuda:1`, `cpu`)                                    | `cuda:0`                            |
+| `--verbose`         | Bật log chi tiết                                                             | (tắt)                               |
 
 #### Lưu ý quan trọng
 
