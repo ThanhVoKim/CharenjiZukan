@@ -18,28 +18,28 @@ tests:
   # ──────────────────────────────────────────────
 
   - name: "SRT Parser — Unit Tests"
-    file: "tests/test_srt_parser.py"
+    file: "tests/utils/test_srt_parser.py"
     timeout_sec: 30
     pytest_args: ["-v"]
     tags: ["unit"]
     enabled: true
 
   - name: "ASS Utils — Unit Tests"
-    file: "tests/test_ass_utils.py"
+    file: "tests/utils/test_ass_utils.py"
     timeout_sec: 30
     pytest_args: ["-v"]
     tags: ["unit"]
     enabled: true
 
   - name: "Merge SRT — Unit Tests"
-    file: "tests/test_merge_srt.py"
+    file: "tests/utils/test_merge_srt.py"
     timeout_sec: 30
     pytest_args: ["-v"]
     tags: ["unit"]
     enabled: true
 
   - name: "Media Utils — Type Detection & Timestamp Scaling"
-    file: "tests/test_media_utils.py"
+    file: "tests/utils/test_media_utils.py"
     keyword: "TestDetectMediaType or TestScaleTimeMs or TestAssTimestampConversion or TestGetDefaultOutputPath or TestScaleSrtTimestamps or TestScaleAssTimestamps"
     timeout_sec: 60
     pytest_args: ["-v"]
@@ -47,7 +47,7 @@ tests:
     enabled: true
 
   - name: "Demucs CLI — Parser & Hardware Check (No GPU)"
-    file: "tests/test_demucs_audio.py"
+    file: "tests/cli/test_demucs_audio.py"
     keyword: "TestBuildParser or TestCheckHardwareRequirements or TestCheckDemucsInstalled or TestGetDevice or TestOutputPath or TestMain"
     timeout_sec: 30
     pytest_args: ["-v"]
@@ -55,7 +55,7 @@ tests:
     enabled: true
 
   - name: "Media Speed CLI — Parser & Main (No FFmpeg)"
-    file: "tests/test_media_speed.py"
+    file: "tests/cli/test_media_speed.py"
     keyword: "TestBuildParser or TestMain"
     timeout_sec: 30
     pytest_args: ["-v"]
@@ -63,7 +63,7 @@ tests:
     enabled: true
 
   - name: "Extractor Config — Precedence (CLI > YAML > Default)"
-    file: "tests/test_extractor_config.py"
+    file: "tests/cli/test_extractor_config.py"
     timeout_sec: 30
     pytest_args: ["-v"]
     tags: ["unit"]
@@ -74,7 +74,7 @@ tests:
   # ──────────────────────────────────────────────
 
   - name: "Media Utils — Audio Stretching (FFmpeg atempo)"
-    file: "tests/test_media_utils.py"
+    file: "tests/utils/test_media_utils.py"
     keyword: "TestAudioStretching"
     timeout_sec: 120
     pytest_args: ["-v", "-s"]
@@ -82,7 +82,7 @@ tests:
     enabled: true
 
   - name: "Media Speed — SRT/ASS Scaling via CLI (FFmpeg)"
-    file: "tests/test_media_speed.py"
+    file: "tests/cli/test_media_speed.py"
     keyword: "TestMediaSpeedCLI"
     timeout_sec: 120
     pytest_args: ["-v", "-s"]
@@ -90,7 +90,7 @@ tests:
     enabled: true
 
   - name: "Demucs — Source Separation (GPU)"
-    file: "tests/test_demucs_audio.py"
+    file: "tests/cli/test_demucs_audio.py"
     keyword: "TestSeparateAudio"
     timeout_sec: 600
     env:
@@ -100,7 +100,7 @@ tests:
     enabled: true
 
   - name: "Media Utils — Rubberband Check"
-    file: "tests/test_media_utils.py"
+    file: "tests/utils/test_media_utils.py"
     keyword: "TestCheckRubberbandAvailable"
     timeout_sec: 30
     pytest_args: ["-v"]
@@ -116,7 +116,7 @@ tests:
   # ──────────────────────────────────────────────
 
   - name: "EdgeTTS — Layer 1: Strip Silence Logic"
-    file: "tests/test_tts_edgetts.py"
+    file: "tests/tts/test_tts_edgetts.py"
     keyword: "Layer1"
     timeout_sec: 30
     pytest_args: ["-v"]
@@ -124,7 +124,7 @@ tests:
     enabled: true
 
   - name: "EdgeTTS — Layer 2: Engine Component"
-    file: "tests/test_tts_edgetts.py"
+    file: "tests/tts/test_tts_edgetts.py"
     keyword: "Layer2"
     timeout_sec: 60
     pytest_args: ["-v"]
@@ -132,7 +132,7 @@ tests:
     enabled: true
 
   - name: "EdgeTTS — Layer 3: CLI Pipeline"
-    file: "tests/test_tts_edgetts.py"
+    file: "tests/tts/test_tts_edgetts.py"
     keyword: "Layer3"
     timeout_sec: 120
     pytest_args: ["-v", "-s"]
@@ -156,7 +156,7 @@ tests:
   # ──────────────────────────────────────────────
 
   - name: "Native Video OCR — Layer 1: Unit Tests (No GPU)"
-    file: "tests/test_native_video_ocr_pipeline.py"
+    file: "tests/video_ocr/test_native_video_ocr_pipeline.py"
     keyword: "Layer1"
     timeout_sec: 60
     pytest_args: ["-v"]
@@ -164,7 +164,7 @@ tests:
     enabled: true
 
   - name: "Native Video OCR — Layer 2: Component Tests (Synthetic Video)"
-    file: "tests/test_native_video_ocr_pipeline.py"
+    file: "tests/video_ocr/test_native_video_ocr_pipeline.py"
     keyword: "Layer2"
     timeout_sec: 120
     pytest_args: ["-v", "-s"]
@@ -172,7 +172,7 @@ tests:
     enabled: true
 
   - name: "Native Video OCR — Layer 3: Full Pipeline (Mocked Model)"
-    file: "tests/test_native_video_ocr_pipeline.py"
+    file: "tests/video_ocr/test_native_video_ocr_pipeline.py"
     keyword: "Layer3"
     timeout_sec: 180
     pytest_args: ["-v", "-s"]
@@ -180,7 +180,7 @@ tests:
     enabled: true
 
   - name: "Native Video OCR — Layer 4: Real Model (GPU Required)"
-    file: "tests/test_native_video_ocr_pipeline.py"
+    file: "tests/video_ocr/test_native_video_ocr_pipeline.py"
     keyword: "Layer4"
     timeout_sec: 600
     env:
@@ -195,7 +195,7 @@ tests:
   # ──────────────────────────────────────────────
 
   - name: "Filter Complex Batch — Layer 1: Unit Tests (Command Generation)"
-    file: "tests/test_concat_demuxer.py"
+    file: "tests/sync_engine/test_concat_demuxer.py"
     keyword: "Layer1"
     timeout_sec: 30
     pytest_args: ["-v"]
@@ -203,7 +203,7 @@ tests:
     enabled: true
 
   - name: "Filter Complex Batch — Layer 2: Synthetic Video Desync Tests"
-    file: "tests/test_concat_demuxer.py"
+    file: "tests/sync_engine/test_concat_demuxer.py"
     keyword: "Layer2"
     timeout_sec: 300
     pytest_args: ["-v", "-s"]
@@ -211,7 +211,7 @@ tests:
     enabled: true
 
   - name: "Filter Complex Batch — Layer 3: Real Video Full Analysis"
-    file: "tests/test_concat_demuxer.py"
+    file: "tests/sync_engine/test_concat_demuxer.py"
     keyword: "Layer3"
     timeout_sec: 7200
     pytest_args: ["-v", "-s"]
@@ -222,7 +222,7 @@ tests:
     enabled: false # Bật khi có --video-path
 
   - name: "Sync Engine — Analyzer (Phase 0 + 1)"
-    file: "tests/test_analyzer.py"
+    file: "tests/sync_engine/test_analyzer.py"
     keyword: "Layer1"
     timeout_sec: 30
     pytest_args: ["-v"]
@@ -230,7 +230,7 @@ tests:
     enabled: true
 
   - name: "Sync Engine — Video Processor (Phase 2 - Unit)"
-    file: "tests/test_video_processor.py"
+    file: "tests/sync_engine/test_video_processor.py"
     keyword: "Layer1"
     timeout_sec: 30
     pytest_args: ["-v"]
@@ -238,7 +238,7 @@ tests:
     enabled: true
 
   - name: "Sync Engine — Video Processor (Phase 2 - Component)"
-    file: "tests/test_video_processor.py"
+    file: "tests/sync_engine/test_video_processor.py"
     keyword: "Layer2"
     timeout_sec: 120
     pytest_args: ["-v", "-s"]
@@ -246,7 +246,7 @@ tests:
     enabled: true
 
   - name: "Sync Engine — Audio Assembler (Phase 3 - Unit)"
-    file: "tests/test_audio_assembler.py"
+    file: "tests/sync_engine/test_audio_assembler.py"
     keyword: "Layer1"
     timeout_sec: 30
     pytest_args: ["-v"]
@@ -254,7 +254,7 @@ tests:
     enabled: true
 
   - name: "Sync Engine — Audio Assembler (Phase 3 - Component)"
-    file: "tests/test_audio_assembler.py"
+    file: "tests/sync_engine/test_audio_assembler.py"
     keyword: "Layer2"
     timeout_sec: 120
     pytest_args: ["-v", "-s"]
@@ -262,11 +262,19 @@ tests:
     enabled: true
 
   - name: "Sync Engine — Timestamp Remapper (Phase 4)"
-    file: "tests/test_timestamp_remapper.py"
+    file: "tests/sync_engine/test_timestamp_remapper.py"
     keyword: "Layer1"
     timeout_sec: 30
     pytest_args: ["-v"]
     tags: ["unit", "sync_engine"]
+    enabled: true
+
+  - name: "Sync Engine — Full Pipeline (Phase 0-4 Integration)"
+    file: "tests/sync_engine/test_sync_video_pipeline.py"
+    keyword: "Layer3"
+    timeout_sec: 300
+    pytest_args: ["-v", "-s"]
+    tags: ["integration", "ffmpeg", "sync_engine"]
     enabled: true
 
   # ──────────────────────────────────────────────
@@ -274,7 +282,7 @@ tests:
   # ──────────────────────────────────────────────
 
   - name: "Translation — Layer 1: Unit Tests (ResponseParser, Factory)"
-    file: "tests/test_translation_providers.py"
+    file: "tests/translation/test_translation_providers.py"
     keyword: "Layer1"
     timeout_sec: 30
     pytest_args: ["-v"]
@@ -282,7 +290,7 @@ tests:
     enabled: true
 
   - name: "Translation — Layer 2: Pipeline Component with Mock"
-    file: "tests/test_translation_providers.py"
+    file: "tests/translation/test_translation_providers.py"
     keyword: "Layer2"
     timeout_sec: 60
     pytest_args: ["-v", "-s"]
@@ -290,7 +298,7 @@ tests:
     enabled: true
 
   - name: "Translation — Layer 3: Integration (Retry Logic)"
-    file: "tests/test_translation_providers.py"
+    file: "tests/translation/test_translation_providers.py"
     keyword: "Layer3"
     timeout_sec: 60
     pytest_args: ["-v"]
@@ -298,7 +306,7 @@ tests:
     enabled: true
 
   - name: "Translation — Layer 4: Real APIs"
-    file: "tests/test_translation_providers.py"
+    file: "tests/translation/test_translation_providers.py"
     keyword: "Layer4"
     timeout_sec: 120
     pytest_args: ["-v", "-s"]

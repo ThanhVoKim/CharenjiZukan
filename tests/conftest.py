@@ -35,23 +35,6 @@ def pytest_addoption(parser):
 
 
 @pytest.fixture(scope="session")
-def real_video_path(request) -> Path:
-    """
-    Trả về Path đến video thật từ --video-path hoặc env var TEST_REAL_VIDEO_PATH.
-    Skip test nếu không cung cấp.
-    """
-    path_str = request.config.getoption("--video-path", None) or os.getenv("TEST_REAL_VIDEO_PATH", "")
-    if not path_str:
-        pytest.skip("Cần cung cấp --video-path=<đường_dẫn_video> hoặc biến môi trường TEST_REAL_VIDEO_PATH")
-    
-    path = Path(path_str)
-    if not path.exists():
-        pytest.skip(f"Video không tồn tại: {path}")
-    
-    return path
-
-
-@pytest.fixture(scope="session")
 def use_gpu() -> bool:
     """Tự động phát hiện NVIDIA NVENC (h264_nvenc) có sẵn hay không.
 
@@ -89,16 +72,6 @@ def use_gpu() -> bool:
         return result.returncode == 0
     except (subprocess.TimeoutExpired, OSError):
         return False
-
-
-@pytest.fixture(scope="session")
-def concat_workers(request) -> int:
-    """Trả về số worker chạy song song từ --workers hoặc env var TEST_CONCAT_WORKERS."""
-    workers_str = request.config.getoption("--workers", None) or os.getenv("TEST_CONCAT_WORKERS", "4")
-    try:
-        return int(workers_str)
-    except ValueError:
-        return 4
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -154,69 +127,6 @@ def skip_if_no_gpu():
 
 
 @pytest.fixture(scope="module")
-def skip_if_insufficient_vram(min_vram_gb: float = 10.0):
-    """
-    Skip nếu VRAM không đủ cho model OCR.
-    - DeepSeek-OCR-2: ~8GB VRAM
-    - Qwen3-VL-8B: ~16GB VRAM
-    """
-    try:
-        import torch
-        if not torch.cuda.is_available():
-            pytest.skip("Không có GPU.")
-        vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-        if vram_gb < min_vram_gb:
-            pytest.skip(
-                f"VRAM không đủ: {vram_gb:.1f}GB < {min_vram_gb}GB yêu cầu."
-            )
-    except ImportError:
-        pytest.skip("torch không được cài đặt.")
-    return True
-
-
-@pytest.fixture(scope="module")
-def native_video_gpu_preflight():
-    """
-    Preflight GPU cho test Native Video OCR.
-
-    Điều kiện:
-    - torch đã cài đặt
-    - CUDA khả dụng
-    - VRAM >= ngưỡng tối thiểu (mặc định 10GB, có thể override qua env)
-
-    Environment variable:
-        NATIVE_OCR_MIN_VRAM_GB (default: 10)
-    """
-    min_vram_gb = float(os.getenv("NATIVE_OCR_MIN_VRAM_GB", "10"))
-
-    try:
-        import torch
-    except ImportError:
-        pytest.skip("torch không được cài đặt.")
-
-    if not torch.cuda.is_available():
-        pytest.skip("CUDA GPU không khả dụng. Test Native Video OCR yêu cầu GPU.")
-
-    device_index = torch.cuda.current_device() if torch.cuda.device_count() > 0 else 0
-    device_name = torch.cuda.get_device_name(device_index)
-    total_vram_gb = torch.cuda.get_device_properties(device_index).total_memory / (1024**3)
-
-    if total_vram_gb < min_vram_gb:
-        pytest.skip(
-            f"VRAM không đủ cho preflight Native Video OCR: "
-            f"{total_vram_gb:.1f}GB < {min_vram_gb:.1f}GB."
-        )
-
-    return {
-        "cuda_available": True,
-        "device_index": device_index,
-        "device_name": device_name,
-        "total_vram_gb": total_vram_gb,
-        "min_vram_gb": min_vram_gb,
-    }
-
-
-@pytest.fixture(scope="module")
 def check_ffmpeg_available():
     """
     Kiểm tra FFmpeg có sẵn trong PATH.
@@ -231,96 +141,3 @@ def check_ffmpeg_available():
         pytest.skip("FFmpeg không có trong PATH. Cài đặt: apt-get install ffmpeg hoặc download từ https://ffmpeg.org")
     return True
 
-
-@pytest.fixture(scope="module")
-def check_rubberband_available():
-    """
-    Kiểm tra rubberband binary có sẵn trong PATH.
-    
-    Returns:
-        True nếu rubberband available
-        
-    Raises:
-        pytest.skip: Nếu rubberband không có
-    """
-    if not shutil.which("rubberband"):
-        pytest.skip("rubberband-cli không có trong PATH. Cài đặt: apt-get install rubberband-cli")
-    return True
-
-
-@pytest.fixture(scope="module")
-def check_pyrubberband_installed():
-    """
-    Kiểm tra pyrubberband Python library đã cài đặt.
-    
-    Returns:
-        True nếu pyrubberband installed
-        
-    Raises:
-        pytest.skip: Nếu pyrubberband không có
-    """
-    try:
-        import pyrubberband  # noqa: F401
-        return True
-    except ImportError:
-        pytest.skip("pyrubberband chưa cài đặt. Cài đặt: pip install pyrubberband")
-
-
-@pytest.fixture(scope="module")
-def check_soundfile_installed():
-    """
-    Kiểm tra soundfile Python library đã cài đặt.
-    
-    Returns:
-        True nếu soundfile installed
-        
-    Raises:
-        pytest.skip: Nếu soundfile không có
-    """
-    try:
-        import soundfile  # noqa: F401
-        return True
-    except ImportError:
-        pytest.skip("soundfile chưa cài đặt. Cài đặt: pip install soundfile")
-
-
-# ─────────────────────────────────────────────────────────────────────
-# COMBINED CHECK FIXTURES
-# ─────────────────────────────────────────────────────────────────────
-
-@pytest.fixture(scope="module")
-def check_audio_stretch_dependencies():
-    """
-    Kiểm tra tất cả dependencies cần thiết cho audio stretching.
-    - FFmpeg (bắt buộc)
-    - rubberband binary (tùy chọn, fallback to atempo)
-    - pyrubberband (tùy chọn, fallback to atempo)
-    - soundfile (tùy chọn, fallback to atempo)
-    
-    Returns:
-        dict với các keys: has_ffmpeg, has_rubberband, has_pyrubberband, has_soundfile
-    """
-    result = {
-        'has_ffmpeg': shutil.which("ffmpeg") is not None,
-        'has_rubberband': shutil.which("rubberband") is not None,
-        'has_pyrubberband': False,
-        'has_soundfile': False,
-    }
-    
-    try:
-        import pyrubberband  # noqa: F401
-        result['has_pyrubberband'] = True
-    except ImportError:
-        pass
-    
-    try:
-        import soundfile  # noqa: F401
-        result['has_soundfile'] = True
-    except ImportError:
-        pass
-    
-    # FFmpeg là bắt buộc
-    if not result['has_ffmpeg']:
-        pytest.skip("FFmpeg không có trong PATH. Cài đặt: apt-get install ffmpeg")
-    
-    return result

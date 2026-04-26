@@ -34,21 +34,59 @@ Phần này tóm tắt 10 quy tắc tuyệt đối không được vi phạm khi
 
 ### 1.2. Cấu trúc thư mục Testing
 
-Toàn bộ tài nguyên testing được tổ chức với `testing-guide.md` làm nguồn sự thật duy nhất:
+Toàn bộ tài nguyên testing được tổ chức theo **Domain-Based Structure** — phản chiếu trực tiếp cấu trúc source code (`utils/`, `cli/`, `sync_engine/`, v.v.). Điều này giúp dễ dàng xác định file test nào thuộc module nào khi cần sửa code.
 
 ```text
 CharenjiZukan/
 ├── run_colab_tests.py          ← Runner script (project root, KHÔNG di chuyển)
 ├── tests/
-│   ├── conftest.py             ← Fixtures dùng chung (hardware check, skip logic)
+│   ├── conftest.py             ← Global fixtures (hardware check, skip logic)
 │   ├── test_matrix.yaml        ← Cấu hình chạy test (tooling config)
 │   ├── test_data/
 │   │   └── .gitkeep            ← Thư mục rỗng, runtime tự sinh data vào đây
-│   ├── test_<module_name>.py   ← Các file test áp dụng kiến trúc 4 Layers
-│   └── ...
+│   ├── utils/                  ← Mirror: utils/*
+│   │   ├── conftest.py         ← Domain fixtures (tùy chọn)
+│   │   ├── test_srt_parser.py
+│   │   ├── test_ass_utils.py
+│   │   ├── test_merge_srt.py
+│   │   └── test_media_utils.py
+│   ├── cli/                    ← Mirror: cli/*
+│   │   ├── test_media_speed.py
+│   │   ├── test_demucs_audio.py
+│   │   └── test_extractor_config.py
+│   ├── sync_engine/            ← Mirror: sync_engine/*
+│   │   ├── conftest.py         ← synthetic_video_path, timeline fixtures
+│   │   ├── test_analyzer.py
+│   │   ├── test_audio_assembler.py
+│   │   ├── test_timestamp_remapper.py
+│   │   ├── test_video_processor.py
+│   │   ├── test_concat_demuxer.py
+│   │   └── test_sync_video_pipeline.py
+│   ├── translation/            ← Mirror: translation/*
+│   │   ├── conftest.py         ← sample_srt_path, prompt fixtures
+│   │   └── test_translation_providers.py
+│   ├── tts/                    ← Mirror: tts/*
+│   │   └── test_tts_edgetts.py
+│   └── video_ocr/              ← Mirror: video_subtitle_extractor/*
+│       ├── conftest.py         ← synthetic_video_path, ocr_boxes, mocked_extractor
+│       └── test_native_video_ocr_pipeline.py
 └── docs/
     └── testing-guide.md        ← Tài liệu chi tiết này
 ```
+
+**Nguyên tắc phân chia `conftest.py`**:
+
+| Tầng       | Vị trí                       | Nội dung                                                                                                                                             |
+| ---------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Global** | `tests/conftest.py`          | Hardware check, CLI options, skip fixtures dùng chung toàn project (`use_gpu`, `skip_if_weak_hardware`, `check_ffmpeg_available`, `real_video_path`) |
+| **Domain** | `tests/<domain>/conftest.py` | Fixtures tạo sample data, mock objects riêng domain (`synthetic_video_path`, `ocr_boxes`, `mocked_extractor` trong `video_ocr/`)                     |
+
+**Lợi ích**:
+
+1. **Tìm kiếm nhanh**: Muốn sửa `sync_engine/analyzer.py` → vào `tests/sync_engine/test_analyzer.py` ngay lập tức.
+2. **Scale tốt**: Thêm feature mới → thêm thư mục mới, không làm loãng thư mục gốc.
+3. **Fixtures gọn**: `conftest.py` global chỉ còn hardware checks; fixtures domain nằm đúng chỗ.
+4. **Parallel run**: Dễ dàng chạy test theo domain: `pytest tests/sync_engine/ -v`.
 
 ---
 
@@ -526,8 +564,8 @@ Mọi file test trong dự án **bắt buộc** tuân theo cấu trúc này:
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-tests/test_<module_name>.py
-===========================
+tests/<domain>/test_<module_name>.py
+====================================
 Mô tả ngắn về feature đang được test.
 
 Cấu trúc layers (điều chỉnh theo feature):
@@ -537,10 +575,10 @@ Cấu trúc layers (điều chỉnh theo feature):
   Layer 4 — Real Model Tests    (cần GPU, đánh dấu @pytest.mark.gpu)
 
 Cách chạy từng layer:
-    pytest tests/test_<module>.py -v -k "Layer1"
-    pytest tests/test_<module>.py -v -k "Layer2"
-    pytest tests/test_<module>.py -v -k "Layer3"
-    NATIVE_OCR_MIN_VRAM_GB=15 pytest tests/test_<module>.py -v -k "Layer4"
+    pytest tests/<domain>/test_<module>.py -v -k "Layer1"
+    pytest tests/<domain>/test_<module>.py -v -k "Layer2"
+    pytest tests/<domain>/test_<module>.py -v -k "Layer3"
+    NATIVE_OCR_MIN_VRAM_GB=15 pytest tests/<domain>/test_<module>.py -v -k "Layer4"
 """
 
 import os
@@ -610,12 +648,14 @@ class TestLayer4_<ModelName>:
 
 ### Quy tắc đặt tên
 
-| Thành phần  | Format                              | Ví dụ                                      |
-| ----------- | ----------------------------------- | ------------------------------------------ |
-| File test   | `test_<module_name>.py`             | `test_native_video_ocr_pipeline.py`        |
-| Class test  | `TestLayer{N}_{ComponentName}`      | `TestLayer2_FrameSampling`                 |
-| Method test | `test_<what_is_being_tested>`       | `test_timestamps_increase_monotonically`   |
-| Fixture     | `<noun>_path` hoặc `<noun>_fixture` | `synthetic_video_path`, `mocked_extractor` |
+| Thành phần  | Format                                 | Ví dụ                                               |
+| ----------- | -------------------------------------- | --------------------------------------------------- |
+| File test   | `tests/<domain>/test_<module_name>.py` | `tests/video_ocr/test_native_video_ocr_pipeline.py` |
+| Class test  | `TestLayer{N}_{ComponentName}`         | `TestLayer2_FrameSampling`                          |
+| Method test | `test_<what_is_being_tested>`          | `test_timestamps_increase_monotonically`            |
+| Fixture     | `<noun>_path` hoặc `<noun>_fixture`    | `synthetic_video_path`, `mocked_extractor`          |
+
+**Lưu ý về `PROJECT_ROOT`**: Các file test dùng `Path(__file__).resolve().parent.parent` để tìm `PROJECT_ROOT`. Sau khi chuyển vào `tests/<domain>/`, `parent.parent` vẫn trỏ đúng project root. **Không cần sửa đoạn này**.
 
 ### Quy tắc về scope fixture
 
@@ -637,7 +677,7 @@ File nằm tại: `tests/test_matrix.yaml`
 ```yaml
 tests:
   - name: "Tên hiển thị — phải unique và mô tả đủ" # BẮT BUỘC
-    file: "tests/test_file.py" # BẮT BUỘC, đường dẫn từ project root
+    file: "tests/<domain>/test_file.py" # BẮT BUỘC, đường dẫn từ project root
     keyword: "Layer1 or Layer2" # Tùy chọn — map sang -k flag của pytest
     markers: ["unit", "slow"] # Tùy chọn — map sang -m flag của pytest
     env: # Tùy chọn — merge với env Colab hiện tại
@@ -667,6 +707,10 @@ name: "Test 1"
 Đường dẫn tương đối từ project root. **Không** dùng đường dẫn tuyệt đối.
 
 ```yaml
+# ✅ Đúng: phản ánh cấu trúc Domain-Based
+file: "tests/video_ocr/test_native_video_ocr_pipeline.py"
+
+# ❌ Sai: cấu trúc flat cũ
 file: "tests/test_native_video_ocr_pipeline.py"
 ```
 
@@ -775,7 +819,7 @@ Khi thêm test cho feature `merge_video.py` mới, thêm vào `test_matrix.yaml`
 # ──────────────────────────────────────────────────────────
 
 - name: "Merge Video — Layer 1: Argument Parser & Validation"
-  file: "tests/test_merge_video.py"
+  file: "tests/cli/test_merge_video.py"
   keyword: "Layer1"
   timeout_sec: 30
   pytest_args: ["-v"]
@@ -783,7 +827,7 @@ Khi thêm test cho feature `merge_video.py` mới, thêm vào `test_matrix.yaml`
   enabled: true
 
 - name: "Merge Video — Layer 2: FFmpeg Command Building"
-  file: "tests/test_merge_video.py"
+  file: "tests/cli/test_merge_video.py"
   keyword: "Layer2"
   timeout_sec: 120
   pytest_args: ["-v", "-s"]
@@ -791,7 +835,7 @@ Khi thêm test cho feature `merge_video.py` mới, thêm vào `test_matrix.yaml`
   enabled: true
 
 - name: "Merge Video — Layer 3: Full Merge Pipeline (Synthetic Files)"
-  file: "tests/test_merge_video.py"
+  file: "tests/cli/test_merge_video.py"
   keyword: "Layer3"
   timeout_sec: 300
   pytest_args: ["-v", "-s"]
@@ -878,11 +922,12 @@ Trước khi thêm test file mới vào repository, xác nhận tất cả các 
 
 **Cấu trúc file**:
 
-- [ ] File đặt tại `tests/test_<module_name>.py`
+- [ ] File đặt tại `tests/<domain>/test_<module_name>.py` (ví dụ: `tests/sync_engine/test_analyzer.py`)
 - [ ] Có docstring mô tả các layers và cách chạy
-- [ ] Import `PROJECT_ROOT` và thêm vào `sys.path`
+- [ ] Import `PROJECT_ROOT` và thêm vào `sys.path` (dùng `parent.parent` — vẫn đúng khi nằm trong subfolder)
 - [ ] Dùng `pytest.importorskip()` cho dependency nặng (cv2, torch, pydub)
 - [ ] Fixtures có `scope` phù hợp (`module` cho file tổng hợp, `function` cho file có thể bị modify)
+- [ ] Nếu domain có fixtures dùng chung nhiều file → tạo `tests/<domain>/conftest.py`
 
 **Layer 1 (Unit)**:
 

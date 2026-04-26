@@ -1,5 +1,73 @@
 # Project Journal
 
+## 2026-04-26: Refactor tests/ sang Domain-Based Structure
+
+### Yêu cầu
+
+- Cấu trúc thư mục `tests/` hiện tại là **flat** (18 file `.py` chung 1 thư mục), rất khó xác định file test nào thuộc module nào khi cần sửa code.
+- `conftest.py` quá lớn (~320 dòng), chứa cả global fixtures (GPU/FFmpeg) và domain fixtures (synthetic video, OCR boxes).
+- `test_matrix.yaml` dài và khó bảo trì vì phải reference nhiều file ở các layer khác nhau trong 1 file YAML duy nhất.
+
+### Quyết định kiến trúc
+
+Chuyển từ cấu trúc **flat** sang **Domain-Based** — phản chiếu trực tiếp cấu trúc source code (`utils/`, `cli/`, `sync_engine/`, `translation/`, `tts/`, `video_ocr/`).
+
+**Nguyên tắc phân chia `conftest.py`**:
+
+| Tầng       | Vị trí                       | Nội dung                                                           |
+| ---------- | ---------------------------- | ------------------------------------------------------------------ |
+| **Global** | `tests/conftest.py`          | Hardware check, CLI options, skip fixtures dùng chung toàn project |
+| **Domain** | `tests/<domain>/conftest.py` | Fixtures tạo sample data, mock objects riêng domain                |
+
+### Thay đổi đã thực hiện
+
+1. **Tạo 6 thư mục domain** trong `tests/`:
+   - `tests/utils/` — mirror `utils/*`
+   - `tests/cli/` — mirror `cli/*`
+   - `tests/sync_engine/` — mirror `sync_engine/*`
+   - `tests/translation/` — mirror `translation/*`
+   - `tests/tts/` — mirror `tts/*`
+   - `tests/video_ocr/` — mirror `video_subtitle_extractor/*`
+
+2. **Di chuyển 16 file test** vào đúng thư mục domain:
+   - `test_srt_parser.py`, `test_ass_utils.py`, `test_merge_srt.py`, `test_media_utils.py` → `tests/utils/`
+   - `test_demucs_audio.py`, `test_media_speed.py`, `test_extractor_config.py` → `tests/cli/`
+   - `test_analyzer.py`, `test_audio_assembler.py`, `test_concat_demuxer.py`, `test_timestamp_remapper.py`, `test_video_processor.py`, `test_sync_video_pipeline.py` → `tests/sync_engine/`
+   - `test_translation_providers.py` → `tests/translation/`
+   - `test_tts_edgetts.py` → `tests/tts/`
+   - `test_native_video_ocr_pipeline.py` → `tests/video_ocr/`
+
+3. **Tạo `__init__.py`** cho mỗi thư mục domain để đảm bảo pytest discovery hoạt động đúng.
+
+4. **Cập nhật `tests/test_matrix.yaml`**:
+   - Sửa toàn bộ trường `file` từ `tests/test_xxx.py` → `tests/<domain>/test_xxx.py`.
+   - Thêm entry mới: "Sync Engine — Full Pipeline (Phase 0-4 Integration)" → `tests/sync_engine/test_sync_video_pipeline.py`.
+
+5. **Cập nhật `docs/testing-guide.md`**:
+   - Mục 1.2: Thay thế cấu trúc flat bằng Domain-Based Structure với tree diagram đầy đủ.
+   - Mục 7: Cập nhật docstring template và bảng quy tắc đặt tên file test (`tests/<domain>/test_<module_name>.py`).
+   - Mục 8.1/8.3: Cập nhật schema `file` và ví dụ `test_matrix.yaml`.
+   - Mục 10: Cập nhật checklist đường dẫn file test.
+
+### Trạng thái hiện tại
+
+- ✅ Cấu trúc Domain-Based đã được triển khai.
+- ✅ `test_matrix.yaml` đã cập nhật paths mới.
+- ✅ `docs/testing-guide.md` đã cập nhật convention mới.
+- ✅ Đã tách fixtures domain-specific từ `tests/conftest.py` → `tests/<domain>/conftest.py`:
+  - `tests/sync_engine/conftest.py`: `real_video_path`, `concat_workers`
+  - `tests/video_ocr/conftest.py`: `skip_if_insufficient_vram`, `native_video_gpu_preflight`
+  - `tests/utils/conftest.py`: `check_rubberband_available`, `check_pyrubberband_installed`, `check_soundfile_installed`, `check_audio_stretch_dependencies`
+- `tests/conftest.py` global giảm từ ~320 dòng xuống ~170 dòng, chỉ còn hardware checks dùng chung toàn project.
+
+### Đối chiếu Data Flow
+
+- Không ảnh hưởng đến logic test hay source code production.
+- `PROJECT_ROOT = Path(__file__).resolve().parent.parent` trong các file test vẫn trỏ đúng project root sau khi chuyển vào subfolder.
+- `run_colab_tests.py` không cần sửa vì nó đọc `file` paths từ `test_matrix.yaml`.
+
+---
+
 ## 2026-04-25: Tạo CLI Qwen3-ASR — qwen3-asr-srt
 
 ### Yêu cầu
