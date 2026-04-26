@@ -216,7 +216,7 @@ Qwen3-ASR yêu cầu `transformers` và `flash-attn`. Do `flash-attn` là packag
 #### Chạy 1 file đơn lẻ
 
 ```colab
-!.venv-whisper/bin/python cli/whisper_srt.py \
+!.venv-qwen3asr/bin/python cli/qwen3_asr.py \
   --input /content/video.mp4 \
   --output /content/subs/ \
   --language Chinese \
@@ -233,7 +233,7 @@ _Output mặc định sẽ tạo 3 file trong thư mục output:_
 
 #### Chạy hàng loạt nhiều file (Batch JSON)
 
-Tương tự WhisperX, truyền vào file JSON chứa danh sách task để xử lý batch:
+Tương tự, truyền vào file JSON chứa danh sách task để xử lý batch:
 
 Ví dụ file `tasks.json`:
 
