@@ -207,14 +207,16 @@ Qwen3-ASR yêu cầu `transformers` và `flash-attn`. Do `flash-attn` là packag
 > Prebuilt wheel hiện tại yêu cầu: **Python 3.12**, **CUDA 12.8**, **PyTorch 2.9**, **Linux x86_64**.
 
 ```colab
-# Cài đặt optional dependency qwen-asr
-!uv pip install -e .[qwen-asr]
+!uv venv .venv-qwen3asr
+# Cài đặt qwen-asr và flash-attn thẳng vào môi trường .venv-qwen3asr
+!uv pip install -p .venv-qwen3asr/bin/python qwen-asr[vllm]
+!uv pip install -p .venv-qwen3asr/bin/python https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.0/flash_attn-2.8.3+cu128torch2.9-cp312-cp312-linux_x86_64.whl
 ```
 
 #### Chạy 1 file đơn lẻ
 
 ```colab
-!uv run qwen3-asr-srt \
+!.venv-whisper/bin/python cli/whisper_srt.py \
   --input /content/video.mp4 \
   --output /content/subs/ \
   --language Chinese \
