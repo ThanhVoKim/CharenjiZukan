@@ -27,6 +27,10 @@ logger = get_logger(__name__)
 CJK_PUNCT = set("，。！？；：“”‘’（）《》【】、")
 ALL_PUNCT_SET = set(string.punctuation) | CJK_PUNCT
 SPLIT_PUNCT_SET = set(".,!?:;。，！？：；、")
+ELLIPSIS_PUNCT = "……"
+OPENING_PUNCT = set("“‘（《【")
+CLOSING_PUNCT = set("”’）》】")
+BRACKET_PAIRS = {"（": "）", "《": "》", "【": "】", "“": "”", "‘": "’"}
 
 
 def extract_audio(video_path: str) -> str:
@@ -53,35 +57,168 @@ def format_srt_time(seconds: float) -> str:
 
 
 def merge_punctuation(words, full_text: str) -> List[Dict]:
-    """Gắn dấu câu từ full_text vào mảng words timestamp."""
+    """Gắn dấu câu từ full_text vào mảng words timestamp.
+
+    Thu thập cả prefix (dấu mở ngoặc/quote đứng trước token) và suffix
+    để tránh mất dấu câu ở đầu câu hoặc gắn nhầm dấu mở ngoặc vào token trước đó.
+
+    Edge cases handled:
+      - Token rỗng (Case 36): không gây IndexError.
+      - Token cuối cùng có hậu tố chữ (Case 43): vớt toàn bộ phần còn lại.
+      - Token không khớp hoàn toàn (Case 45): ép tiến tịnh tiến để tránh kẹt con trỏ.
+    """
     merged_words = []
     text_idx = 0
     full_len = len(full_text)
+    total_words = len(words)
 
-    for word_obj in words:
+    for i, word_obj in enumerate(words):
         clean_word = word_obj.text
+        prefix_chars = ""
         trailing_chars = ""
         word_len = len(clean_word)
 
+        # Case 36: Token rỗng → giữ nguyên, không gây IndexError
+        if word_len == 0:
+            merged_words.append({
+                "text": "",
+                "start_time": word_obj.start_time,
+                "end_time": word_obj.end_time
+            })
+            continue
+
+        # Thu thập prefix: các ký tự không phải chữ/số trước khi gặp ký tự đầu tiên của token
         while text_idx < full_len and full_text[text_idx].lower() != clean_word[0].lower():
+            prefix_chars += full_text[text_idx]
             text_idx += 1
 
         if full_text.lower().startswith(clean_word.lower(), text_idx):
             text_idx += word_len
+        else:
+            # Case 45: Token không khớp → ép tiến tịnh tiến để tránh kẹt con trỏ
+            text_idx += max(1, word_len)
+            if text_idx > full_len:
+                text_idx = full_len
 
+        # Thu thập trailing chars
         while text_idx < full_len:
             char = full_text[text_idx]
             if char.isalnum() and char not in ALL_PUNCT_SET:
                 break
+            # Dấu mở ngoặc thuộc về token tiếp theo
+            if char in OPENING_PUNCT:
+                break
             trailing_chars += char
             text_idx += 1
 
+        # Case 43: Nếu là token cuối cùng và còn chữ/số chưa được lấy,
+        # vớt toàn bộ phần còn lại của full_text để tránh mất chữ.
+        if i == total_words - 1 and text_idx < full_len:
+            remaining = full_text[text_idx:]
+            # Chỉ vớt nếu phần còn lại toàn là chữ/số (không có dấu câu mở ngoặc)
+            if remaining and all(c.isalnum() or c in ALL_PUNCT_SET for c in remaining):
+                # Nếu ký tự đầu tiên của remaining là chữ/số thì gom vào trailing
+                if remaining[0].isalnum():
+                    trailing_chars += remaining
+                    text_idx = full_len
+
         merged_words.append({
-            "text": clean_word + trailing_chars,
+            "text": prefix_chars + clean_word + trailing_chars,
             "start_time": word_obj.start_time,
             "end_time": word_obj.end_time
         })
     return merged_words
+
+
+def _recalc_brackets(sentence: List[Dict]) -> int:
+    """Tính lại số ngoặc mở chưa đóng cho một sentence."""
+    count = 0
+    for w in sentence:
+        for c in w["text"]:
+            if c in BRACKET_PAIRS:
+                count += 1
+            elif c in BRACKET_PAIRS.values():
+                count = max(0, count - 1)
+    return count
+
+
+def segment_subtitles(merged_words: List[Dict], max_chars: int = 15) -> List[List[Dict]]:
+    """Cắt phụ đề thông minh với kiểm soát ngoặc bọc và độ dài tối thiểu.
+
+    - Không cắt tại dấu phẩy/chấm phẩy nếu đang nằm trong cặp ngoặc.
+    - Không cắt vụn câu quá ngắn (dưới MIN_LENGTH ký tự) tại dấu phẩy.
+    - Ưu tiên cắt tại dấu hai chấm `:` / `：` (hard break).
+    - Nếu token đơn lẻ đã vượt quá max_chars, giữ nguyên (không ép cắt).
+    """
+    subtitles: List[List[Dict]] = []
+    current_sentence: List[Dict] = []
+    in_brackets = 0
+    MIN_LENGTH = 8  # Ngưỡng tối thiểu để tránh cắt vụn câu ngắn
+
+    for item in merged_words:
+        text = item["text"]
+
+        # Cập nhật trạng thái ngoặc
+        for char in text:
+            if char in BRACKET_PAIRS:
+                in_brackets += 1
+            elif char in BRACKET_PAIRS.values():
+                in_brackets = max(0, in_brackets - 1)
+
+        # Nếu thêm item vào làm vượt max_chars và current đã có token trước đó,
+        # cắt TRƯỚC item này để giữ sentence cũ trong giới hạn.
+        if current_sentence:
+            prev_text = "".join([w["text"] for w in current_sentence]).strip()
+            candidate_len = len(prev_text) + len(text.strip())
+            if candidate_len > max_chars and len(prev_text) > 0:
+                # Chỉ cắt trước nếu prev_text không quá ngắn (tránh cắt vụn)
+                if len(prev_text) >= MIN_LENGTH or len(prev_text) >= max_chars * 0.5:
+                    subtitles.append(current_sentence)
+                    current_sentence = []
+                    in_brackets = 0
+                    # recalc brackets cho item mới
+                    for c in text:
+                        if c in BRACKET_PAIRS:
+                            in_brackets += 1
+                        elif c in BRACKET_PAIRS.values():
+                            in_brackets = max(0, in_brackets - 1)
+
+        current_sentence.append(item)
+        current_text = "".join([w["text"] for w in current_sentence]).strip()
+        current_len = len(current_text)
+
+        # Nếu chỉ có 1 token và đã vượt max_chars → giữ nguyên, không ép cắt
+        if len(current_sentence) == 1 and current_len > max_chars:
+            subtitles.append(current_sentence)
+            current_sentence = []
+            in_brackets = 0
+            continue
+
+        has_strong_split = any(char in "。！？：；" for char in text)
+        has_weak_split = any(char in "，、" for char in text) or ELLIPSIS_PUNCT in text
+        is_too_long = current_len >= max_chars
+
+        should_split = False
+
+        if is_too_long:
+            should_split = True
+        elif in_brackets == 0:
+            if has_strong_split:
+                # Dấu kết thúc/2 chấm/chấm phẩy luôn cắt (hard break)
+                should_split = True
+            elif has_weak_split and current_len >= MIN_LENGTH:
+                # Dấu phẩy/chấm chỉ cắt khi đã đủ dài
+                should_split = True
+
+        if should_split:
+            subtitles.append(current_sentence)
+            current_sentence = []
+            in_brackets = 0
+
+    if current_sentence:
+        subtitles.append(current_sentence)
+
+    return subtitles
 
 
 
@@ -194,22 +331,7 @@ def run_batch_transcribe(
                 json.dump(json_data, f, ensure_ascii=False, indent=4)
 
             # Xử lý cắt câu Subtitle
-            subtitles = []
-            current_sentence = []
-
-            for item in merged_words:
-                current_sentence.append(item)
-                current_text = "".join([w["text"] for w in current_sentence])
-
-                has_split_punct = any(char in SPLIT_PUNCT_SET for char in item["text"])
-                is_too_long = len(current_text.strip()) >= max_chars
-
-                if has_split_punct or is_too_long:
-                    subtitles.append(current_sentence)
-                    current_sentence = []
-
-            if current_sentence:
-                subtitles.append(current_sentence)
+            subtitles = segment_subtitles(merged_words, max_chars=max_chars)
 
             # Lưu SRT
             with open(task["srt_path"], "w", encoding="utf-8") as f:

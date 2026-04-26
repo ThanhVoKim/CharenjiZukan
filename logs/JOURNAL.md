@@ -1,5 +1,67 @@
 # Project Journal
 
+## 2026-04-26: Nâng cấp thuật toán Gom dấu câu và Cắt phụ đề cho Qwen3-ASR
+
+### Yêu cầu
+
+- Khắc phục các lỗi cắt câu thiếu tự nhiên và mất dấu câu trong `cli/qwen3_asr.py`:
+  - Mất dấu mở ngoặc/mở quote ở đầu câu (Case 10, 37, 41).
+  - Cắt sai vị trí khi có dấu ngoặc kép sau dấu hai chấm (Case 40).
+  - Cắt vụn câu khi có dấu phẩy nằm trong ngoặc (Case 13) hoặc câu quá ngắn (Case 47).
+  - Mất khoảng trắng giữa các token tiếng Anh (Case 23).
+  - Thiếu nhận diện dấu ba chấm Unicode (Case 29).
+  - Xử lý đoạn trích dẫn dài (Long quote) vượt quá max_chars bằng cách cắt thông minh bên trong ngoặc kép.
+
+### Quyết định kiến trúc & Thay đổi dự kiến
+
+1. **Refactor `merge_punctuation`**:
+   - Bổ sung logic quét ngược/thu thập `prefix` (các ký tự không thuộc token nằm trước token đó) để không bị mất dấu mở ngoặc `“`, `（`, v.v.
+   - Gắn `prefix` vào đầu token thay vì chỉ tìm trailing chars.
+
+2. **Tách hàm `segment_subtitles` độc lập**:
+   - Chuyển vòng lặp cắt câu trong `run_batch_transcribe` thành một hàm thuần Python (Pure Function) nhận vào `merged_words` và trả về danh sách các dòng subtitle.
+   - Giúp cho việc Unit Test (Layer 1) dễ dàng mà không cần load AI model.
+
+3. **Thuật toán Smart Split (Cắt thông minh)**:
+   - Sử dụng biến trạng thái `in_brackets` để đếm số lượng ngoặc mở chưa đóng. Không cắt câu tại dấu `,` hay `。` nếu đang nằm trong ngoặc (trừ khi vượt quá `max_chars` quá xa).
+   - Thiết lập `min_length` để tránh cắt vụn câu (như `我，来了。`).
+   - Xử lý mượt mà kịch bản 2 (Quote rất dài) bằng cách ưu tiên cắt ở dấu `:` trước, sau đó mới chia nhỏ bên trong quote dựa vào `max_chars`.
+
+### Trạng thái hiện tại
+
+- ✅ Đã refactor `merge_punctuation`: thu thập prefix, xử lý dấu mở ngoặc/quote đúng cách.
+- ✅ Đã tách hàm `segment_subtitles` độc lập khỏi `run_batch_transcribe`.
+- ✅ Đã triển khai Smart Split: kiểm soát ngoặc bọc (`in_brackets`), độ dài tối thiểu (`MIN_LENGTH`), ưu tiên cắt tại dấu hai chấm.
+- ✅ Đã xử lý Edge Cases trong `merge_punctuation`:
+  - **Case 36**: Token rỗng không gây `IndexError` (guard `if word_len == 0`).
+  - **Case 43**: Token cuối cùng vớt toàn bộ hậu tố chữ/số còn lại trong `full_text`.
+  - **Case 45**: Token không khớp hoàn toàn với `full_text` → ép tiến tịnh tiến (`text_idx += max(1, word_len)`) để tránh kẹt con trỏ.
+- ✅ File test `tests/cli/test_qwen3_asr.py` đã có 13 test cases Layer 1, tất cả đều PASS.
+- ✅ `tests/test_matrix.yaml` đã được cập nhật entry mới cho Qwen3 ASR Layer 1.
+
+---
+
+## 2026-04-26: Cập nhật docs/testing-guide.md — Domain-Based vs Feature-Based
+
+### Thay đổi
+
+- Thêm section **1.3. Domain-Based vs Feature-Based** vào [`docs/testing-guide.md`](docs/testing-guide.md:91) ngay sau Mục 1.2 (Cấu trúc thư mục Testing).
+- Cập nhật Mục lục (TOC) để thêm anchor link đến section mới.
+
+### Nội dung section mới
+
+- Bảng so sánh chi tiết giữa Domain-Based (`tests/cli/`) và Feature-Based (`tests/test_demucs/`).
+- Quy tắc quyết định 3 điểm cho dự án này:
+  1. Mặc định dùng Domain-Based vì source code đã tổ chức theo domain rõ ràng.
+  2. Chỉ tách Feature-Based khi một feature có >= 3 file test riêng biệt hoặc fixtures phức tạp riêng.
+  3. Không bao giờ dùng cả hai cùng lúc để tránh confusion.
+
+### Trạng thái
+
+- ✅ Đã merge vào `docs/testing-guide.md`.
+
+---
+
 ## 2026-04-26: Refactor tests/ sang Domain-Based Structure
 
 ### Yêu cầu

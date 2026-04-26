@@ -69,6 +69,14 @@ tests:
     tags: ["unit"]
     enabled: true
 
+  - name: "Qwen3 ASR — Layer 1: Punctuation & Segmentation Logic"
+    file: "tests/cli/test_qwen3_asr.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
   # ──────────────────────────────────────────────
   # INTEGRATION TESTS — Cần FFmpeg, không cần GPU
   # ──────────────────────────────────────────────

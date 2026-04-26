@@ -3,6 +3,9 @@
 ## Mục lục
 
 1. [Quy tắc cốt lõi & Cấu trúc dự án (TL;DR)](#1-quy-tắc-cốt-lõi--cấu-trúc-dự-án-tldr)
+   - [1.1. 10 Rules Bắt Buộc](#11-10-rules-bắt-buộc)
+   - [1.2. Cấu trúc thư mục Testing](#12-cấu-trúc-thư-mục-testing)
+   - [1.3. Domain-Based vs Feature-Based](#13-domain-based-vs-feature-based-khi-nào-dùng-cái-nào)
 2. [Triết lý kiến trúc test — 4 Layers](#2-triết-lý-kiến-trúc-test--4-layers)
 3. [Phân loại feature và cách tiếp cận](#3-phân-loại-feature-và-cách-tiếp-cận)
 4. [Taxonomy Tag — Quy tắc gán nhãn](#4-taxonomy-tag--quy-tắc-gán-nhãn)
@@ -76,10 +79,10 @@ CharenjiZukan/
 
 **Nguyên tắc phân chia `conftest.py`**:
 
-| Tầng       | Vị trí                       | Nội dung                                                                                                                                             |
-| ---------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Global** | `tests/conftest.py`          | Hardware check, CLI options, skip fixtures dùng chung toàn project (`use_gpu`, `skip_if_weak_hardware`, `check_ffmpeg_available`, `real_video_path`) |
-| **Domain** | `tests/<domain>/conftest.py` | Fixtures tạo sample data, mock objects riêng domain (`synthetic_video_path`, `ocr_boxes`, `mocked_extractor` trong `video_ocr/`)                     |
+| Tầng       | Vị trí                       | Nội dung                                                                                                                          |
+| ---------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Global** | `tests/conftest.py`          | Hardware check, CLI options, skip fixtures dùng chung toàn project (`use_gpu`, `skip_if_weak_hardware`, `check_ffmpeg_available`) |
+| **Domain** | `tests/<domain>/conftest.py` | Fixtures tạo sample data, mock objects riêng domain (`synthetic_video_path`, `ocr_boxes`, `mocked_extractor` trong `video_ocr/`)  |
 
 **Lợi ích**:
 
@@ -87,6 +90,26 @@ CharenjiZukan/
 2. **Scale tốt**: Thêm feature mới → thêm thư mục mới, không làm loãng thư mục gốc.
 3. **Fixtures gọn**: `conftest.py` global chỉ còn hardware checks; fixtures domain nằm đúng chỗ.
 4. **Parallel run**: Dễ dàng chạy test theo domain: `pytest tests/sync_engine/ -v`.
+
+### 1.3. Domain-Based vs Feature-Based: Khi nào dùng cái nào?
+
+Dự án này chọn **Domain-Based** (`tests/<domain>/`) làm mặc định. Tuy nhiên, bạn cần hiểu rõ tiêu chí phân chia để không tạo ra cấu trúc rối khi thêm feature mới.
+
+| Tiêu chí            | Domain-Based (`tests/cli/`)                                                                                                      | Feature-Based (`tests/test_demucs/`)                                         |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| **Nguyên tắc**      | Mirror cấu trúc source code (`cli/`, `utils/`, `sync_engine/`)                                                                   | Mỗi feature/tool có thư mục riêng                                            |
+| **Khi nào dùng**    | Khi source code đã được tổ chức theo domain rõ ràng                                                                              | Khi feature phức tạp, span nhiều domain, hoặc có rất nhiều file test         |
+| **Ví dụ dự án này** | `tests/cli/` chứa test cho `cli/demucs_audio.py`, `cli/media_speed.py`, `cli/extractor_config.py` vì chúng cùng nằm trong `cli/` | Không áp dụng vì mỗi CLI tool chỉ có 1 file test, không đủ lớn để tách riêng |
+| **Ưu điểm**         | Tìm test nhanh: sửa `cli/media_speed.py` → vào `tests/cli/test_media_speed.py`                                                   | Tách biệt hoàn toàn, dễ chạy test 1 feature                                  |
+| **Nhược điểm**      | Nếu 1 domain có quá nhiều file test (20+) thì folder bị loãng                                                                    | Tạo quá nhiều folder nhỏ, khó biết feature nào thuộc domain nào              |
+
+**Quy tắc quyết định cho dự án này:**
+
+1. **Mặc định dùng Domain-Based** (`tests/<domain>/`) vì source code đã tổ chức theo domain (`cli/`, `utils/`, `sync_engine/`, `translation/`, `tts/`, `video_subtitle_extractor/`).
+2. **Chỉ tách Feature-Based** khi một feature có **>= 3 file test riêng biệt** hoặc cần fixtures phức tạp chỉ dùng cho feature đó. Ví dụ: nếu `demucs_audio.py` có cả unit test, integration test, benchmark test, và visual test → mới xem xét `tests/demucs/`.
+3. **Không bao giờ dùng cả hai cùng lúc** vì sẽ gây confusion: `tests/cli/test_demucs_audio.py` vs `tests/demucs/test_xxx.py` → developer không biết test mới thêm vào đâu.
+
+> **Tóm lại:** Dự án này chọn `tests/cli/` vì tất cả CLI tools (demucs, media_speed, extractor_config, tts_srt, translate_srt...) đều nằm trong cùng 1 source folder `cli/`, và mỗi tool chỉ có 1 file test. Việc tách `tests/demucs/`, `tests/media_speed/`... sẽ tạo ra 10+ folder nhỏ với mỗi folder chỉ 1 file → rối hơn.
 
 ---
 
