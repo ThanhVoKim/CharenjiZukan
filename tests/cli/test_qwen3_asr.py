@@ -219,6 +219,76 @@ class TestLayer1_Qwen3ASRPunctuation:
             # Yêu cầu dòng cắt thông minh không được vượt quá xa ngưỡng 15
             assert len(text) <= 18
 
+    def test_case_39_trailing_punct_at_end(self):
+        """Case 39: Dấu câu liên tiếp ở cuối full text được gắn vào token cuối.
+
+        Input: 你好。！！
+        Tokens: 你好
+        Expected: 你好。！！
+        """
+        words = to_mock_words(["你好"])
+        full_text = '你好。！！'
+        merged = merge_punctuation(words, full_text)
+        assert len(merged) == 1
+        assert merged[0]["text"] == "你好。！！"
+
+    def test_case_33_partial_mismatch(self):
+        """Case 33: Token không khớp chính xác với full text (Partial Match).
+
+        Input: 你好世界。
+        Tokens: 你好啊 | 世界
+        Expected:
+          你好啊
+          世界。
+        Giải thích: Token 你好啊 chỉ khớp 2 ký tự 你好, con trỏ tiến 2 bước.
+        Token 世界 sau đó khớp hoàn hảo và nhận dấu 。.
+        """
+        words = to_mock_words(["你好啊", "世界"])
+        full_text = '你好世界。'
+        merged = merge_punctuation(words, full_text)
+        assert len(merged) == 2
+        assert merged[0]["text"] == "你好啊"
+        assert merged[1]["text"] == "世界。"
+
+    def test_case_27_ascii_hyphen(self):
+        """Case 27: Dấu gạch ngang ASCII giữa token không gây cắt sai.
+
+        Input: hello-world.
+        Tokens: hello | world
+        Expected merged:
+          hello-
+          world.
+        Giải thích: Dấu - thuộc bộ dấu câu chung nên gắn vào hello,
+        nhưng không nằm trong bộ dấu cắt nên không gây split.
+        """
+        words = to_mock_words(["hello", "world"])
+        full_text = 'hello-world.'
+        merged = merge_punctuation(words, full_text)
+        assert len(merged) == 2
+        assert merged[0]["text"] == "hello-"
+        assert merged[1]["text"] == "world."
+
+        # Với max_chars=15, toàn bộ "hello-world." chỉ có 12 ký tự
+        # nên không bị cắt
+        subs = segment_subtitles(merged, max_chars=15)
+        assert len(subs) == 1
+        assert "".join([w["text"] for w in subs[0]]) == "hello-world."
+
+    def test_case_45_misaligned_token(self):
+        """Case 45: Token lặp nhưng token đầu không khớp hoàn toàn.
+
+        Input: abc abc.
+        Tokens: abx | abc
+        Expected: Token thứ 2 vẫn nhận được dấu câu.
+        Giải thích: abx chỉ khớp 2 ký tự 'ab', con trỏ tiến 2 bước.
+        abc sau đó khớp hoàn hảo và nhận dấu '.'.
+        """
+        words = to_mock_words(["abx", "abc"])
+        full_text = 'abc abc.'
+        merged = merge_punctuation(words, full_text)
+        assert len(merged) == 2
+        assert merged[1]["text"] == "abc."
+
     def test_case_36_empty_token(self):
         """Case 36: Token text rỗng không gây IndexError.
 
@@ -251,10 +321,13 @@ class TestLayer1_Qwen3ASRPunctuation:
         Input: abc abc.
         Tokens: abx | abc
         Expected: Không kẹt con trỏ, token thứ 2 vẫn nhận được dấu câu.
+        Giải thích: abx chỉ khớp 2 ký tự 'ab', con trỏ tiến 2 bước.
+        Phần 'c ' bị bỏ sót sẽ được gom vào prefix của token tiếp theo
+        để đảm bảo không mất chữ.
         """
         words = to_mock_words(["abx", "abc"])
         full_text = 'abc abc.'
         merged = merge_punctuation(words, full_text)
-        # Token đầu không khớp → con trỏ vẫn tiến về phía trước
-        # Token thứ 2 match 'abc' và nhận dấu '.'
-        assert merged[1]["text"] == "abc."
+        # Token đầu không khớp hoàn toàn → con trỏ tiến 2 bước (partial match)
+        # Token thứ 2 nhận cả phần prefix bị bỏ sót ('c ') + 'abc.'
+        assert merged[1]["text"] == "c abc."

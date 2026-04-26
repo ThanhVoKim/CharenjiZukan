@@ -35,7 +35,7 @@
 - ✅ Đã xử lý Edge Cases trong `merge_punctuation`:
   - **Case 36**: Token rỗng không gây `IndexError` (guard `if word_len == 0`).
   - **Case 43**: Token cuối cùng vớt toàn bộ hậu tố chữ/số còn lại trong `full_text`.
-  - **Case 45**: Token không khớp hoàn toàn với `full_text` → ép tiến tịnh tiến (`text_idx += max(1, word_len)`) để tránh kẹt con trỏ.
+  - **Case 45**: Token không khớp hoàn toàn với `full_text` → ép tiến tịnh tiến để tránh kẹt con trỏ.
 - ✅ File test `tests/cli/test_qwen3_asr.py` đã có 13 test cases Layer 1, tất cả đều PASS.
 - ✅ `tests/test_matrix.yaml` đã được cập nhật entry mới cho Qwen3 ASR Layer 1.
 

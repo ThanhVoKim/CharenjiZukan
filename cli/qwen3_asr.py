@@ -65,7 +65,7 @@ def merge_punctuation(words, full_text: str) -> List[Dict]:
     Edge cases handled:
       - Token rỗng (Case 36): không gây IndexError.
       - Token cuối cùng có hậu tố chữ (Case 43): vớt toàn bộ phần còn lại.
-      - Token không khớp hoàn toàn (Case 45): ép tiến tịnh tiến để tránh kẹt con trỏ.
+      - Token không khớp hoàn toàn (Case 33, 45): dùng Partial Match để tránh kẹt con trỏ.
     """
     merged_words = []
     text_idx = 0
@@ -92,13 +92,13 @@ def merge_punctuation(words, full_text: str) -> List[Dict]:
             prefix_chars += full_text[text_idx]
             text_idx += 1
 
-        if full_text.lower().startswith(clean_word.lower(), text_idx):
-            text_idx += word_len
-        else:
-            # Case 45: Token không khớp → ép tiến tịnh tiến để tránh kẹt con trỏ
-            text_idx += max(1, word_len)
-            if text_idx > full_len:
-                text_idx = full_len
+        # Partial Match: đếm số ký tự khớp liên tiếp giữa token và full_text
+        match_len = 0
+        while (match_len < word_len and
+               text_idx + match_len < full_len and
+               full_text[text_idx + match_len].lower() == clean_word[match_len].lower()):
+            match_len += 1
+        text_idx += match_len
 
         # Thu thập trailing chars
         while text_idx < full_len:
