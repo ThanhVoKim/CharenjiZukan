@@ -64,29 +64,7 @@ token = userdata.get('github_token')
 
 > **Lưu ý:** Sử dụng `userdata.get()` để lấy token từ Secrets, không hardcode token vào code để tránh lộ thông tin nhạy cảm.
 
-### 1.3. Cài đặt WhisperX (tùy chọn - cho Speech-to-Text)
-
-Nếu cần chuyển video thành subtitle, cài đặt thêm WhisperX bằng Optional Dependency `whisper` đã cấu hình sẵn trong project:
-
-```colab
-# !uv pip install -e .[whisper]
-
-# Tạo môi trường ảo riêng biệt cho Whisper
-!uv venv .venv-whisper
-
-# Cài đặt whisperx và các thư viện cần thiết vào môi trường này
-!uv pip install -p .venv-whisper/bin/python whisperx pydub
-
-# Cài đặt thư viện hệ thống
-!apt install libcudnn8 libcudnn8-dev -y
-
-# Đặt biến môi trường
-%env MPLBACKEND=agg
-%env TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=true
-%env LD_LIBRARY_PATH=/usr/lib64-nvidia:/usr/local/lib/python3.12/dist-packages/nvidia/cudnn/lib/
-```
-
-### 1.4. Cài đặt môi trường cho DeepSeek-OCR-2 (tùy chọn - cho trích xuất phụ đề cứng)
+### 1.3. Cài đặt môi trường cho DeepSeek-OCR-2 (tùy chọn - cho trích xuất phụ đề cứng)
 
 DeepSeek-OCR-2 là mô hình AI trên Hugging Face, không phải là một package Python thông thường. Mã nguồn và weights của mô hình sẽ được tự động tải về thông qua thư viện `transformers` khi chạy script.
 
@@ -97,7 +75,7 @@ Các thư viện nền (như `transformers`, `torch`, `einops`, `PyMuPDF`) đã 
 !uv pip install -p .venv/bin/python flash-attn==2.7.3 --no-build-isolation
 ```
 
-### 1.5. Cài đặt Qwen3-VL OCR (tùy chọn)
+### 1.4. Cài đặt Qwen3-VL OCR (tùy chọn)
 
 Nếu muốn dùng Qwen3-VL thay cho DeepSeek-OCR-2 (có tốc độ chậm hơn nhưng đọc chính xác hơn, đặc biệt khi dùng bản Thinking), cần cài đặt thủ công do yêu cầu phiên bản `transformers` khác với DeepSeek:
 
@@ -130,6 +108,24 @@ Nếu muốn dùng Qwen3-VL thay cho DeepSeek-OCR-2 (có tốc độ chậm hơn
 ## 2. Các script chính
 
 ### 2.0 Speech-to-Text với WhisperX (cho video có giọng đọc rõ ràng)
+
+#### Cài đặt môi trường
+
+Nếu cần chuyển video thành subtitle, cài đặt thêm WhisperX bằng Optional Dependency `whisper` đã cấu hình sẵn trong project:
+
+```colab
+# !uv pip install -e .[whisper]
+# Tạo môi trường ảo riêng biệt cho Whisper
+!uv venv .venv-whisper
+# Cài đặt whisperx và các thư viện cần thiết vào môi trường này
+!uv pip install -p .venv-whisper/bin/python whisperx pydub
+# Cài đặt thư viện hệ thống
+!apt install libcudnn8 libcudnn8-dev -y
+# Đặt biến môi trường
+%env MPLBACKEND=agg
+%env TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=true
+%env LD_LIBRARY_PATH=/usr/lib64-nvidia:/usr/local/lib/python3.12/dist-packages/nvidia/cudnn/lib/
+```
 
 Chuyển video/audio thành file subtitle `.srt` dùng WhisperX. Công cụ đã được tối ưu hóa cho **Batch Processing** (chạy nhiều file cùng lúc) giúp tiết kiệm VRAM và giảm thời gian tải mô hình.
 
