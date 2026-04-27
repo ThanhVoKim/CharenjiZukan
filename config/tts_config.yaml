@@ -1,0 +1,36 @@
+# Cấu hình mặc định cho TTS CLI
+# Sử dụng: uv run tts --config config/tts_config.yaml --input file.srt
+
+# Provider mặc định: edge | voicevox | qwen
+provider: "edge"
+
+# ── EdgeTTS ──────────────────────────────────────────────────────────
+edge:
+  voice: "vi-VN-HoaiMyNeural"
+  rate: "+0%"
+  volume: "+0%"
+  pitch: "+0Hz"
+  concurrent: 10
+  strip_silence: true
+  silence_thresh_dbfs: -50
+
+# ── Voicevox ─────────────────────────────────────────────────────────
+voicevox:
+  voice_id: 10008
+  host: "127.0.0.1"
+  port: 50121
+  speed_scale: 1.12
+  pitch_scale: -0.05
+  intonation_scale: 1.0
+  volume_scale: 2.0
+  concurrent_requests: 100
+
+# ── Qwen3-TTS ────────────────────────────────────────────────────────
+qwen:
+  model_path: "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+  ref_audio: ""
+  ref_text: ""
+  batch_size: 32
+  device: "cuda:0"
+  dtype: "bfloat16"
+  attn_implementation: "flash_attention_2"

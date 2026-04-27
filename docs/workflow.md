@@ -97,7 +97,7 @@ flowchart TB
     end
 
     subgraph "B8: TTS"
-        STS --> |tts_srt.py| AT[audio_slow_tts.wav]
+        STS --> |tts.py| AT[audio_slow_tts.wav]
     end
 
     subgraph "B9: Merge Video"
@@ -131,26 +131,26 @@ flowchart TB
 
 ## Các module chính
 
-| Module              | File                   | Chức năng                                        | Trạng thái    |
-| ------------------- | ---------------------- | ------------------------------------------------ | ------------- |
-| **Mute Audio**      | `cli/mute_srt.py`      | Mute audio từ file mute.srt                      | ✅ Hoàn thành |
-| **Extract Audio**   | `cli/extract_srt.py`   | Extract audio theo mute.srt                      | ✅ Hoàn thành |
-| **Extract Sub**     | `cli/video_ocr.py`      | Trích xuất subtitle Multi-Box bằng OCR           | ✅ Hoàn thành |
-| **Merge SRT**       | `cli/merge_srt.py`     | Merge 2 file SRT theo timestamp                  | ✅ Hoàn thành |
-| **Translate**       | `cli/translate_srt.py` | Dịch file .srt bằng Gemini API                   | ✅ Hoàn thành |
-| **SRT to ASS**      | `cli/srt_to_ass.py`    | Chuyển SRT → ASS với template                    | ✅ Hoàn thành |
-| **Demucs**          | `cli/demucs_audio.py`  | Remove voice từ audio                            | ✅ Hoàn thành |
-| **Media Speed**     | `cli/media_speed.py`   | Thay đổi tốc độ video/audio/subtitle (slow/fast) | ✅ Hoàn thành |
-| **TTS**             | `cli/tts_srt.py`       | Chuyển .srt thành audio với EdgeTTS              | ✅ Hoàn thành |
-| **Merge Video**     | `cli/merge_video.py`   | Ghép video + audio + subtitle + ass              | ❌ Cần tạo    |
-| **Speed Up**        | `cli/speed_video.py`   | Tăng tốc độ video                                | ❌ Cần tạo    |
-| **Speed Rate**      | `speed_rate.py`        | Time-stretch audio để khớp timeline              | ✅ Hoàn thành |
-| **EdgeTTS Engine**  | `tts_edgetts.py`       | Engine xử lý EdgeTTS                             | ✅ Hoàn thành |
-| **Translator Core** | `translator.py`        | Logic dịch SRT                                   | ✅ Hoàn thành |
-| **SRT Parser**      | `utils/srt_parser.py`  | Parse file .srt (dùng chung)                     | ✅ Hoàn thành |
-| **Audio Utils**     | `utils/audio_utils.py` | Load/export audio, tạo silence                   | ✅ Hoàn thành |
-| **ASS Utils**       | `utils/ass_utils.py`   | Xử lý ASS format                                 | ✅ Hoàn thành |
-| **Media Utils**     | `utils/media_utils.py` | Xử lý media speed (stretch, scale timestamp)     | ✅ Hoàn thành |
+| Module              | File                   | Chức năng                                         | Trạng thái    |
+| ------------------- | ---------------------- | ------------------------------------------------- | ------------- |
+| **Mute Audio**      | `cli/mute_srt.py`      | Mute audio từ file mute.srt                       | ✅ Hoàn thành |
+| **Extract Audio**   | `cli/extract_srt.py`   | Extract audio theo mute.srt                       | ✅ Hoàn thành |
+| **Extract Sub**     | `cli/video_ocr.py`     | Trích xuất subtitle Multi-Box bằng OCR            | ✅ Hoàn thành |
+| **Merge SRT**       | `cli/merge_srt.py`     | Merge 2 file SRT theo timestamp                   | ✅ Hoàn thành |
+| **Translate**       | `cli/translate_srt.py` | Dịch file .srt bằng Gemini API                    | ✅ Hoàn thành |
+| **SRT to ASS**      | `cli/srt_to_ass.py`    | Chuyển SRT → ASS với template                     | ✅ Hoàn thành |
+| **Demucs**          | `cli/demucs_audio.py`  | Remove voice từ audio                             | ✅ Hoàn thành |
+| **Media Speed**     | `cli/media_speed.py`   | Thay đổi tốc độ video/audio/subtitle (slow/fast)  | ✅ Hoàn thành |
+| **TTS**             | `cli/tts.py`           | Chuyển .srt/.txt thành audio (Edge/Voicevox/Qwen) | ✅ Hoàn thành |
+| **Merge Video**     | `cli/merge_video.py`   | Ghép video + audio + subtitle + ass               | ❌ Cần tạo    |
+| **Speed Up**        | `cli/speed_video.py`   | Tăng tốc độ video                                 | ❌ Cần tạo    |
+| **Speed Rate**      | `speed_rate.py`        | Time-stretch audio để khớp timeline               | ✅ Hoàn thành |
+| **EdgeTTS Engine**  | `tts_edgetts.py`       | Engine xử lý EdgeTTS                              | ✅ Hoàn thành |
+| **Translator Core** | `translator.py`        | Logic dịch SRT                                    | ✅ Hoàn thành |
+| **SRT Parser**      | `utils/srt_parser.py`  | Parse file .srt (dùng chung)                      | ✅ Hoàn thành |
+| **Audio Utils**     | `utils/audio_utils.py` | Load/export audio, tạo silence                    | ✅ Hoàn thành |
+| **ASS Utils**       | `utils/ass_utils.py`   | Xử lý ASS format                                  | ✅ Hoàn thành |
+| **Media Utils**     | `utils/media_utils.py` | Xử lý media speed (stretch, scale timestamp)      | ✅ Hoàn thành |
 
 ## Chi tiết các bước xử lý
 
@@ -406,7 +406,7 @@ uv run cli/media_speed.py --input video.mp4 --speed 1.5  # → video_fast.mp4
 Tạo audio từ subtitle đã dịch bằng EdgeTTS.
 
 ```bash
-uv run cli/tts_srt.py --input subtitle_slow_translated.srt --voice ja-JP-KeitaNeural --output audio_slow_tts.wav
+uv run cli/tts.py --input subtitle_slow_translated.srt --config config/tts_config.yaml --output audio_slow_tts.wav
 ```
 
 ### Bước 9: Merge Video
@@ -444,14 +444,14 @@ uv run cli/speed_video.py --input video_slow_final.mp4 --speed 1.2 --output vide
 | ---- | -------------- | ------------------------------------------------- |
 | 1a   | Mute audio     | ✅ [`cli/mute_srt.py`](cli/mute_srt.py)           |
 | 1b   | Extract audio  | ✅ [`cli/extract_srt.py`](cli/extract_srt.py)     |
-| 2    | Extract Sub    | ✅ [`cli/video_ocr.py`](cli/video_ocr.py)           |
+| 2    | Extract Sub    | ✅ [`cli/video_ocr.py`](cli/video_ocr.py)         |
 | 3    | Merge SRT      | ✅ [`cli/merge_srt.py`](cli/merge_srt.py)         |
 | 4a   | Translate Note | ✅ [`cli/translate_srt.py`](cli/translate_srt.py) |
 | 4b   | SRT to ASS     | ✅ [`cli/srt_to_ass.py`](cli/srt_to_ass.py)       |
 | 5    | Translate SRT  | ✅ [`cli/translate_srt.py`](cli/translate_srt.py) |
 | 6    | Demucs         | ✅ [`cli/demucs_audio.py`](cli/demucs_audio.py)   |
 | 7    | Media Speed    | ✅ [`cli/media_speed.py`](cli/media_speed.py)     |
-| 8    | TTS            | ✅ [`cli/tts_srt.py`](cli/tts_srt.py)             |
+| 8    | TTS            | ✅ [`cli/tts.py`](cli/tts.py)                     |
 | 9    | Merge video    | ❌ Cần tạo                                        |
 | 10   | Speed up 1.2x  | ❌ Cần tạo                                        |
 
@@ -479,5 +479,6 @@ uv run cli/speed_video.py --input video_slow_final.mp4 --speed 1.2 --output vide
 - **2026-03-18**: Cập nhật bước OCR sang Multi-Box với `boxesOCR.txt`, Selective OCR và output theo từng box
 - **2026-03-13**: Cập nhật workflow đầy đủ 9 bước với naming convention mới
 - **2026-03-11**: Thêm hỗ trợ uv cho Google Colab
-- **2026-03-11**: Fix lỗi output không có extension trong tts_srt.py
+- **2026-03-11**: Fix lỗi output không có extension trong tts.py
 - **2026-03-11**: Thêm tự động thêm `.wav` nếu output không có extension
+- **2026-04-27**: Refactor tts_srt.py → tts.py, hỗ trợ YAML config, QwenTTS, và batch JSON

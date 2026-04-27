@@ -47,7 +47,7 @@ from utils.logger import setup_logging, get_logger, setup_colab_logging
 ### 2.2. Sử dụng cơ bản
 
 ```python
-# Trong entry point (translate_srt.py, tts_srt.py)
+# Trong entry point (translate_srt.py, tts.py)
 from utils.logger import setup_logging, get_logger
 
 # Cấu hình logging (gọi 1 lần duy nhất)
@@ -78,7 +78,7 @@ setup_colab_logging(verbose=True)  # Bật DEBUG level
 
 ## 3. Ví dụ cho từng module
 
-### 3.1. Entry point (translate_srt.py, tts_srt.py)
+### 3.1. Entry point (translate_srt.py, tts.py)
 
 ```python
 #!/usr/bin/env python3

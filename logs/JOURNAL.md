@@ -1,5 +1,51 @@
 # Project Journal
 
+## 2026-04-27: Refactor cli/tts_srt.py → cli/tts.py — Hỗ trợ YAML config, QwenTTS, và batch JSON
+
+### Yêu cầu
+
+- Đổi tên `cli/tts_srt.py` thành `cli/tts.py` để hỗ trợ cả `.srt` và `.txt`.
+- Tách cấu hình engine (EdgeTTS, Voicevox, Qwen3-TTS) ra file YAML `config/tts_config.yaml`.
+- Thêm class `QwenTTSEngine` trong `tts/qwen.py` kế thừa `BaseTTSEngine`, lazy-load `torch` và `qwen_tts`.
+- Hỗ trợ `--task-file` JSON để xử lý batch nhiều file (giống `cli/qwen3_asr.py`).
+- Với file `.txt`: đọc nguyên khối text, không phân chia, bỏ qua `SpeedRate` / autorate.
+- Với file `.srt`: giữ nguyên luồng parse SRT → queue_tts → TTS engine → SpeedRate (nếu `--autorate`).
+
+### Quyết định kiến trúc
+
+1. **Tạo `config/tts_config.yaml`**:
+   - Cấu hình 3 provider: `edge`, `voicevox`, `qwen`.
+   - CLI chỉ cần `--config` và `--provider`, không cần truyền hàng chục tham số dòng lệnh.
+
+2. **Tạo `tts/qwen.py`**:
+   - `QwenTTSEngine(BaseTTSEngine)` với lazy import `torch`, `qwen_tts`.
+   - Hỗ trợ voice-clone qua `ref_audio` + `ref_text` (tùy chọn, mặc định rỗng).
+   - Batch processing theo `batch_size`, cleanup VRAM sau mỗi batch.
+
+3. **Refactor `cli/tts.py`**:
+   - `build_parser()`: chỉ giữ `--input`, `--output`, `--task-file`, `--config`, `--provider`, `--autorate`, `--max-speed`, `--cache`, `--list-voices`, `--verbose`.
+   - `resolve_tasks()`: hỗ trợ cả single input và JSON batch.
+   - `build_queue_from_txt()`: đọc nguyên file text thành 1 queue item.
+   - `build_queue_from_srt()`: parse SRT thành queue với timestamp.
+   - `get_engine()`: factory khởi tạo engine theo provider + config YAML.
+   - `run_task()`: phân nhánh `.txt` (concat đơn giản) vs `.srt` (SpeedRate autorate).
+
+4. **Cập nhật meta files**:
+   - `pyproject.toml`: đổi entry point `tts-srt` → `tts`.
+   - `docs/colab-guide.md`: cập nhật mục 2.6 với cú pháp mới, thêm QwenTTS và batch JSON.
+   - `docs/workflow.md`: đổi `cli/tts_srt.py` → `cli/tts.py`, thêm changelog.
+   - `docs/logging-guide.md`: đổi `tts_srt.py` → `tts.py`.
+
+### Trạng thái hiện tại
+
+- ✅ `config/tts_config.yaml` đã tạo.
+- ✅ `tts/qwen.py` đã tạo với `QwenTTSEngine`.
+- ✅ `cli/tts.py` đã refactor, `cli/tts_srt.py` đã xóa.
+- ✅ `pyproject.toml`, `docs/colab-guide.md`, `docs/workflow.md`, `docs/logging-guide.md` đã cập nhật.
+- ⏳ Chờ test trên Colab với môi trường đầy đủ (`pyyaml`, `pydub`, `qwen-tts`).
+
+---
+
 ## 2026-04-26: Tách logic text segmentation ra utils/text_segmenter.py (Phương án 1)
 
 ### Yêu cầu

@@ -6,14 +6,26 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "google-genai>=0.3.0",
+    "tenacity>=8.0.0",
     "edge-tts>=6.1.0",
     "pydub>=0.25.0",
     "pyrubberband>=0.3.0",
+    "soundfile>=0.12.0",
+    "aiohttp>=3.8.0",
+    "numpy>=1.20.0",
+    "opencv-python>=4.8.0",
+    "pyyaml>=6.0",
+    "transformers",
     "demucs",
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
+    "matplotlib>=3.7.0",
     "einops",
     "PyMuPDF",
+    "psutil",
     "addict>=2.4.0",
     "imagehash>=4.3.1",
+    "Pillow>=10.0.0"
 ]
 
 [project.scripts]
@@ -47,12 +59,6 @@ whisper = [
 ]
 qwen-asr = [
     "qwen-asr[vllm]",
-]
-qwen-tts = [
-    "qwen-tts",
-    "transformers",
-    "accelerate",
-    "soundfile"
 ]
 
 [dependency-groups]

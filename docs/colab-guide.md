@@ -507,43 +507,43 @@ Chuyển file SRT thành file ASS để overlay lên video.
 
 ---
 
-### 2.6. Text-to-Speech (tts-srt)
+### 2.6. Text-to-Speech (tts)
 
-Hỗ trợ 2 engine: **EdgeTTS** (mặc định, cloud) và **Voicevox** (local server).
+Hỗ trợ 3 engine: **EdgeTTS** (mặc định, cloud), **Voicevox** (local server), và **Qwen3-TTS** (HuggingFace, voice-clone).
+
+Cấu hình engine được đặt trong file YAML (`config/tts_config.yaml`). CLI chỉ cần trỏ `--config` và `--provider`.
 
 #### Xem danh sách giọng (EdgeTTS)
 
 ```colab
 # Giọng tiếng Việt
-!uv run tts-srt --list-voices vi
+!uv run tts --list-voices vi
 
 # Giọng tiếng Nhật
-!uv run tts-srt --list-voices ja
+!uv run tts --list-voices ja
 ```
 
-#### TTS nhanh
+#### TTS nhanh (EdgeTTS)
 
 ```colab
-!uv run tts-srt \
+!uv run tts \
     --input /content/video_ja.srt \
-    --voice ja-JP-KeitaNeural
+    --config /content/CharenjiZukan/config/tts_config.yaml
 ```
 
 #### TTS với autorate (tự động nén giọng)
 
 ```colab
-!uv run tts-srt \
+!uv run tts \
     --input    /content/video_ja.srt \
     --output   /content/video_ja.wav \
-    --voice    ja-JP-KeitaNeural \
-    --rate     +5% \
+    --config   /content/CharenjiZukan/config/tts_config.yaml \
     --autorate
 ```
 
 #### Sử dụng Voicevox
 
 **Bước 1: Khởi động Server Voicevox ngầm**
-Cài đặt môi trường
 
 ```colab
 !python setup_voicevox.py
@@ -574,51 +574,106 @@ while True:
 **Bước 2: Chạy TTS với Voicevox**
 
 ```colab
-!uv run tts-srt \
+!uv run tts \
     --input /content/video_ja.srt \
-    --tts-provider voicevox \
-    --voice 10008
+    --provider voicevox \
+    --config /content/CharenjiZukan/config/tts_config.yaml
+```
+
+#### Sử dụng Qwen3-TTS (Voice Clone)
+
+```colab
+!uv run tts \
+    --input /content/script.txt \
+    --provider qwen \
+    --config /content/CharenjiZukan/config/tts_config.yaml
+```
+
+> **Lưu ý:** Qwen3-TTS yêu cầu cài đặt `qwen-tts`, `transformers`, `accelerate`, `soundfile` và `flash-attn`. Cấu hình `ref_audio` và `ref_text` trong `config/tts_config.yaml` để voice-clone.
+
+#### Chạy hàng loạt (Batch JSON)
+
+Tạo file `tasks.json`:
+
+```json
+[
+  {
+    "input": "/content/video1_ja.srt",
+    "output": "/content/audio1.wav"
+  },
+  {
+    "input": "/content/video2_ja.srt",
+    "output": "/content/audio2.wav"
+  }
+]
+```
+
+Chạy:
+
+```colab
+!uv run tts \
+    --task-file /content/tasks.json \
+    --config /content/CharenjiZukan/config/tts_config.yaml
 ```
 
 #### Đầy đủ tham số
 
 ```colab
-!uv run tts-srt \
+!uv run tts \
     --input      /content/video_ja.srt \
     --output     /content/video_ja.wav \
-    --tts-provider edge \
-    --voice      ja-JP-KeitaNeural \
-    --rate       +10% \
-    --volume     +0% \
-    --pitch      +0Hz \
+    --config     /content/CharenjiZukan/config/tts_config.yaml \
+    --provider   edge \
     --autorate \
     --max-speed  100.0 \
-    --concurrent 10 \
     --cache      /content/cache_tts \
-    --proxy      http://127.0.0.1:7890 \
     --verbose
 ```
 
 #### Tham số
 
-| Tham số              | Mô tả                              | Mặc định                  |
-| -------------------- | ---------------------------------- | ------------------------- |
-| `--input`, `-i`      | File .srt đầu vào                  | (bắt buộc)                |
-| `--tts-provider`     | Provider (edge/voicevox)           | `edge`                    |
-| `--voice`, `-v`      | Tên giọng EdgeTTS hoặc ID Voicevox | `vi-VN-HoaiMyNeural`      |
-| `--output`, `-o`     | File audio đầu ra (.wav/.mp3)      | `output/<input_stem>.wav` |
-| `--rate`             | Tốc độ giọng (vd: +10%, -5%)       | `+0%`                     |
-| `--volume`           | Âm lượng (vd: +20%)                | `+0%`                     |
-| `--pitch`            | Cao độ (vd: +50Hz)                 | `+0Hz`                    |
-| `--autorate`         | Tự động nén audio khớp slot SRT    | (tắt)                     |
-| `--max-speed`        | Giới hạn tốc độ nén tối đa         | `100.0`                   |
-| `--concurrent`       | Số request EdgeTTS song song       | `10`                      |
-| `--cache`            | Thư mục cache audio tạm            | `tmp/<stem>_<ts>/`        |
-| `--no-strip-silence` | Tắt cắt silence ở đuôi mỗi clip    | (tắt)                     |
-| `--silence-thresh`   | Ngưỡng dBFS coi là silence         | `-50`                     |
-| `--proxy`            | Proxy URL                          | (không dùng)              |
-| `--list-voices`      | Liệt kê giọng EdgeTTS              | (không dùng)              |
-| `--verbose`          | Bật logging debug                  | (tắt)                     |
+| Tham số             | Mô tả                                      | Mặc định                            |
+| ------------------- | ------------------------------------------ | ----------------------------------- |
+| `--input`, `-i`     | File .srt hoặc .txt đầu vào                | (bắt buộc nếu không dùng task-file) |
+| `--output`, `-o`    | File audio đầu ra (.wav/.mp3)              | `output/<input_stem>.wav`           |
+| `--task-file`, `-t` | File JSON chứa danh sách task              | (không dùng)                        |
+| `--config`, `-c`    | File cấu hình YAML                         | `config/tts_config.yaml`            |
+| `--provider`, `-p`  | TTS engine (edge/voicevox/qwen)            | `edge`                              |
+| `--autorate`        | Tự động nén audio khớp slot SRT (chỉ .srt) | (tắt)                               |
+| `--max-speed`       | Giới hạn tốc độ nén tối đa                 | `100.0`                             |
+| `--cache`           | Thư mục cache audio tạm                    | `tmp/<stem>_<ts>/`                  |
+| `--list-voices`     | Liệt kê giọng EdgeTTS                      | (không dùng)                        |
+| `--verbose`         | Bật logging debug                          | (tắt)                               |
+
+#### File cấu hình `config/tts_config.yaml`
+
+```yaml
+provider: "edge"
+
+edge:
+  voice: "vi-VN-HoaiMyNeural"
+  rate: "+0%"
+  volume: "+0%"
+  pitch: "+0Hz"
+  concurrent: 10
+  strip_silence: true
+  silence_thresh_dbfs: -50
+
+voicevox:
+  voice_id: 10008
+  host: "127.0.0.1"
+  port: 50121
+  speed_scale: 1.12
+  pitch_scale: -0.05
+  concurrent_requests: 100
+
+qwen:
+  model_path: "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+  ref_audio: ""
+  ref_text: ""
+  batch_size: 32
+  device: "cuda:0"
+```
 
 ---
 
@@ -1217,7 +1272,7 @@ gemini_key = userdata.get('gemini_key')
 
 # Chạy trực tiếp với python (đường dẫn từ thư mục project)
 !python cli/translate_srt.py --input video.srt --keys "{gemini_key}"
-!python cli/tts_srt.py --input video_vi.srt --voice ja-JP-KeitaNeural
+!python cli/tts.py --input video_vi.srt --config config/tts_config.yaml
 ```
 
 ---
@@ -1238,8 +1293,7 @@ gemini_key = userdata.get('gemini_key')
 
 ```colab
 # Thử với proxy (nếu cần)
-!uv run tts-srt --input video.srt --voice ja-JP-KeitaNeural \
-    --proxy http://127.0.0.1:7890
+!uv run tts --input video.srt --config config/tts_config.yaml
 ```
 
 ### Output không có extension
@@ -1265,7 +1319,7 @@ Hoặc chạy trực tiếp file Python:
 
 ## 7. Lưu ý quan trọng
 
-1. **Cài đặt project**: Sau khi clone, cần chạy `!uv pip install -e .` để cài đặt project ở chế độ editable, cho phép sử dụng các CLI commands (`mute-srt`, `translate-srt`, `tts-srt`, `video-ocr`).
+1. **Cài đặt project**: Sau khi clone, cần chạy `!uv pip install -e .` để cài đặt project ở chế độ editable, cho phép sử dụng các CLI commands (`mute-srt`, `translate-srt`, `tts`, `video-ocr`).
 
 2. **rubberband-cli**: Cần cài đặt bằng `apt-get` vì đây là binary hệ thống, không phải Python package. Dùng cho time-stretch audio chất lượng cao.
 
