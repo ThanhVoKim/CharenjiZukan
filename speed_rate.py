@@ -237,45 +237,26 @@ def _make_silence(cache_folder: str, name: str, duration_ms: int) -> str:
 
 def _concat_wav_files(file_list: List[str], output_path: str) -> bool:
     """
-    Ghép danh sách wav bằng FFmpeg concat demuxer.
-    Giống _exec_concat_audio() trong _rate.py
+    Ghép danh sách wav bằng pydub để tự động xử lý khác biệt sample rate.
     """
-    # Lọc file hợp lệ
     valid = [f for f in file_list if Path(f).exists() and Path(f).stat().st_size > 0]
     if not valid:
         _safe_log("error", "[Concat] Không có file nào hợp lệ")
         return False
 
-    # Ghi file danh sách (dùng tên file tương đối để tránh vấn đề path trên Windows)
-    cache_dir = Path(valid[0]).parent
-    concat_txt = str(cache_dir / f"_concat_{int(time.time())}.txt")
-    with open(concat_txt, "w", encoding="utf-8") as f:
-        for fp in valid:
-            name = Path(fp).name
-            f.write(f"file '{name}'\n")
-
-    tmp_out = str(cache_dir / "_concat_tmp.wav")
-    cmd = [
-        "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0",
-        "-i", concat_txt,
-        "-c:a", "copy",
-        tmp_out,
-    ]
     try:
-        result = subprocess.run(
-            cmd, check=True, capture_output=True, timeout=300, cwd=str(cache_dir)
-        )
-        if Path(tmp_out).exists():
-            shutil.move(tmp_out, output_path)
-            Path(concat_txt).unlink(missing_ok=True)
-            return True
+        combined = AudioSegment.empty()
+        for f in valid:
+            seg = AudioSegment.from_file(f, format="wav")
+            combined += seg
+        
+        # Đảm bảo format chuẩn trước khi export
+        combined = combined.set_frame_rate(AUDIO_SAMPLE_RATE).set_channels(AUDIO_CHANNELS)
+        combined.export(output_path, format="wav")
+        return True
     except Exception as e:
-        _safe_log("error", f"[Concat] FFmpeg thất bại: {e}")
-    finally:
-        Path(concat_txt).unlink(missing_ok=True)
-        Path(tmp_out).unlink(missing_ok=True)
-    return False
+        _safe_log("error", f"[Concat] pydub thất bại: {e}")
+        return False
 
 
 # ─────────────────────────────────────────────────────────────────────
