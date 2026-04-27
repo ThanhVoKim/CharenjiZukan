@@ -3,7 +3,7 @@ name = "videocolab"
 version = "0.2.0"
 description = "Video translation, dubbing and subtitle extraction tools for Google Colab"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "google-genai>=0.3.0",
     "edge-tts>=6.1.0",
@@ -42,13 +42,8 @@ vertexai-provider = []
 all-providers = [
     "openai>=1.35.0",
 ]
-whisper = [
-    "whisperx",
-]
-qwen-asr = [
-    "qwen-asr[vllm]",
-]
 qwen-tts = [
+    "flash-attn @ https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.0/flash_attn-2.8.3+cu128torch2.10-cp312-cp312-linux_x86_64.whl",
     "qwen-tts",
     "transformers",
     "accelerate",

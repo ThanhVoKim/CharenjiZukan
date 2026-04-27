@@ -6,7 +6,7 @@ provider: "edge"
 
 # ── EdgeTTS ──────────────────────────────────────────────────────────
 edge:
-  voice: "vi-VN-HoaiMyNeural"
+  voice: "ja-JP-KeitaNeural"
   rate: "+0%"
   volume: "+0%"
   pitch: "+0Hz"
@@ -28,8 +28,8 @@ voicevox:
 # ── Qwen3-TTS ────────────────────────────────────────────────────────
 qwen:
   model_path: "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
-  ref_audio: ""
-  ref_text: ""
+  ref_audio: "/content/assets/Minimax - Nature Show Host.mp3"
+  ref_text: "Hello. I'm delighted to assist you with our voice services. Choose a voice that resonates with you, and let's begin our creative audio journey together."
   batch_size: 32
   device: "cuda:0"
   dtype: "bfloat16"
