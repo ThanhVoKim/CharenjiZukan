@@ -118,14 +118,14 @@ def get_engine(provider: str, queue_tts: list, config: dict):
 # ─────────────────────────────────────────────────────────────────────
 # AUDIO UTILS
 # ─────────────────────────────────────────────────────────────────────
-def concat_wav_files(file_list: list, output_path: str, silence_ms: int = 200):
-    """Nối các file wav với khoảng lặng giữa các file (dùng cho .txt mode)."""
+def concat_wav_files(file_list: list, output_path: str, silence_ms: int = 0):
+    """Nối các file wav với khoảng lặng giữa các file (dùng cho .txt mode hoặc .srt không autorate)."""
     combined = AudioSegment.empty()
     for i, f in enumerate(file_list):
         if Path(f).exists():
             seg = AudioSegment.from_file(f, format="wav")
             combined += seg
-            if i < len(file_list) - 1:
+            if i < len(file_list) - 1 and silence_ms > 0:
                 combined += AudioSegment.silent(duration=silence_ms)
     combined.export(output_path, format="wav")
 
@@ -211,12 +211,15 @@ def run_task(task: dict, config: dict, args) -> dict:
     # Post-process
     target_wav = str(Path(cache_folder) / "_target.wav")
 
-    if is_txt_mode:
-        print("🔗 Phase 2/2 — Ghép audio (TXT mode)...")
+    silence_ms = getattr(args, "silence_ms", 0)
+
+    if is_txt_mode or not args.autorate:
+        mode_str = "TXT mode" if is_txt_mode else f"SRT không autorate (silence={silence_ms}ms)"
+        print(f"🔗 Phase 2/2 — Ghép audio ({mode_str})...")
         wav_files = [it["filename"] for it in queue_tts if Path(it["filename"]).exists()]
-        concat_wav_files(wav_files, target_wav, silence_ms=200)
+        concat_wav_files(wav_files, target_wav, silence_ms=silence_ms)
     else:
-        print(f"🔗 Phase 2/2 — Ghép audio (autorate={'ON' if args.autorate else 'OFF'})...")
+        print("🔗 Phase 2/2 — Ghép audio (autorate=ON)...")
         sr = SpeedRate(
             queue_tts=queue_tts,
             target_audio=target_wav,
@@ -246,8 +249,10 @@ def run_task(task: dict, config: dict, args) -> dict:
         subprocess.run(cmd, check=True, capture_output=True)
 
     # Cleanup
-    if _tmp_created:
+    if _tmp_created and not getattr(args, "keep_cache", False):
         shutil.rmtree(cache_folder, ignore_errors=True)
+    elif getattr(args, "keep_cache", False):
+        print(f"ℹ️ Đã giữ lại thư mục cache: {cache_folder}")
 
     print(f"\n{'─'*55}")
     print(f"✅ Hoàn thành: {output_file}")
@@ -300,8 +305,12 @@ Xem danh sách giọng EdgeTTS:
                       help="Bật autorate: tự động nén audio khớp với slot SRT (chỉ .srt)")
     proc.add_argument("--max-speed", type=float, default=100.0, metavar="X",
                       help="Giới hạn tốc độ tăng tối đa cho autorate (mặc định: 100)")
+    proc.add_argument("--silence-ms", type=int, default=0, metavar="MS",
+                      help="Độ dài silence được chèn giữa các dòng khi không dùng autorate (mặc định: 0)")
     proc.add_argument("--cache", metavar="DIR",
                       help="Thư mục cache audio tạm (mặc định: PROJ/tmp/<stem>_<ts>/)")
+    proc.add_argument("--keep-cache", action="store_true",
+                      help="Giữ lại thư mục cache tạm sau khi xử lý xong")
 
     misc = parser.add_argument_group("Misc")
     misc.add_argument("--list-voices", metavar="LOCALE",

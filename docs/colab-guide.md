@@ -626,24 +626,28 @@ Chạy:
     --provider   edge \
     --autorate \
     --max-speed  100.0 \
+    --silence-ms 0 \
     --cache      /content/cache_tts \
+    --keep-cache \
     --verbose
 ```
 
 #### Tham số
 
-| Tham số             | Mô tả                                      | Mặc định                            |
-| ------------------- | ------------------------------------------ | ----------------------------------- |
-| `--input`, `-i`     | File .srt hoặc .txt đầu vào                | (bắt buộc nếu không dùng task-file) |
-| `--output`, `-o`    | File audio đầu ra (.wav/.mp3)              | `output/<input_stem>.wav`           |
-| `--task-file`, `-t` | File JSON chứa danh sách task              | (không dùng)                        |
-| `--config`, `-c`    | File cấu hình YAML                         | `config/tts_config.yaml`            |
-| `--provider`, `-p`  | TTS engine (edge/voicevox/qwen)            | `edge`                              |
-| `--autorate`        | Tự động nén audio khớp slot SRT (chỉ .srt) | (tắt)                               |
-| `--max-speed`       | Giới hạn tốc độ nén tối đa                 | `100.0`                             |
-| `--cache`           | Thư mục cache audio tạm                    | `tmp/<stem>_<ts>/`                  |
-| `--list-voices`     | Liệt kê giọng EdgeTTS                      | (không dùng)                        |
-| `--verbose`         | Bật logging debug                          | (tắt)                               |
+| Tham số             | Mô tả                                                | Mặc định                            |
+| ------------------- | ---------------------------------------------------- | ----------------------------------- |
+| `--input`, `-i`     | File .srt hoặc .txt đầu vào                          | (bắt buộc nếu không dùng task-file) |
+| `--output`, `-o`    | File audio đầu ra (.wav/.mp3)                        | `output/<input_stem>.wav`           |
+| `--task-file`, `-t` | File JSON chứa danh sách task                        | (không dùng)                        |
+| `--config`, `-c`    | File cấu hình YAML                                   | `config/tts_config.yaml`            |
+| `--provider`, `-p`  | TTS engine (edge/voicevox/qwen)                      | `edge`                              |
+| `--autorate`        | Tự động nén audio khớp slot SRT (chỉ .srt)           | (tắt)                               |
+| `--max-speed`       | Giới hạn tốc độ nén tối đa                           | `100.0`                             |
+| `--silence-ms`      | Độ dài silence giữa các dòng khi không dùng autorate | `0`                                 |
+| `--cache`           | Thư mục cache audio tạm                              | `tmp/<stem>_<ts>/`                  |
+| `--keep-cache`      | Giữ lại thư mục cache tạm sau khi xử lý xong         | (tắt)                               |
+| `--list-voices`     | Liệt kê giọng EdgeTTS                                | (không dùng)                        |
+| `--verbose`         | Bật logging debug                                    | (tắt)                               |
 
 #### File cấu hình `config/tts_config.yaml`
 

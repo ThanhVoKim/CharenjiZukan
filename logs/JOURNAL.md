@@ -1,5 +1,30 @@
 # Project Journal
 
+## 2026-04-27: Sửa lỗi Timeline Drift và Silence Gap của QwenTTS trong `.srt` mode
+
+### Vấn đề
+
+Khi chạy `cli/tts.py` ở chế độ `.srt` (với provider QwenTTS) mà không dùng cờ `--autorate`, audio output ra dài hơn rất nhiều so với subtitle gốc (ví dụ: sub 3m14s ra audio 4m50s). Khoảng cách (silence gap) giữa các block bị sai lệch, không đồng đều, có khi lên đến vài giây.
+
+### Nguyên nhân
+
+1. **SpeedRate.\_run_no_rate_mode() không hợp với QwenTTS**: Chế độ này được thiết kế để khớp từng block với slot thời gian của SRT. Khi audio (ví dụ từ QwenTTS) dài hơn slot, nó bị tràn. Khi ngắn hơn, logic chèn silence (cả ở đầu và đuôi) chạy sai tạo ra timeline drift tích luỹ.
+2. **Sai lệch Sample Rate khi Concat bằng FFmpeg**: `concat_wav_files()` bằng FFmpeg concat demuxer (`-c:a copy`) yêu cầu cùng sample rate. QwenTTS output 24000Hz, nhưng các file silence chèn vào là 48000Hz, khiến FFmpeg tính toán sai timeline, kéo giãn khoảng silence một cách dị thường (từ ~1s thành 9s).
+
+### Giải pháp
+
+1. **Thay thế SpeedRate bằng Simple Concat (pydub)** khi chạy `.srt` không `--autorate`: Thay vì cố ép vào các slot theo timeline SRT, công cụ sẽ nối liền (concatenate) các audio TTS lại theo thứ tự, giống hệt cơ chế của `.txt`.
+2. Dùng thư viện `pydub` (`concat_wav_files` nội bộ) để nối file, nó tự động xử lý resample nên sẽ không bị lỗi timeline khi nối QwenTTS 24000Hz với các file silence.
+3. Thêm cờ `--silence-ms` (mặc định: 0) để người dùng tự do tuỳ chỉnh khoảng lặng giữa các subtitle nếu muốn.
+4. Thêm cờ `--keep-cache` để giữ lại folder `.wav` chunk tạm thời nhằm phục vụ debug.
+
+### Trạng thái
+
+- ✅ Đã sửa `cli/tts.py`. Đã thêm các tham số `--silence-ms` và `--keep-cache`.
+- ✅ Đã cập nhật tài liệu `docs/colab-guide.md`.
+
+---
+
 ## 2026-04-27: Sửa lỗi QwenTTS — Sai tên tham số voice_clone_prompt
 
 ### Vấn đề
