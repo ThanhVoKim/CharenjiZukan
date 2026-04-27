@@ -109,7 +109,7 @@ class QwenTTSEngine(BaseTTSEngine):
                 with torch.no_grad():
                     kwargs = {}
                     if voice_prompt is not None:
-                        kwargs["voice_prompt"] = voice_prompt
+                        kwargs["voice_clone_prompt"] = voice_prompt
 
                     wav_outputs, sr = model.generate_voice_clone(
                         text=batch_texts,

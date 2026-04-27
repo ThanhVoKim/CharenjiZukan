@@ -1,5 +1,36 @@
 # Project Journal
 
+## 2026-04-27: Sửa lỗi QwenTTS — Sai tên tham số voice_clone_prompt
+
+### Vấn đề
+
+Khi chạy `cli/tts.py` với `--provider qwen`, lỗi xảy ra:
+
+```
+ValueError: Either `voice_clone_prompt` or `ref_audio` must be provided.
+```
+
+### Nguyên nhân
+
+Trong `tts/qwen.py`, khi truyền `voice_prompt` (đã tạo từ `create_voice_clone_prompt`) vào hàm `model.generate_voice_clone`, code sử dụng sai tên tham số:
+
+```python
+kwargs["voice_prompt"] = voice_prompt  # ❌ Sai
+```
+
+Thư viện `qwen_tts` kỳ vọng tên tham số là `voice_clone_prompt`, không phải `voice_prompt`.
+
+### Sửa chữa
+
+Đổi `kwargs["voice_prompt"]` thành `kwargs["voice_clone_prompt"]` trong `tts/qwen.py`.
+
+### Trạng thái
+
+- ✅ Đã sửa trong `tts/qwen.py`.
+- ⏳ Chờ test lại trên Colab với `ref_audio` hợp lệ.
+
+---
+
 ## 2026-04-27: Refactor cli/tts_srt.py → cli/tts.py — Hỗ trợ YAML config, QwenTTS, và batch JSON
 
 ### Yêu cầu
