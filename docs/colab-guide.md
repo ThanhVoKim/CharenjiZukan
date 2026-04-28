@@ -582,6 +582,13 @@ while True:
 
 #### Sử dụng Qwen3-TTS (Voice Clone)
 
+#### Cài đặt môi trường
+
+```colab
+!uv pip install -e .[qwen-tts]
+!apt-get -y install sox libsox-fmt-all
+```
+
 ```colab
 !uv run tts \
     --input /content/script.txt \
