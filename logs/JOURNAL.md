@@ -1,5 +1,38 @@
 # Project Journal
 
+## 2026-04-28: Thêm tham số `--task-file` cho `cli/translate_srt.py`
+
+### Yêu cầu
+
+- Thêm khả năng xử lý batch nhiều file SRT cho CLI `translate-srt` thông qua tham số `--task-file`.
+- Tái sử dụng module `utils/task_utils.py` vừa tạo để đảm bảo nhất quán với các CLI khác (`whisper_srt`, `qwen3_asr`, `tts`).
+
+### Thay đổi đã thực hiện
+
+1. **Cập nhật `cli/translate_srt.py`**:
+   - Thêm import `resolve_cli_tasks` từ `utils.task_utils`.
+   - Thêm CLI argument `--task-file`, `-t`.
+   - Đổi `--input` từ `required=True` sang `default=None`.
+   - Thay thế toàn bộ logic resolve input/output đơn lẻ bằng `resolve_cli_tasks(..., default_ext=f"_{lang_slug}.srt")`.
+   - Thêm vòng lặp xử lý từng task trong danh sách, in summary cuối cùng giống pattern của `cli/tts.py`.
+   - Validate tất cả file input trong task list phải có đuôi `.srt`.
+
+2. **Cập nhật `docs/colab-guide.md`**:
+   - Thêm section "Chạy hàng loạt nhiều file (Batch JSON)" trong mục 2.4 Dịch SRT.
+   - Cập nhật bảng tham số thêm `--task-file`.
+
+### Trạng thái hiện tại
+
+- ✅ `cli/translate_srt.py` đã pass kiểm tra cú pháp (`python -m py_compile`).
+- ✅ `docs/colab-guide.md` đã cập nhật hướng dẫn sử dụng `--task-file`.
+
+### Đối chiếu Data Flow
+
+- Không thay đổi logic dịch nội bộ (`translation.translator.translate_srt_file`), chỉ thêm lớp wrapper để xử lý nhiều file liên tiếp.
+- Provider, config, prompt file được khởi tạo một lần và tái sử dụng cho toàn bộ task list.
+
+---
+
 ## 2026-04-28: Tạo module `utils/task_utils.py` — Chuẩn hóa xử lý `--task-file` cho toàn bộ CLI
 
 ### Yêu cầu

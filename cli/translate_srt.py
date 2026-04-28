@@ -27,6 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from translation.translator import translate_srt_file  # noqa: E402
 from translation.factory import create_provider  # noqa: E402
 from utils.logger import setup_logging, get_logger  # noqa: E402
+from utils.task_utils import resolve_cli_tasks  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────
@@ -53,12 +54,18 @@ Ví dụ đầy đủ:
         """,
     )
 
-    # Bắt buộc
+    # Input / Output
     parser.add_argument(
         "--input", "-i",
-        required=True,
+        default=None,
         metavar="FILE",
-        help="Đường dẫn file SRT gốc (bắt buộc)",
+        help="Đường dẫn file SRT gốc (bắt buộc nếu không dùng --task-file)",
+    )
+    parser.add_argument(
+        "--task-file", "-t",
+        default=None,
+        metavar="JSON_FILE",
+        help="File JSON chứa danh sách [{'input': '...', 'output': '...'}]",
     )
 
     # Provider Settings
@@ -174,28 +181,30 @@ def main():
     setup_logging(level=log_level)
     logger = get_logger(__name__)
 
-    # Validate input file
-    input_path = Path(args.input)
-    if not input_path.exists():
-        parser.error(f"File không tồn tại: {args.input}")
-    if input_path.suffix.lower() != ".srt":
-        parser.error(f"File phải có đuôi .srt: {args.input}")
+    # Resolve tasks
+    lang_slug = args.lang.lower().replace(" ", "_")
+    try:
+        tasks = resolve_cli_tasks(
+            task_file=args.task_file,
+            input_file=args.input,
+            output_path=args.output,
+            default_ext=f"_{lang_slug}.srt",
+        )
+    except ValueError as e:
+        parser.error(str(e))
 
-    # Resolve output path
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        lang_slug = args.lang.lower().replace(" ", "_")
-        output_path = input_path.with_stem(f"{input_path.stem}_{lang_slug}")
-    output_file = str(output_path)
+    # Validate all inputs are .srt
+    for task in tasks:
+        inp = Path(task["input"])
+        if inp.suffix.lower() != ".srt":
+            parser.error(f"File phải có đuôi .srt: {task['input']}")
 
-    # Resolve prompt file
+    # Resolve prompt file (shared)
     if args.prompt:
         prompt_file = args.prompt
         if not Path(prompt_file).exists():
             parser.error(f"Prompt file không tồn tại: {prompt_file}")
     else:
-        # Mặc định: prompts/gemini.txt trong project root
         prompt_file = str(PROJECT_ROOT / "prompts" / "gemini.txt")
         if not Path(prompt_file).exists():
             parser.error(
@@ -204,7 +213,7 @@ def main():
                 "hoặc dùng --prompt <đường_dẫn>"
             )
 
-    # Parse Provider Config & Keys
+    # Parse Provider Config & Keys (shared)
     provider_type = args.provider
     config_path = args.provider_config
     base_url = args.base_url
@@ -268,39 +277,47 @@ def main():
 
     provider = create_provider(provider_type, provider_config, secrets)
 
-    # In tóm tắt cấu hình
-    print("=" * 55)
-    print("  🎬  SRT Translator — Multi-Provider")
-    print("=" * 55)
-    print(f"  Input    : {args.input}")
-    print(f"  Output   : {output_file}")
-    print(f"  Provider : {provider.name}")
-    print(f"  Lang     : {args.lang}")
-    print(f"  Batch    : {batch_size}")
-    print(f"  Context  : {'ON' if use_full_context else 'OFF'}")
-    print("=" * 55)
+    # Process each task
+    ok_tasks = 0
+    for task in tasks:
+        input_file = task["input"]
+        output_file = task["output"]
 
-    # Gọi pipeline dịch
-    try:
-        stats = translate_srt_file(
-            input_file      = str(input_path),
-            output_file     = output_file,
-            prompt_file     = prompt_file,
-            provider        = provider,
-            target_language = args.lang,
-            batch_size      = batch_size,
-            use_full_context= use_full_context,
-            wait_sec        = wait_sec,
-        )
-        sys.exit(0)
+        print("=" * 55)
+        print("  🎬  SRT Translator — Multi-Provider")
+        print("=" * 55)
+        print(f"  Input    : {input_file}")
+        print(f"  Output   : {output_file}")
+        print(f"  Provider : {provider.name}")
+        print(f"  Lang     : {args.lang}")
+        print(f"  Batch    : {batch_size}")
+        print(f"  Context  : {'ON' if use_full_context else 'OFF'}")
+        print("=" * 55)
 
-    except KeyboardInterrupt:
-        print("\n⚠️  Đã dừng bởi người dùng")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n❌ Lỗi nghiêm trọng: {e}")
-        logging.exception(e)
-        sys.exit(2)
+        try:
+            translate_srt_file(
+                input_file      = input_file,
+                output_file     = output_file,
+                prompt_file     = prompt_file,
+                provider        = provider,
+                target_language = args.lang,
+                batch_size      = batch_size,
+                use_full_context= use_full_context,
+                wait_sec        = wait_sec,
+            )
+            ok_tasks += 1
+        except KeyboardInterrupt:
+            print("\n⚠️  Đã dừng bởi người dùng")
+            sys.exit(1)
+        except Exception as e:
+            print(f"\n❌ Lỗi nghiêm trọng khi xử lý {input_file}: {e}")
+            logging.exception(e)
+
+    print(f"\n{'='*55}")
+    print(f"  Tổng kết: {ok_tasks}/{len(tasks)} task thành công")
+    print(f"{'='*55}")
+
+    sys.exit(0 if ok_tasks == len(tasks) else 2)
 
 
 if __name__ == "__main__":
