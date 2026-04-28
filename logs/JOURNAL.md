@@ -1,5 +1,56 @@
 # Project Journal
 
+## 2026-04-28: Tạo module `utils/task_utils.py` — Chuẩn hóa xử lý `--task-file` cho toàn bộ CLI
+
+### Yêu cầu
+
+- Tham số `--task-file` hiện đang được sử dụng ở 3 CLI (`cli/whisper_srt.py`, `cli/qwen3_asr.py`, `cli/tts.py`) nhưng mỗi CLI xử lý theo một cách riêng, gây ra sự không nhất quán.
+- Lấy logic xử lý `--task-file` của `cli/whisper_srt.py` làm chuẩn, tách thành một module dùng chung.
+
+### Quyết định kiến trúc
+
+1. **Tạo `utils/task_utils.py`**:
+   - Hàm `resolve_cli_tasks(task_file, input_file, output_path, default_ext, default_out_dir)`:
+     - Xử lý cả `--task-file` JSON và `--input`/`--output` đơn lẻ.
+     - Chuẩn hóa đường dẫn `output`:
+       - Nếu output có extension (`.srt`, `.wav`, `.mp3`, ...) → coi là đường dẫn file.
+       - Nếu output không có extension, hoặc là thư mục đã tồn tại → coi là thư mục, file kết quả sẽ được sinh ra bên trong với tên `[stem của input]{default_ext}`.
+       - Nếu không có output, dùng `default_out_dir` (nếu có) hoặc thư mục chứa input.
+     - Validate task JSON phải là list, mỗi task phải có key `input`.
+     - Lưu ý: file JSON trong `--task-file` có thể nhận bất cứ file input nào (không kiểm tra extension).
+   - Hàm `resolve_output_dir_and_stem(task)`:
+     - Sau khi `task["output"]` đã được chuẩn hóa bởi `resolve_cli_tasks` (luôn là đường dẫn file đầy đủ có extension), hàm này chỉ đơn giản trả về `(parent, stem)`.
+
+2. **Cập nhật `cli/whisper_srt.py`**:
+   - Xóa hàm `_resolve_output_paths` cũ (logic nội bộ).
+   - Import `resolve_cli_tasks` và `resolve_output_dir_and_stem` từ `utils.task_utils`.
+   - Thay thế toàn bộ block xử lý `args.task_file` / `args.input` / `args.output` trong `main()` bằng một lời gọi `resolve_cli_tasks(..., default_ext=".srt")`.
+   - Dùng `resolve_output_dir_and_stem(task)` trong Phase 3 để lấy `output_dir` và `stem`.
+
+3. **Cập nhật `cli/qwen3_asr.py`**:
+   - Xóa hàm `_resolve_output_paths` cũ.
+   - Import `resolve_cli_tasks` và `resolve_output_dir_and_stem` từ `utils.task_utils`.
+   - Thay thế block xử lý task trong `main()` bằng `resolve_cli_tasks(..., default_ext=".srt")`.
+   - Dùng `resolve_output_dir_and_stem(task)` trong `run_batch_transcribe`.
+
+4. **Cập nhật `cli/tts.py`**:
+   - Xóa hàm `resolve_tasks` cũ.
+   - Import `resolve_cli_tasks` từ `utils.task_utils`.
+   - Thay thế block xử lý task trong `main()` bằng `resolve_cli_tasks(..., default_ext=".wav", default_out_dir=PROJECT_ROOT / "output")`.
+
+### Trạng thái hiện tại
+
+- ✅ `utils/task_utils.py` đã tạo với 2 hàm chuẩn hóa.
+- ✅ `cli/whisper_srt.py`, `cli/qwen3_asr.py`, `cli/tts.py` đã refactor để dùng module chung.
+- ✅ Cú pháp `python -m py_compile` pass cho cả 4 file.
+
+### Đối chiếu Data Flow
+
+- Không thay đổi luồng dữ liệu nội bộ của các CLI, chỉ tách và tái sử dụng logic resolve đường dẫn input/output.
+- Các CLI khác trong project chưa dùng `--task-file` nên không bị ảnh hưởng.
+
+---
+
 ## 2026-04-27: Sửa lỗi Timeline Drift và Silence Gap của QwenTTS trong `.srt` mode
 
 ### Vấn đề

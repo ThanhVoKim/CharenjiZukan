@@ -28,6 +28,7 @@ from pydub import AudioSegment
 
 from utils.logger import setup_logging, get_logger
 from utils.srt_parser import parse_srt
+from utils.task_utils import resolve_cli_tasks
 from speed_rate import SpeedRate
 from tts.edgetts import EdgeTTSEngine
 from tts.voicevox import VoicevoxTTSEngine
@@ -44,27 +45,6 @@ def load_config(config_path: str) -> dict:
         return {}
     with open(config_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
-
-
-# ─────────────────────────────────────────────────────────────────────
-# TASK RESOLUTION
-# ─────────────────────────────────────────────────────────────────────
-def resolve_tasks(args) -> list:
-    tasks = []
-    if args.task_file:
-        with open(args.task_file, "r", encoding="utf-8") as f:
-            tasks = json.load(f)
-        logger.info(f"Loaded {len(tasks)} tasks from {args.task_file}")
-    elif args.input:
-        out = args.output
-        if not out:
-            out_dir = PROJECT_ROOT / "output"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            out = str(out_dir / (Path(args.input).stem + ".wav"))
-        tasks.append({"input": args.input, "output": out})
-    else:
-        raise ValueError("Phải cung cấp --input hoặc --task-file")
-    return tasks
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -336,11 +316,18 @@ def main():
         list_voices(args.list_voices or None)
         return
 
-    if not args.input and not args.task_file:
-        parser.error("Phải cung cấp --input hoặc --task-file")
+    try:
+        tasks = resolve_cli_tasks(
+            task_file=args.task_file,
+            input_file=args.input,
+            output_path=args.output,
+            default_ext=".wav",
+            default_out_dir=PROJECT_ROOT / "output"
+        )
+    except ValueError as e:
+        parser.error(str(e))
 
     config = load_config(args.config)
-    tasks = resolve_tasks(args)
 
     ok_tasks = 0
     for task in tasks:

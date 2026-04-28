@@ -21,6 +21,7 @@ from utils.logger import get_logger
 from utils.srt_parser import segments_to_srt
 from utils.audio_utils import extract_audio_direct
 from utils.media_utils import clear_vram
+from utils.task_utils import resolve_cli_tasks, resolve_output_dir_and_stem
 
 logger = get_logger(__name__)
 
@@ -32,31 +33,6 @@ _CJK_LANGS = {"zh", "ja", "th", "yue", "ko", "zh-tw", "zh-cn"}
 
 def _is_cjk(lang: str) -> bool:
     return lang.lower().split("-")[0] in _CJK_LANGS
-
-
-def _resolve_output_paths(task: Dict[str, str]) -> Tuple[Path, str]:
-    """
-    Xác định output directory và file stem từ task.
-
-    - Nếu `task["output"]` không có suffix `.srt` → coi là thư mục.
-      File sẽ được tạo trong thư mục đó với tên `[stem của input]`.
-    - Nếu `task["output"]` có suffix `.srt` → backward compatible,
-      dùng parent làm thư mục và stem từ file output.
-
-    Returns:
-        (output_dir, stem)
-    """
-    inp_path = Path(task["input"])
-    out_path = Path(task["output"])
-
-    if out_path.suffix.lower() != ".srt":
-        output_dir = out_path
-        stem = inp_path.stem
-    else:
-        output_dir = out_path.parent
-        stem = out_path.stem
-
-    return output_dir, stem
 
 
 def _write_transcript_txt(
@@ -523,7 +499,7 @@ def run_batch_transcribe(
                 seg["text"] = split_text_by_maxlen(seg["text"], effective_maxlen)
 
         # Resolve output directory and stem
-        output_dir, stem = _resolve_output_paths(task)
+        output_dir, stem = resolve_output_dir_and_stem(task)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         srt_path = output_dir / f"{stem}.srt"
@@ -606,33 +582,15 @@ def main():
     else:
         logger.setLevel("INFO")
 
-    tasks = []
-    
-    if args.task_file:
-        try:
-            with open(args.task_file, "r", encoding="utf-8") as f:
-                tasks = json.load(f)
-            logger.info(f"Loaded {len(tasks)} tasks từ {args.task_file}")
-        except Exception as e:
-            logger.error(f"Lỗi đọc task file JSON: {e}")
-            sys.exit(1)
-    elif args.input:
-        inp = Path(args.input)
-        if not inp.exists():
-            logger.error(f"File input không tồn tại: {inp}")
-            sys.exit(1)
-
-        if args.output:
-            out = Path(args.output)
-            # Nếu output không phải file .srt → coi là thư mục
-            if out.suffix.lower() != ".srt":
-                out = out / f"{inp.stem}.srt"
-        else:
-            out = inp.parent / f"{inp.stem}.srt"
-
-        tasks.append({"input": str(inp), "output": str(out)})
-    else:
-        parser.error("Phải cung cấp --input hoặc --task-file")
+    try:
+        tasks = resolve_cli_tasks(
+            task_file=args.task_file,
+            input_file=args.input,
+            output_path=args.output,
+            default_ext=".srt"
+        )
+    except ValueError as e:
+        parser.error(str(e))
 
     device = args.device
     if device == "auto":
