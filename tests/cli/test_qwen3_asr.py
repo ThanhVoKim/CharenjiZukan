@@ -20,7 +20,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from cli.qwen3_asr import merge_punctuation
+from cli.qwen3_asr import merge_punctuation, build_parser
 from utils.text_segmenter import smart_segment
 
 
@@ -332,3 +332,30 @@ class TestLayer1_Qwen3ASRPunctuation:
         # Token đầu không khớp hoàn toàn → con trỏ tiến 2 bước (partial match)
         # Token thứ 2 nhận cả phần prefix bị bỏ sót ('c ') + 'abc.'
         assert merged[1]["text"] == "c abc."
+
+
+class TestLayer1_Qwen3ASRParser:
+    """Test Layer 1: CLI argument parsing (build_parser)."""
+
+    def test_split_on_comma_default_false(self):
+        """Mặc định --split-on-comma là False."""
+        parser = build_parser()
+        args = parser.parse_args(["--input", "test.mp4"])
+        assert args.split_on_comma is False
+
+    def test_split_on_comma_explicit_true(self):
+        """--split-on-comma được parse thành True khi truyền flag."""
+        parser = build_parser()
+        args = parser.parse_args(["--input", "test.mp4", "--split-on-comma"])
+        assert args.split_on_comma is True
+
+    def test_min_max_chars_zero_disables_segmentation(self):
+        """--min-chars 0 --max-chars 0 tắt segmentation."""
+        parser = build_parser()
+        args = parser.parse_args([
+            "--input", "test.mp4",
+            "--min-chars", "0",
+            "--max-chars", "0",
+        ])
+        assert args.min_chars == 0
+        assert args.max_chars == 0

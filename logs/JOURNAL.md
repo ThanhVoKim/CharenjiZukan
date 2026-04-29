@@ -1,5 +1,30 @@
 # Project Journal
 
+## 2026-04-29: Bổ sung `--split-on-comma` và test case `test_no_protect_brackets`
+
+### Yêu cầu
+
+- Thêm test case tên chính xác `test_no_protect_brackets` trong `tests/utils/test_text_segmenter.py`.
+- Bổ sung kiểm tra CLI argument `--split-on-comma` trong `tests/cli/test_qwen3_asr.py`.
+
+### Thay đổi đã thực hiện
+
+1. **`tests/utils/test_text_segmenter.py`**:
+   - Thêm `test_no_protect_brackets`: kiểm tra KHÔNG bảo vệ ngoặc ở GĐ1 — dấu chấm bên trong/trước ngoặc vẫn cắt (Phương án 1).
+
+2. **`tests/cli/test_qwen3_asr.py`**:
+   - Import thêm `build_parser` từ `cli.qwen3_asr`.
+   - Thêm class `TestLayer1_Qwen3ASRParser` với 3 test:
+     - `test_split_on_comma_default_false`: mặc định `--split-on-comma` là `False`.
+     - `test_split_on_comma_explicit_true`: truyền flag `--split-on-comma` → `True`.
+     - `test_min_max_chars_zero_disables_segmentation`: `--min-chars 0 --max-chars 0` tắt segmentation.
+
+### Trạng thái hiện tại
+
+- ✅ 39 tests pass (`tests/utils/test_text_segmenter.py` 20 tests + `tests/cli/test_qwen3_asr.py` 19 tests).
+
+---
+
 ## 2026-04-28: Thêm tham số `--task-file` cho `cli/translate_srt.py`
 
 ### Yêu cầu

@@ -135,6 +135,7 @@ def run_batch_transcribe(
     language: str = "Chinese",
     max_chars: int = 15,
     min_chars: int = 8,
+    split_on_comma: bool = False,
     batch_size: int = 32,
     offset_seconds: float = 0.24,
     model_path: str = "Qwen/Qwen3-ASR-1.7B",
@@ -233,6 +234,7 @@ def run_batch_transcribe(
                     min_chars=min_chars,
                     max_chars=max_chars,
                     ideal_chars=max_chars if max_chars > 0 else None,
+                    split_on_comma=split_on_comma,
                 )
 
             # Lưu SRT
@@ -296,6 +298,7 @@ def build_parser() -> argparse.ArgumentParser:
     seg.add_argument("--language", "-l", default="Chinese", help="Ngôn ngữ audio (mặc định: Chinese)")
     seg.add_argument("--max-chars", type=int, default=15, help="Số ký tự tối đa trên mỗi dòng phụ đề (mặc định: 15, đặt 0 để tắt)")
     seg.add_argument("--min-chars", type=int, default=8, help="Số ký tự tối thiểu trên mỗi dòng phụ đề (mặc định: 8, đặt 0 để tắt)")
+    seg.add_argument("--split-on-comma", action="store_true", help="Dùng dấu phẩy làm điểm cắt block (mặc định: tắt)")
     seg.add_argument("--batch-size", type=int, default=32, help="Batch size cho inference (mặc định: 32)")
     seg.add_argument("--offset-seconds", type=float, default=0.24, help="Độ lệch thời gian bù trừ (giây, mặc định: 0.24)")
 
@@ -330,6 +333,7 @@ def main():
             language=args.language,
             max_chars=args.max_chars,
             min_chars=args.min_chars,
+            split_on_comma=args.split_on_comma,
             batch_size=args.batch_size,
             offset_seconds=args.offset_seconds,
             model_path=args.model_path,

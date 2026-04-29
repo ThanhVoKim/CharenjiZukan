@@ -33,8 +33,11 @@ OPENING_PUNCT = set("“‘（《【")
 CLOSING_PUNCT = set("”’）》】")
 BRACKET_PAIRS = {"（": "）", "《": "》", "【": "】", "“": "”", "‘": "’"}
 
-# Dấu câu dùng để cắt ở Giai đoạn 1 (tất cả dấu ngắt nhịp — strong + weak)
-GRAMMAR_SPLIT_CHARS = set(".,!?:;。，！？：；、")
+# Dấu câu mặc định dùng để cắt ở Giai đoạn 1 (strong split, KHÔNG bao gồm dấu phẩy)
+DEFAULT_GRAMMAR_SPLIT_CHARS = set(".!?:;。！？：；")
+
+# Dấu câu mở rộng — bao gồm cả dấu phẩy (weak split)
+EXTENDED_GRAMMAR_SPLIT_CHARS = set(".,!?:;。，！？：；、")
 
 # Dấu câu mạnh — dùng để tăng điểm khi chấm điểm cắt ở GĐ2
 STRONG_SPLIT_CHARS = set(".!?。！？")
@@ -45,12 +48,21 @@ def _block_text_len(block: List[Dict[str, Any]]) -> int:
     return sum(len(t.get("text", "")) for t in block)
 
 
-def _split_by_grammar(tokens: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+def _split_by_grammar(
+    tokens: List[Dict[str, Any]],
+    split_on_comma: bool = False,
+) -> List[List[Dict[str, Any]]]:
     """Giai đoạn 1: Cắt toàn bộ văn bản dựa vào dấu câu.
 
-    Không bảo vệ ngoặc bọc — cắt tại mọi dấu câu để tối đa hóa
+    Không bảo vệ ngoặc bọc — cắt tại dấu câu để tối đa hóa
     số điểm cắt theo ngữ pháp.
+
+    Args:
+        split_on_comma: Nếu True, dấu phẩy (`,`, `，`, `、`) cũng được
+            dùng làm điểm cắt. Mặc định False để tránh cắt quá nhỏ.
     """
+    split_chars = EXTENDED_GRAMMAR_SPLIT_CHARS if split_on_comma else DEFAULT_GRAMMAR_SPLIT_CHARS
+
     blocks: List[List[Dict[str, Any]]] = []
     current: List[Dict[str, Any]] = []
 
@@ -58,8 +70,8 @@ def _split_by_grammar(tokens: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]
         text = token.get("text", "")
         current.append(token)
 
-        # Cắt tại mọi dấu câu (không quan tâm ngoặc bọc)
-        if any(c in text for c in GRAMMAR_SPLIT_CHARS):
+        # Cắt tại dấu câu (không quan tâm ngoặc bọc)
+        if any(c in text for c in split_chars):
             blocks.append(current)
             current = []
 
@@ -225,6 +237,7 @@ def smart_segment(
     min_chars: int = 8,
     max_chars: int = 40,
     ideal_chars: Optional[int] = None,
+    split_on_comma: bool = False,
 ) -> List[List[Dict[str, Any]]]:
     """Chia đoạn văn bản thông minh 2-phase.
 
@@ -237,6 +250,8 @@ def smart_segment(
                    (chỉ trả về grammar blocks).
         ideal_chars: Độ dài lý tưởng để tính số khúc N khi block quá dài.
                      Mặc định = max_chars.
+        split_on_comma: Nếu True, dấu phẩy (`,`, `，`, `、`) cũng được
+            dùng làm điểm cắt ở Giai đoạn 1. Mặc định False.
 
     Returns:
         Danh sách các block, mỗi block là list token.
@@ -248,7 +263,7 @@ def smart_segment(
         return []
 
     # ── Giai đoạn 1: Chia theo ngữ pháp ─────────────────────────────
-    grammar_blocks = _split_by_grammar(tokens)
+    grammar_blocks = _split_by_grammar(tokens, split_on_comma=split_on_comma)
 
     # Nếu max_chars == 0 → tắt GĐ2, trả về grammar blocks thuần
     if max_chars == 0:
