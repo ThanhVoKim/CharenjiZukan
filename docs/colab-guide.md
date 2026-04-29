@@ -432,21 +432,6 @@ gemini_key = userdata.get('gemini_key')
 
 #### Chạy hàng loạt nhiều file (Batch JSON)
 
-Tạo file `tasks.json`:
-
-```json
-[
-  {
-    "input": "/content/video1.srt",
-    "output": "/content/video1_ja.srt"
-  },
-  {
-    "input": "/content/video2.srt",
-    "output": "/content/video2_ja.srt"
-  }
-]
-```
-
 Chạy:
 
 ```colab
@@ -484,23 +469,23 @@ gemini_key = userdata.get('gemini_key')
 
 #### Tham số
 
-| Tham số             | Mô tả                                                               | Mặc định                            |
-| ------------------- | ------------------------------------------------------------------- | ----------------------------------- |
-| `--input`, `-i`     | File .srt đầu vào                                                   | (bắt buộc nếu không dùng task-file) |
-| `--task-file`, `-t` | File JSON chứa danh sách task (`{"input": "...", "output": "..."}`) | (không dùng)                        |
-| `--output`, `-o`    | File .srt đầu ra (chỉ dùng với `--input`)                           | `<input>_<lang>.srt`                |
-| `--provider`, `-p`  | Provider (gemini/openai/vertexai)                                   | `gemini`                            |
-| `--provider-config` | Đường dẫn file config YAML                                          | (tuỳ provider)                      |
-| `--base-url`        | Override base URL cho OpenAI provider                               | `None`                              |
-| `--keys`, `-k`      | API key(s), phân cách bằng dấu phẩy                                 | (bắt buộc gemini/openai)            |
-| `--lang`, `-l`      | Ngôn ngữ đích (tên tiếng Anh đầy đủ)                                | `Vietnamese`                        |
-| `--model`, `-m`     | Model Gemini (nếu dùng gemini provider)                             | `gemini-3-flash-preview`            |
-| `--prompt`          | Đường dẫn tới file prompt gemini.txt                                | `prompts/gemini.txt`                |
-| `--batch`, `-b`     | Số dòng dịch mỗi lần                                                | `30`                                |
-| `--budget`          | Thinking budget tokens (Gemini only)                                | `24576`                             |
-| `--wait`            | Giây chờ giữa mỗi batch                                             | `0`                                 |
-| `--no-context`      | Tắt global context                                                  | (mặc định bật)                      |
-| `--verbose`, `-v`   | Hiển thị log chi tiết                                               | (tắt)                               |
+| Tham số             | Mô tả                                                                                                                      | Mặc định                            |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `--input`, `-i`     | File .srt đầu vào                                                                                                          | (bắt buộc nếu không dùng task-file) |
+| `--task-file`, `-t` | File JSON chứa danh sách task (`{"input": "...", "output": "..."}`)                                                        | (không dùng)                        |
+| `--output`, `-o`    | File .srt đầu ra (chỉ dùng với `--input`)                                                                                  | `<input>_<lang>.srt`                |
+| `--provider`, `-p`  | Provider (gemini/openai/vertexai)                                                                                          | `gemini`                            |
+| `--provider-config` | Đường dẫn file config YAML                                                                                                 | (tuỳ provider)                      |
+| `--base-url`        | Override base URL cho OpenAI provider                                                                                      | `None`                              |
+| `--keys`, `-k`      | API key(s), phân cách bằng dấu phẩy                                                                                        | (bắt buộc gemini/openai)            |
+| `--lang`, `-l`      | Ngôn ngữ đích (tên tiếng Anh đầy đủ)                                                                                       | `Vietnamese`                        |
+| `--model`, `-m`     | Model Gemini (nếu dùng gemini provider)                                                                                    | `gemini-3-flash-preview`            |
+| `--prompt`          | Đường dẫn tới file prompt gemini.txt                                                                                       | `prompts/gemini.txt`                |
+| `--batch`, `-b`     | Số dòng dịch mỗi lần                                                                                                       | `30`                                |
+| `--budget`          | Thinking budget tokens (Gemini only)                                                                                       | `24576`                             |
+| `--wait`            | Giây chờ giữa mỗi batch                                                                                                    | `0`                                 |
+| `--no-context`      | Tắt global context - gộp toàn bộ text của file SRT gốc thành một đoạn "Read-Only Reference" và gửi kèm trong prompt cho AI | (mặc định bật)                      |
+| `--verbose`, `-v`   | Hiển thị log chi tiết                                                                                                      | (tắt)                               |
 
 ---
 

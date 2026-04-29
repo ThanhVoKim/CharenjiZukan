@@ -1,5 +1,5 @@
 # Cấu hình cho Google Vertex AI Translation Provider
-project_id: "gemini-main-484617"
+project_id: "gemini-493908v1"
 location: "global"
 model: "gemini-3.1-pro-preview"
 generation_config:
