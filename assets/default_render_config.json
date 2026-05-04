@@ -23,8 +23,8 @@
     "y": "8"
   },
   "black_strip": {
-    "enabled": false,
-    "path": "assets/black_strip.png",
+    "enabled": true,
+    "path": "assets/black-background.jpg",
     "scale_width": "1920",
     "scale_height": "94",
     "x": "(main_w-overlay_w)/2",
@@ -47,7 +47,7 @@
     }
   },
   "note_overlay": {
-    "enabled": false,
+    "enabled": true,
     "png_path": "assets/note_overlay.png"
   }
 }

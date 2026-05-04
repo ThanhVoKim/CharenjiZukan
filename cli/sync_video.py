@@ -262,12 +262,19 @@ def run_sync_pipeline(args):
         # 4. note_overlay_synced.ass (nếu được bật trong render_config)
         note_ass_synced = None
         note_overlay_cfg = render_config.get("note_overlay", {})
-        if note_overlay_cfg.get("enabled") and note_overlay_cfg.get("ass_input_path"):
-            ass_input = note_overlay_cfg["ass_input_path"]
-            ass_input_path = Path(ass_input)
-            if not ass_input_path.is_absolute():
-                ass_input_path = PROJECT_ROOT / ass_input_path
-            if ass_input_path.exists():
+        if note_overlay_cfg.get("enabled"):
+            if not args.note_overlay_ass:
+                logger.info("Cấu hình note_overlay bật nhưng không truyền --note-overlay-ass. Bỏ qua note overlay.")
+                # Override cấu hình để renderer bỏ qua
+                note_overlay_cfg["enabled"] = False
+            else:
+                ass_input_path = Path(args.note_overlay_ass)
+                if not ass_input_path.is_absolute():
+                    ass_input_path = PROJECT_ROOT / ass_input_path
+                
+                if not ass_input_path.exists():
+                    raise FileNotFoundError(f"Không tìm thấy file ASS: {ass_input_path}")
+                    
                 note_ass_synced = str(output_dir / f"{args.output_name}_note_synced.ass")
                 recalculate_ass(str(ass_input_path), timeline, note_ass_synced, max_chars_per_line=args.note_max_chars, fps_float=fps_float)
                 logger.info(f"Đã tạo {note_ass_synced}")
