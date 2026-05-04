@@ -1092,9 +1092,8 @@ Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
     --tts-provider edge \
     --tts-voice ja-JP-KeitaNeural \
     --mute /content/mute.srt \
-    --note-overlay-png /content/note-overlay.png \
     --note-overlay-ass /content/note_overlay.ass \
-    --black-bg /content/black-background.png \
+    --render-config /content/CharenjiZukan/assets/default_render_config.json \
     --ambient /content/ambient.mp3 \
     --slow-cap 0.5 \
     --use-demucs \
@@ -1102,43 +1101,35 @@ Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
     --output-name video_synced \
     --no-hardsub \
     --workers 4 \
+    --batch-size 100 \
     --no-gpu \
-    --subtitle-fontname "Noto Sans CJK JP" \
-    --subtitle-fontsize 22 \
-    --subtitle-color "&H00EEF5FF" \
-    --subtitle-margin-v 6 \
-    --note-max-chars 15
+    --note-max-chars 15 \
     --subtitle-max-chars 0
 ```
 
 #### Tham số
 
-| Tham số                | Mô tả                                                     | Mặc định             |
-| ---------------------- | --------------------------------------------------------- | -------------------- |
-| `--video`              | File video gốc (`.mp4`, `.mkv`)                           | (bắt buộc)           |
-| `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có) | (bắt buộc)           |
-| `--tts-provider`       | Provider TTS (`edge` hoặc `voicevox`)                     | `edge`               |
-| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox               | `vi-VN-HoaiMyNeural` |
-| `--mute`               | File mute `.srt` cho vùng quoted (không TTS)              | (không dùng)         |
-| `--note-overlay-png`   | Ảnh PNG tĩnh nền note                                     | (không dùng)         |
-| `--note-overlay-ass`   | File ASS text cho note overlay                            | (không dùng)         |
-| `--black-bg`           | Ảnh dải đen nền note (tự tạo nếu không truyền)            | (không dùng)         |
-| `--ambient`            | Nhạc nền ambient cho toàn bộ video                        | `assets/ambient.mp3` |
-| `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)         | `0.5`                |
-| `--use-demucs`         | Dùng Demucs tách lời (vocals) cho các đoạn quoted audio   | (tắt)                |
-| `--output-dir`         | Thư mục output                                            | `./sync_output/`     |
-| `--output-name`        | Tên base cho tất cả file output                           | `video_synced`       |
-| `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap         | (tắt)                |
-| `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video     | `4`                  |
-| `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)  | `100`                |
-| `--no-gpu`             | Dùng `libx264` thay `h264_nvenc` (CPU mode)               | (tắt)                |
-| `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug        | (tắt)                |
-| `--subtitle-fontname`  | Font subtitle dùng khi burn hardsub                       | `Noto Sans CJK JP`   |
-| `--subtitle-fontsize`  | Cỡ chữ subtitle                                           | `22`                 |
-| `--subtitle-color`     | Màu chữ subtitle (ASS hex format)                         | `&H00EEF5FF`         |
-| `--subtitle-margin-v`  | Margin dọc subtitle (px)                                  | `6`                  |
-| `--note-max-chars`     | Số ký tự tối đa mỗi dòng khi wrap text ASS note           | `15`                 |
-| `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle           | `0`                  |
+| Tham số                | Mô tả                                                                | Mặc định                            |
+| ---------------------- | -------------------------------------------------------------------- | ----------------------------------- |
+| `--video`              | File video gốc (`.mp4`, `.mkv`)                                      | (bắt buộc)                          |
+| `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có)            | (bắt buộc)                          |
+| `--tts-provider`       | Provider TTS (`edge` hoặc `voicevox`)                                | `edge`                              |
+| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox                          | `vi-VN-HoaiMyNeural`                |
+| `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                         | (không dùng)                        |
+| `--note-overlay-ass`   | File ASS text cho note overlay                                       | (không dùng)                        |
+| `--render-config`      | File JSON cấu hình render (style, resolution, dải đen, watermark...) | `assets/default_render_config.json` |
+| `--ambient`            | Nhạc nền ambient cho toàn bộ video                                   | `assets/ambient.mp3`                |
+| `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)                    | `0.5`                               |
+| `--use-demucs`         | Dùng Demucs tách lời (vocals) cho các đoạn quoted audio              | (tắt)                               |
+| `--output-dir`         | Thư mục output                                                       | `./sync_output/`                    |
+| `--output-name`        | Tên base cho tất cả file output                                      | `video_synced`                      |
+| `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap                    | (tắt)                               |
+| `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video                | `4`                                 |
+| `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)             | `100`                               |
+| `--no-gpu`             | Dùng `libx264` thay `h264_nvenc` (CPU mode)                          | (tắt)                               |
+| `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                   | (tắt)                               |
+| `--note-max-chars`     | Số ký tự tối đa mỗi dòng khi wrap text ASS note                      | `15`                                |
+| `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                      | `0`                                 |
 
 #### Quy ước input/output quan trọng
 

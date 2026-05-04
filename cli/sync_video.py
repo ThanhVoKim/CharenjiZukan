@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import shutil
 import time
+import json
 from typing import Optional
 
 from utils.logger import get_logger, setup_logging
@@ -24,6 +25,23 @@ from sync_engine.timestamp_remapper import recalculate_srt, recalculate_ass
 from sync_engine.renderer import render_final_video, DEFAULT_SUBTITLE_STYLE
 
 logger = get_logger("sync_video")
+
+def _load_render_config(config_path: str) -> dict:
+    """Đọc file JSON cấu hình render.
+
+    Hỗ trợ đường dẫn tương đối (từ PROJECT_ROOT) và tuyệt đối.
+    Trả về dict rỗng nếu file không tồn tại.
+    """
+    config_file = Path(config_path)
+    if not config_file.is_absolute():
+        config_file = PROJECT_ROOT / config_file
+    if not config_file.exists():
+        logger.warning(f"Không tìm thấy file cấu hình render: {config_file}. Sử dụng cấu hình mặc định.")
+        return {}
+    with open(config_file, "r", encoding="utf-8") as f:
+        config = json.load(f)
+    logger.info(f"Đã nạp cấu hình render từ: {config_file}")
+    return config
 
 def _probe_video_duration(video_path: str) -> float:
     """Đo duration video bằng ffprobe, trả về ms."""
@@ -48,6 +66,9 @@ def run_sync_pipeline(args):
     tmp_dir = tempfile.mkdtemp(prefix="sync_video_tmp_", dir=str(local_tmp_base))
     
     try:
+        # Load render config từ JSON
+        render_config = _load_render_config(args.render_config)
+
         start_time = time.time()
         logger.info("=== BẮT ĐẦU TTS-VIDEO SYNC ===")
         logger.info(f"Video: {args.video}")
@@ -238,43 +259,32 @@ def run_sync_pipeline(args):
             recalculate_srt(mute_segments, timeline, mute_synced, is_tts_track=False, max_chars=args.subtitle_max_chars, fps_float=fps_float)
             logger.info(f"Đã tạo {mute_synced}")
             
-        # 4. note_overlay_synced.ass (nếu có)
+        # 4. note_overlay_synced.ass (nếu được bật trong render_config)
         note_ass_synced = None
-        if args.note_overlay_ass and Path(args.note_overlay_ass).exists():
-            note_ass_synced = str(output_dir / f"{args.output_name}_note_synced.ass")
-            recalculate_ass(args.note_overlay_ass, timeline, note_ass_synced, max_chars_per_line=args.note_max_chars, fps_float=fps_float)
-            logger.info(f"Đã tạo {note_ass_synced}")
+        note_overlay_cfg = render_config.get("note_overlay", {})
+        if note_overlay_cfg.get("enabled") and note_overlay_cfg.get("ass_input_path"):
+            ass_input = note_overlay_cfg["ass_input_path"]
+            ass_input_path = Path(ass_input)
+            if not ass_input_path.is_absolute():
+                ass_input_path = PROJECT_ROOT / ass_input_path
+            if ass_input_path.exists():
+                note_ass_synced = str(output_dir / f"{args.output_name}_note_synced.ass")
+                recalculate_ass(str(ass_input_path), timeline, note_ass_synced, max_chars_per_line=args.note_max_chars, fps_float=fps_float)
+                logger.info(f"Đã tạo {note_ass_synced}")
             
         # PHASE 5: FINAL RENDER
         logger.info("\n--- PHASE 5: FINAL RENDER ---")
         if not args.no_hardsub:
             final_video = str(output_dir / f"{args.output_name}.mp4")
-            
-            # Xây dựng subtitle style
-            style_parts = [
-                f"Fontname={args.subtitle_fontname}",
-                r"\,Bold=1",
-                f"\\,FontSize={args.subtitle_fontsize}",
-                f"\\,PrimaryColour={args.subtitle_color}",
-                r"\,OutlineColour=&H00000000",
-                r"\,Outline=1",
-                r"\,Shadow=1.5",
-                r"\,BackColour=0xE6000000",
-                r"\,Alignment=2",
-                f"\\,MarginV={args.subtitle_margin_v}"
-            ]
-            custom_style = "".join(style_parts)
-            
+
             render_final_video(
                 stretched_video=stretched_video_chunked,
                 mixed_audio=mixed_audio,
                 subtitle_synced_srt=subtitle_synced,
                 output_path=final_video,
-                note_overlay_png=args.note_overlay_png,
                 note_overlay_synced_ass=note_ass_synced,
-                black_bg_path=args.black_bg,
-                subtitle_style=custom_style,
-                use_gpu=not args.no_gpu
+                render_config=render_config,
+                use_gpu=not args.no_gpu,
             )
             logger.info(f"Render hoàn tất: {final_video}")
         else:
@@ -310,10 +320,12 @@ def main():
     
     # Tùy chọn - Input
     parser.add_argument("--mute", help="File mute.srt")
-    parser.add_argument("--note-overlay-png", help="PNG tĩnh nền note")
     parser.add_argument("--note-overlay-ass", help="ASS text cho note")
-    parser.add_argument("--black-bg", help="Dải đen 1920x80 (tự tạo nếu không có)")
     parser.add_argument("--ambient", default=str(PROJECT_ROOT / "assets" / "ambient.mp3"), help="Nhạc nền")
+
+    # Render Config
+    parser.add_argument("--render-config", default=str(PROJECT_ROOT / "assets" / "default_render_config.json"),
+                        help="File JSON cấu hình render (mặc định: assets/default_render_config.json)")
     
     # Algorithm
     parser.add_argument("--slow-cap", type=float, default=0.5, help="Video speed tối thiểu (mặc định: 0.5)")
@@ -330,11 +342,7 @@ def main():
     parser.add_argument("--batch-size", type=int, default=100, help="Số segments mỗi batch Filter Complex (mặc định: 100)")
     parser.add_argument("--no-gpu", action="store_true", help="Dùng libx264 thay vì h264_nvenc")
     
-    # Subtitle Style
-    parser.add_argument("--subtitle-fontname", default="Noto Sans CJK JP")
-    parser.add_argument("--subtitle-fontsize", type=int, default=24)
-    parser.add_argument("--subtitle-color", default="&H00EEF5FF")
-    parser.add_argument("--subtitle-margin-v", type=int, default=7)
+    # Subtitle / Note Processing
     parser.add_argument("--subtitle-max-chars", type=int, default=0, help="Ngắt dòng subtitle nếu dài hơn số ký tự này (0 = không ngắt)")
     parser.add_argument("--note-max-chars", type=int, default=16)
     

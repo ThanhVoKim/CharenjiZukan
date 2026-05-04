@@ -1,0 +1,53 @@
+{
+  "project_id": "charenji",
+  "description": "Default render configuration for horizontal video format",
+  "resolution": {
+    "bypass_scale": false,
+    "width": 1920,
+    "height": 1080
+  },
+  "watermark_img": {
+    "enabled": true,
+    "path": "assets/CharenjiZukan-watermark.png",
+    "x": "1680",
+    "y": "39"
+  },
+  "watermark_text": {
+    "enabled": true,
+    "text": "@CharenjiZukan",
+    "font_path": "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
+    "fontsize": 25,
+    "color": "white",
+    "alpha": 0.7,
+    "x": "w-text_w-30",
+    "y": "8"
+  },
+  "black_strip": {
+    "enabled": false,
+    "path": "assets/black_strip.png",
+    "scale_width": "1920",
+    "scale_height": "94",
+    "x": "(main_w-overlay_w)/2",
+    "y": "968"
+  },
+  "subtitles": {
+    "enabled": true,
+    "burn_hardsub": true,
+    "style": {
+      "Fontname": "Noto Sans CJK JP",
+      "Bold": "1",
+      "FontSize": "24",
+      "PrimaryColour": "&H00EEF5FF",
+      "OutlineColour": "&H00000000",
+      "Outline": "1",
+      "Shadow": "1.5",
+      "BackColour": "0xE6000000",
+      "Alignment": "2",
+      "MarginV": "7"
+    }
+  },
+  "note_overlay": {
+    "enabled": false,
+    "png_path": "assets/note_overlay.png"
+  }
+}

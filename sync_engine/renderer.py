@@ -7,19 +7,6 @@ import logging
 
 logger = logging.getLogger("sync_video")
 
-DEFAULT_SUBTITLE_STYLE = (
-    "Fontname=Noto Sans CJK JP"
-    r"\,Bold=1"
-    r"\,FontSize=24"
-    r"\,PrimaryColour=&H00EEF5FF"
-    r"\,OutlineColour=&H00000000"
-    r"\,Outline=1"
-    r"\,Shadow=1.5"
-    r"\,BackColour=0xE6000000"
-    r"\,Alignment=2"
-    r"\,MarginV=7"
-)
-
 def detect_gpu_encoder() -> Tuple[bool, str, str]:
     """Returns (has_gpu, encoder, preset)."""
     r = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
@@ -27,20 +14,6 @@ def detect_gpu_encoder() -> Tuple[bool, str, str]:
     if "h264_nvenc" in r.stdout:
         return True, "h264_nvenc", "p5"
     return False, "libx264", "fast"
-
-def ensure_black_bg(path: str, w: int = 1920, h: int = 1080, alpha: int = 255) -> str:
-    """
-    Tạo ảnh nền đen có độ trong suốt (Alpha).
-    alpha: 0 (trong suốt hoàn toàn) đến 255 (đen đặc).
-    """
-    if Path(path).exists():
-        return path
-        
-    out_path = path if path.endswith(".png") else str(Path(path).with_suffix(".png"))
-    from PIL import Image
-    # Đổi "RGB" thành "RGBA" và truyền tuple 4 giá trị (R, G, B, A)
-    Image.new("RGBA", (w, h), (0, 0, 0, alpha)).save(out_path, format="PNG")
-    return out_path
 
 def _build_ass_enable_expr(ass_path: str) -> str:
     """Đọc file ASS và tạo biểu thức enable cho filter overlay của FFmpeg."""
@@ -80,13 +53,13 @@ def render_final_video(
     mixed_audio: str,
     subtitle_synced_srt: str,
     output_path: str,
-    note_overlay_png: Optional[str] = None,
     note_overlay_synced_ass: Optional[str] = None,
-    black_bg_path: Optional[str] = None,
-    subtitle_style: str = DEFAULT_SUBTITLE_STYLE,
+    render_config: dict = None,
     use_gpu: bool = True,
 ) -> None:
-    
+    if render_config is None:
+        render_config = {}
+        
     # Path format for ffmpeg filters on Windows needs escaping or forward slashes
     subtitle_synced_srt_esc = subtitle_synced_srt.replace('\\', '/')
     
@@ -101,92 +74,161 @@ def render_final_video(
         quality = ["-crf", "23"]
 
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
-    watermark_path = str(PROJECT_ROOT / "assets" / "CharenjiZukan-watermark.png")
-    watermark_path_esc = watermark_path.replace('\\', '/')
-    TITLE_FONT_PATH = "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf"
 
     cmd = [
         "ffmpeg", "-y",
         "-i", stretched_video,
         "-i", mixed_audio,
-        "-i", watermark_path_esc
     ]
 
-    has_note = note_overlay_png and Path(note_overlay_png).exists() and \
-               note_overlay_synced_ass and Path(note_overlay_synced_ass).exists()
+    input_idx = 2
+    filter_cx = []
+    
+    # 0. Base scale
+    current_v = "[0:v]"
+    res_cfg = render_config.get("resolution", {})
+    if not res_cfg.get("bypass_scale", False):
+        w = res_cfg.get("width", 1920)
+        h = res_cfg.get("height", 1080)
+        filter_cx.append(f"{current_v}scale={w}:{h}[v_base]")
+        current_v = "[v_base]"
 
-    if has_note:
-        bg = ensure_black_bg(black_bg_path or str(PROJECT_ROOT / "tmp" / "tmp_black_bg.png"))
-        note_overlay_synced_ass_esc = note_overlay_synced_ass.replace('\\', '/')
-        bg_esc = bg.replace('\\', '/')
-        png_esc = note_overlay_png.replace('\\', '/')
-        enable_expr = _build_ass_enable_expr(note_overlay_synced_ass)
-            
-        cmd.extend([
-            "-loop", "1", "-i", bg_esc,      # 3: dải đen 1920×h
-            "-loop", "1", "-i", png_esc,     # 4: PNG note tĩnh
-        ])
+    # 1. Watermark Image
+    wm_img_cfg = render_config.get("watermark_img", {})
+    if wm_img_cfg.get("enabled", False) and wm_img_cfg.get("path"):
+        wm_path = Path(wm_img_cfg["path"])
+        if not wm_path.is_absolute():
+            wm_path = PROJECT_ROOT / wm_path
         
-        filter_cx = "".join([
-            # Scale video gốc về Full HD
-            "[0:v]scale=1920:1080[v_base];",
-            # Scale dải đen 1920×h
-            "[3:v]scale=1920:94[bg_scaled];",
-            # 1. Overlay watermark_img
-            "[v_base][2:v]overlay=x=1680:y=39[v_wm_img];",
-            # 2. Draw watermark_text
-            f"[v_wm_img]drawtext=fontfile='{TITLE_FONT_PATH}':text='@CharenjiZukan':fontsize=25:fontcolor=white:alpha=0.7:x=w-text_w-30:y=8[v_wm_txt];",
-            # 3. Overlay note overlay (PNG tĩnh)
-            f"[v_wm_txt][4:v]overlay=shortest=1:enable='{enable_expr}'[v_note];",
-            # 4. Overlay black strip (căn giữa trục x, đặt ở y=968)
-            "[v_note][bg_scaled]overlay=x=(main_w-overlay_w)/2:y=968:shortest=1[v_strip];",
-            # 5. ASS text (đè lên black strip)
-            f"[v_strip]ass='{note_overlay_synced_ass_esc}'[v_ass];",
-            # 6. Subtitle SRT (burn hardsub)
-            f"[v_ass]subtitles='{subtitle_synced_srt_esc}':force_style='{subtitle_style}'[v_out]"
-        ])
-    elif black_bg_path and Path(black_bg_path).exists():
-        bg = ensure_black_bg(black_bg_path)
-        bg_esc = bg.replace('\\', '/')
+        if wm_path.exists():
+            wm_path_esc = str(wm_path).replace('\\', '/')
+            cmd.extend(["-i", wm_path_esc])
+            wm_idx = input_idx
+            input_idx += 1
             
-        cmd.extend([
-            "-loop", "1", "-i", bg_esc,      # 3: dải đen 1920×h
-        ])
+            x = wm_img_cfg.get("x", "W-w-40")
+            y = wm_img_cfg.get("y", "40")
+            
+            filter_cx.append(f"{current_v}[{wm_idx}:v]overlay=x={x}:y={y}[v_wm_img]")
+            current_v = "[v_wm_img]"
+
+    # 2. Watermark Text
+    wm_txt_cfg = render_config.get("watermark_text", {})
+    if wm_txt_cfg.get("enabled", False) and wm_txt_cfg.get("text"):
+        font_path = Path(wm_txt_cfg.get("font_path", ""))
+        if font_path and not font_path.is_absolute():
+            font_path = PROJECT_ROOT / font_path
         
-        filter_cx = "".join([
-            # Scale video gốc về Full HD
-            "[0:v]scale=1920:1080[v_base];",
-            # Scale dải đen 1920×h
-            "[3:v]scale=1920:94[bg_scaled];",
-            # 1. Overlay watermark_img
-            "[v_base][2:v]overlay=x=1680:y=39[v_wm_img];",
-            # 2. Draw watermark_text
-            f"[v_wm_img]drawtext=fontfile='{TITLE_FONT_PATH}':text='@CharenjiZukan':fontsize=25:fontcolor=white:alpha=0.7:x=w-text_w-30:y=8[v_wm_txt];",
-            # 3. Overlay black strip (căn giữa trục x, đặt ở y=968)
-            "[v_wm_txt][bg_scaled]overlay=x=(main_w-overlay_w)/2:y=968:shortest=1[v_strip];",
-            # 4. Subtitle SRT (burn hardsub)
-            f"[v_strip]subtitles='{subtitle_synced_srt_esc}':force_style='{subtitle_style}'[v_out]"
-        ])
+        font_path_esc = str(font_path).replace('\\', '/') if font_path.exists() else ""
+        
+        text = wm_txt_cfg.get("text", "")
+        fontsize = wm_txt_cfg.get("fontsize", 25)
+        color = wm_txt_cfg.get("color", "white")
+        alpha = wm_txt_cfg.get("alpha", 0.7)
+        x = wm_txt_cfg.get("x", "w-text_w-30")
+        y = wm_txt_cfg.get("y", "8")
+        
+        drawtext_parts = [f"text='{text}'", f"fontsize={fontsize}", f"fontcolor={color}", f"alpha={alpha}", f"x={x}", f"y={y}"]
+        if font_path_esc:
+            # Sửa lỗi fontfile path bằng cách bọc nháy đơn và escape an toàn hơn nếu cần
+            drawtext_parts.insert(0, f"fontfile='{font_path_esc}'")
+            
+        drawtext_str = ":".join(drawtext_parts)
+        filter_cx.append(f"{current_v}drawtext={drawtext_str}[v_wm_txt]")
+        current_v = "[v_wm_txt]"
+
+    # 3. Note Overlay PNG
+    note_cfg = render_config.get("note_overlay", {})
+    has_note = False
+    if note_cfg.get("enabled", False) and note_cfg.get("png_path") and note_overlay_synced_ass and Path(note_overlay_synced_ass).exists():
+        png_path = Path(note_cfg["png_path"])
+        if not png_path.is_absolute():
+            png_path = PROJECT_ROOT / png_path
+        
+        if png_path.exists():
+            png_path_esc = str(png_path).replace('\\', '/')
+            cmd.extend(["-loop", "1", "-i", png_path_esc])
+            note_idx = input_idx
+            input_idx += 1
+            has_note = True
+            
+            enable_expr = _build_ass_enable_expr(note_overlay_synced_ass)
+            filter_cx.append(f"{current_v}[{note_idx}:v]overlay=shortest=1:enable='{enable_expr}'[v_note]")
+            current_v = "[v_note]"
+
+    # 4. Black Strip
+    strip_cfg = render_config.get("black_strip", {})
+    has_strip = False
+    if strip_cfg.get("enabled", False) and strip_cfg.get("path"):
+        strip_path = Path(strip_cfg["path"])
+        if not strip_path.is_absolute():
+            strip_path = PROJECT_ROOT / strip_path
+            
+        if strip_path.exists():
+            strip_path_esc = str(strip_path).replace('\\', '/')
+            cmd.extend(["-loop", "1", "-i", strip_path_esc])
+            strip_idx = input_idx
+            input_idx += 1
+            has_strip = True
+            
+            sw = strip_cfg.get("scale_width")
+            sh = strip_cfg.get("scale_height")
+            if sw and sh:
+                filter_cx.append(f"[{strip_idx}:v]scale={sw}:{sh}[bg_scaled]")
+                strip_layer = "[bg_scaled]"
+            else:
+                strip_layer = f"[{strip_idx}:v]"
+                
+            x = strip_cfg.get("x", "(main_w-overlay_w)/2")
+            y = strip_cfg.get("y", "968")
+            
+            filter_cx.append(f"{current_v}{strip_layer}overlay=x={x}:y={y}:shortest=1[v_strip]")
+            current_v = "[v_strip]"
+
+    # 5. ASS Text (from Note Overlay)
+    if has_note and note_overlay_synced_ass:
+        ass_esc = note_overlay_synced_ass.replace('\\', '/')
+        filter_cx.append(f"{current_v}ass='{ass_esc}'[v_ass]")
+        current_v = "[v_ass]"
+
+    # 6. Subtitles (SRT)
+    sub_cfg = render_config.get("subtitles", {})
+    if sub_cfg.get("enabled", True) and sub_cfg.get("burn_hardsub", True):
+        style_dict = sub_cfg.get("style", {})
+        if style_dict:
+            # Escape dấu phẩy trong style FFmpeg, r"\,Bold=1" -> "\,Bold=1"
+            custom_style = ",".join([f"\\,{k}={v}" if i > 0 else f"{k}={v}" for i, (k, v) in enumerate(style_dict.items())])
+        else:
+            custom_style = ""
+            
+        if custom_style:
+            filter_cx.append(f"{current_v}subtitles='{subtitle_synced_srt_esc}':force_style='{custom_style}'[v_out]")
+        else:
+            filter_cx.append(f"{current_v}subtitles='{subtitle_synced_srt_esc}'[v_out]")
+        current_v = "[v_out]"
+
+    if current_v != "[v_out]":
+        if current_v == "[0:v]":
+            filter_cx_str = ""
+            map_v = "0:v"
+        else:
+            filter_cx_str = ";".join(filter_cx)
+            map_v = current_v
     else:
-        filter_cx = "".join([
-            # Scale video gốc về Full HD
-            "[0:v]scale=1920:1080[v_base];",
-            # 1. Overlay watermark_img
-            "[v_base][2:v]overlay=x=1680:y=39[v_wm_img];",
-            # 2. Draw watermark_text
-            f"[v_wm_img]drawtext=fontfile='{TITLE_FONT_PATH}':text='@CharenjiZukan':fontsize=25:fontcolor=white:alpha=0.7:x=w-text_w-30:y=8[v_wm_txt];",
-            # 3. Subtitle SRT
-            f"[v_wm_txt]subtitles='{subtitle_synced_srt_esc}':force_style='{subtitle_style}'[v_out]"
-        ])
+        filter_cx_str = ";".join(filter_cx)
+        map_v = "[v_out]"
 
+    if filter_cx_str:
+        cmd.extend(["-filter_complex", filter_cx_str])
+        
     cmd.extend([
-        "-filter_complex", filter_cx,
-        "-map", "[v_out]", "-map", "1:a",
+        "-map", map_v, 
+        "-map", "1:a",
         "-c:v", encoder, "-preset", preset, *quality,
         "-c:a", "aac", "-b:a", "192k",
     ])
     
-    if has_note or (black_bg_path and Path(black_bg_path).exists()):
+    if has_note or has_strip:
         cmd.append("-shortest")
         
     cmd.append(output_path)
@@ -224,7 +266,6 @@ def render_final_video(
                 
         pbar.close()
     else:
-        # Fallback nếu không có tqdm
         for line in process.stderr:
             pass
 

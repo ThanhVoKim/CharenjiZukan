@@ -1,5 +1,38 @@
 # Project Journal
 
+## 2026-05-04: Chuyển đổi Hardcode Tham số Render sang Cấu hình JSON động
+
+### Yêu cầu
+
+- Loại bỏ việc "hardcode" (gắn cứng) các tham số khi render final video như độ phân giải 1920x1080, dải đen, watermark ảnh, text.
+- Xây dựng cơ chế cấu hình JSON động (Data-Driven Configuration) cho phép dễ dàng chuyển đổi giữa các dự án có tỷ lệ khung hình khác nhau (VD: dọc 1080x1920 cho TikTok/Reels, ngang 1920x1080 cho YouTube).
+- Giảm phụ thuộc vào thư viện `Pillow/PIL` trong việc sinh ảnh dải đen tĩnh, chuyển sang sử dụng file ảnh do user cung cấp trực tiếp.
+- Thay đổi chữ ký lệnh CLI bằng cờ `--render-config` thay cho loạt cờ `--subtitle-fontname`, `--black-bg` rời rạc.
+
+### Thay đổi đã thực hiện
+
+1. **`assets/default_render_config.json`**:
+   - Tạo file JSON định nghĩa cấu trúc: `resolution`, `watermark_img`, `watermark_text`, `black_strip`, `subtitles`, `note_overlay`.
+   - Các tham số vị trí x, y được tách riêng để FFmpeg dễ dàng nội suy (ví dụ `x: "W-w-40"`).
+   - Hỗ trợ flag `bypass_scale` để render video kích thước tự do.
+
+2. **`cli/sync_video.py`**:
+   - Loại bỏ các flag `--subtitle-fontname`, `--subtitle-fontsize`, `--subtitle-color`, `--subtitle-margin-v`, `--black-bg`, `--note-overlay-png`.
+   - Thêm flag `--render-config` hỗ trợ nạp cấu hình JSON.
+   - Truyền toàn bộ dictionary cấu hình vào `render_final_video`.
+
+3. **`sync_engine/renderer.py`**:
+   - **Xóa bỏ hàm `ensure_black_bg()`**, loại bỏ hoàn toàn import Pillow tại bước này.
+   - **Tái cấu trúc (Refactor) `render_final_video`**: Áp dụng mô hình thiết kế **Dynamic Label Chaining (Gán nhãn dòng chảy động)**. FFmpeg `filter_complex` giờ đây được ghép tự động dựa trên số lượng Input `-i` thực tế, đảm bảo các stream index như `[0:v]`, `[2:v]` không bị trượt dù user có bật/tắt watermark hay dải đen.
+
+### Trạng thái hiện tại
+
+- ✅ Cơ chế Data-Driven Rendering qua JSON đã hoàn tất và tích hợp.
+- ✅ Kiến trúc `filter_complex` động đã được cập nhật thành công, khắc phục rủi ro sai số index luồng.
+- ✅ Dễ dàng tái sử dụng pipeline cho nhiều dự án có format Video khác nhau.
+
+---
+
 ## 2026-04-29: Bổ sung `--split-on-comma` và test case `test_no_protect_brackets`
 
 ### Yêu cầu
