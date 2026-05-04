@@ -22,7 +22,7 @@ from sync_engine.analyzer import classify_and_compute_slots, compute_speeds, bui
 from sync_engine.video_processor import query_keyframes, process_video_chunks_parallel
 from sync_engine.audio_assembler import assemble_audio_track
 from sync_engine.timestamp_remapper import recalculate_srt, recalculate_ass
-from sync_engine.renderer import render_final_video, DEFAULT_SUBTITLE_STYLE
+from sync_engine.renderer import render_final_video
 
 logger = get_logger("sync_video")
 
