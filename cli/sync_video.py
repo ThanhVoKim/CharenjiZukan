@@ -219,6 +219,27 @@ def run_sync_pipeline(args):
         timeline = recalculate_timeline_from_actual_durations(timeline, actual_durations, fps_float)
         logger.info(f"Timeline đã cập nhật với {len(timeline)} segments (dựa trên duration thực tế).")
             
+        # PHASE 2.5: DEMUCS BGM EXTRACTION (nếu được bật)
+        demucs_bgm_path = None
+        if args.demucs_bgm:
+            logger.info("\n--- PHASE 2.5: DEMUCS BGM EXTRACTION ---")
+            raw_bgm_output = str(Path(tmp_dir) / "raw_demucs_bgm.wav")
+            from cli.demucs_audio import separate_audio
+            try:
+                separate_audio(
+                    input_path=args.video,
+                    output_path=raw_bgm_output,
+                    model="htdemucs",
+                    keep="bgm",
+                    device=None,
+                    segment=7
+                )
+                demucs_bgm_path = raw_bgm_output
+                logger.info(f"Đã tách BGM từ video gốc: {demucs_bgm_path}")
+            except Exception as e:
+                logger.error(f"Lỗi khi tách BGM bằng Demucs: {e}. Bỏ qua BGM track.")
+                demucs_bgm_path = None
+
         # PHASE 3: AUDIO ASSEMBLY
         logger.info("\n--- PHASE 3: AUDIO ASSEMBLY ---")
 
@@ -233,7 +254,9 @@ def run_sync_pipeline(args):
             tmp_dir=tmp_dir,
             use_demucs=args.use_demucs,
             tts_provider=args.tts_provider,
-            video_duration_override=video_actual_duration_ms
+            video_duration_override=video_actual_duration_ms,
+            demucs_bgm_path=demucs_bgm_path,
+            audio_mix_config=render_config.get("audio_mix"),
         )
         
         # PHASE 4: RECALCULATE TIMESTAMPS
@@ -337,6 +360,7 @@ def main():
     # Algorithm
     parser.add_argument("--slow-cap", type=float, default=0.5, help="Video speed tối thiểu (mặc định: 0.5)")
     parser.add_argument("--use-demucs", action="store_true", help="Sử dụng Demucs để loại bỏ nhạc nền, chỉ giữ lại giọng nói cho các đoạn quoted audio")
+    parser.add_argument("--demucs-bgm", action="store_true", help="Sử dụng Demucs để tách BGM (nhạc nền + SFX) từ video gốc, sau đó giãn theo timeline và mix vào final audio")
     
     # Output
     parser.add_argument("--output-dir", default="./sync_output/", help="Thư mục output")

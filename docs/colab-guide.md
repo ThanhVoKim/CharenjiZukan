@@ -1097,6 +1097,7 @@ Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
     --ambient /content/ambient.mp3 \
     --slow-cap 0.5 \
     --use-demucs \
+    --demucs-bgm \
     --output-dir /content/output_sync \
     --output-name video_synced \
     --no-hardsub \
@@ -1109,27 +1110,37 @@ Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
 
 #### Tham số
 
-| Tham số                | Mô tả                                                                | Mặc định                            |
-| ---------------------- | -------------------------------------------------------------------- | ----------------------------------- |
-| `--video`              | File video gốc (`.mp4`, `.mkv`)                                      | (bắt buộc)                          |
-| `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có)            | (bắt buộc)                          |
-| `--tts-provider`       | Provider TTS (`edge` hoặc `voicevox`)                                | `edge`                              |
-| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox                          | `vi-VN-HoaiMyNeural`                |
-| `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                         | (không dùng)                        |
-| `--note-overlay-ass`   | File ASS text cho note overlay                                       | (không dùng)                        |
-| `--render-config`      | File JSON cấu hình render (style, resolution, dải đen, watermark...) | `assets/default_render_config.json` |
-| `--ambient`            | Nhạc nền ambient cho toàn bộ video                                   | `assets/ambient.mp3`                |
-| `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)                    | `0.5`                               |
-| `--use-demucs`         | Dùng Demucs tách lời (vocals) cho các đoạn quoted audio              | (tắt)                               |
-| `--output-dir`         | Thư mục output                                                       | `./sync_output/`                    |
-| `--output-name`        | Tên base cho tất cả file output                                      | `video_synced`                      |
-| `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap                    | (tắt)                               |
-| `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video                | `4`                                 |
-| `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)             | `100`                               |
-| `--no-gpu`             | Dùng `libx264` thay `h264_nvenc` (CPU mode)                          | (tắt)                               |
-| `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                   | (tắt)                               |
-| `--note-max-chars`     | Số ký tự tối đa mỗi dòng khi wrap text ASS note                      | `15`                                |
-| `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                      | `0`                                 |
+| Tham số                | Mô tả                                                                  | Mặc định                            |
+| ---------------------- | ---------------------------------------------------------------------- | ----------------------------------- |
+| `--video`              | File video gốc (`.mp4`, `.mkv`)                                        | (bắt buộc)                          |
+| `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có)              | (bắt buộc)                          |
+| `--tts-provider`       | Provider TTS (`edge` hoặc `voicevox`)                                  | `edge`                              |
+| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox                            | `vi-VN-HoaiMyNeural`                |
+| `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                           | (không dùng)                        |
+| `--note-overlay-ass`   | File ASS text cho note overlay                                         | (không dùng)                        |
+| `--render-config`      | File JSON cấu hình render (style, resolution, dải đen, watermark...)   | `assets/default_render_config.json` |
+| `--ambient`            | Nhạc nền ambient cho toàn bộ video                                     | `assets/ambient.mp3`                |
+| `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)                      | `0.5`                               |
+| `--use-demucs`         | Dùng Demucs tách lời (vocals) cho các đoạn quoted audio                | (tắt)                               |
+| `--demucs-bgm`         | Dùng Demucs tách BGM từ video gốc, giãn theo timeline và mix vào final | (tắt)                               |
+| `--output-dir`         | Thư mục output                                                         | `./sync_output/`                    |
+| `--output-name`        | Tên base cho tất cả file output                                        | `video_synced`                      |
+| `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap                      | (tắt)                               |
+| `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video                  | `4`                                 |
+| `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)               | `100`                               |
+| `--no-gpu`             | Dùng `libx264` thay `h264_nvenc` (CPU mode)                            | (tắt)                               |
+| `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                     | (tắt)                               |
+| `--note-max-chars`     | Số ký tự tối đa mỗi dòng khi wrap text ASS note                        | `15`                                |
+| `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                        | `0`                                 |
+
+> **Lưu ý về âm lượng (Volume):** Khi dùng `--demucs-bgm`, bạn có thể điều chỉnh âm lượng của BGM đã tách và ambient thông qua file `render-config`. Thêm block `audio_mix` vào JSON:
+>
+> ```json
+> "audio_mix": {
+>   "ambient_volume": 0.03,
+>   "demucs_bgm_volume": 1.0
+> }
+> ```
 
 #### Quy ước input/output quan trọng
 

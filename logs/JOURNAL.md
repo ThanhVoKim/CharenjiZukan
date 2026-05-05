@@ -1,5 +1,51 @@
 # Project Journal
 
+## 2026-05-05: Thêm tính năng Demucs BGM Synced Track vào pipeline sync_video
+
+### Yêu cầu
+
+- Thêm khả năng tách BGM (nhạc nền + SFX) từ video gốc bằng Demucs, sau đó giãn (time-stretch) BGM này theo đúng timeline của video hình ảnh đã bị kéo dãn (slow motion ở các đoạn TTS).
+- Tách BGM này hoạt động song song với track `ambient` (nhạc nền tùy chọn), không thay thế ambient.
+- Cho phép tùy chỉnh âm lượng (volume) của BGM đã tách và ambient thông qua file cấu hình JSON (`assets/default_render_config.json`).
+- Sửa lại logic kiểm tra `tts_provider` trong `compress_tts_clip` để ưu tiên kiểm tra `voicevox` (hỗ trợ cả `voicevox nemo` trong tương lai).
+
+### Thay đổi đã thực hiện
+
+1. **`assets/default_render_config.json`**:
+   - Thêm block `audio_mix` chứa `ambient_volume` (mặc định: 0.03) và `demucs_bgm_volume` (mặc định: 1.0).
+
+2. **`cli/sync_video.py`**:
+   - Thêm CLI argument `--demucs-bgm` (action="store_true").
+   - Thêm **PHASE 2.5**: Nếu `--demucs-bgm` được bật, gọi `separate_audio(..., keep="bgm")` trên toàn bộ video gốc để tạo `raw_demucs_bgm.wav`.
+   - Truyền `demucs_bgm_path` và `audio_mix_config` (lấy từ `render_config.get("audio_mix")`) vào `assemble_audio_track`.
+
+3. **`sync_engine/audio_assembler.py`**:
+   - Sửa `compress_tts_clip`: Đảo ngược điều kiện — kiểm tra `tts_provider.startswith("voicevox")` trước để bỏ qua filter volume/limiter. Các provider khác (edge, qwen, v.v.) sẽ áp dụng filter.
+   - Thêm hàm `_prepare_bgm_chunk`: Cắt 1 đoạn BGM từ `demucs_bgm_path` tại vị trí `orig_start..orig_end`, áp dụng filter `atempo` theo `video_speed` của segment, sau đó pad/trim để đạt đúng `new_chunk_dur`.
+   - Nâng cấp `assemble_audio_track`:
+     - Nhận thêm 2 tham số: `demucs_bgm_path` và `audio_mix_config`.
+     - Sau bước concat Main Track, nếu có `demucs_bgm_path`, chạy song song `_prepare_bgm_chunk` cho toàn bộ timeline, concat các chunk BGM thành `synced_bgm.wav`.
+     - Bước Mix Final được nâng cấp để hỗ trợ 3 inputs: Main Track + Ambient (nếu có) + Synced BGM (nếu có).
+     - Sử dụng `volume` filter trên từng input trước khi `amix`, với giá trị volume đọc từ `audio_mix_config`.
+
+### Trạng thái hiện tại
+
+- ✅ Các file đã được chỉnh sửa và cú pháp pass (`python -m py_compile`).
+- ✅ Tính năng Demucs BGM Synced Track đã được tích hợp vào pipeline.
+- ✅ Volume config được quản lý tập trung qua JSON.
+
+### Outstanding / Pending
+
+1. Chạy end-to-end test với video thật để xác nhận BGM được giãn đúng tốc độ và sync với hình ảnh.
+2. Đánh giá mức độ artifact (robotic/metallic) khi `video_speed` xuống quá thấp (ví dụ < 0.5x).
+
+### Đối chiếu Data Flow
+
+- Thay đổi chỉ nằm ở Phase 2.5 (tách BGM) và Phase 3 (mix audio). Không thay đổi luồng timeline, video processing, hay subtitle remapping.
+- `assemble_audio_track` vẫn giữ nguyên hợp đồng cũ khi không truyền `demucs_bgm_path` (backward compatible).
+
+---
+
 ## 2026-05-04: Chuyển đổi Hardcode Tham số Render sang Cấu hình JSON động
 
 ### Yêu cầu

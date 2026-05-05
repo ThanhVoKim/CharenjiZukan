@@ -15,11 +15,12 @@ _PCM_AUDIO_EXTENSIONS = {'.wav', '.flac', '.aiff', '.aif', '.pcm'}
 logger = logging.getLogger("sync_video")
 
 def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_provider: str = "edge", target_dur_s: Optional[float] = None) -> None:
-    # Chỉ áp dụng filter tăng âm lượng và limiter cho EdgeTTS
-    if tts_provider == "edge":
-        base_filter = "volume=1.5,alimiter=limit=0.95:level_in=1:level_out=1"
+    # Voicevox đã tự tăng volumeScale, không cần filter
+    if tts_provider.startswith("voicevox"):
+        base_filter = ""
     else:
-        base_filter = "" # Voicevox đã tự tăng volumeScale
+        # EdgeTTS và các provider khác: áp dụng filter tăng âm lượng và limiter
+        base_filter = "volume=1.5,alimiter=limit=0.95:level_in=1:level_out=1"
     
     if audio_speed > 1.01:
         atempo_str = _build_atempo_filter(audio_speed)  # Reuse từ media_utils.py
@@ -41,6 +42,43 @@ def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_p
     cmd.append(output_path)
     
     subprocess.run(cmd, check=True, capture_output=True)
+
+def _prepare_bgm_chunk(index: int, seg: TimelineSegment, demucs_bgm_path: str, tmp_dir: str, sample_rate: int) -> Tuple[int, str]:
+    """Tạo 1 chunk BGM đã được time-stretch theo video_speed và pad/trim đúng duration."""
+    target_dur_s = seg.new_chunk_dur / 1000.0
+    if target_dur_s <= 0:
+        return index, ""
+    
+    bgm_chunk = str(Path(tmp_dir) / f"bgm_chunk_{index:04d}.wav")
+    if Path(bgm_chunk).exists():
+        return index, bgm_chunk
+    
+    start_s = seg.orig_start / 1000.0
+    orig_dur_s = (seg.orig_end - seg.orig_start) / 1000.0
+    
+    filters = []
+    
+    # Time-stretch theo video_speed (giãn/chậm theo hình ảnh)
+    if seg.video_speed > 1.01 or seg.video_speed < 0.99:
+        atempo_str = _build_atempo_filter(seg.video_speed)
+        filters.append(atempo_str)
+    
+    # Trim/pad để đảm bảo đúng duration tuyệt đối
+    filters.append(f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}")
+    
+    filter_str = ",".join(f for f in filters if f)
+    
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", f"{start_s:.6f}",
+        "-t", f"{orig_dur_s:.6f}",
+        "-i", demucs_bgm_path,
+        "-filter:a", filter_str,
+        "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le",
+        bgm_chunk
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+    return index, bgm_chunk
 
 def extract_quoted_audio(
     video_path: str,
@@ -205,6 +243,8 @@ def assemble_audio_track(
     use_demucs: bool = False,
     tts_provider: str = "edge",
     video_duration_override: Optional[float] = None,
+    demucs_bgm_path: Optional[str] = None,
+    audio_mix_config: Optional[dict] = None,
 ) -> None:
     """
     Sử dụng FFmpeg để ghép (concat) audio tuần tự.
@@ -376,18 +416,71 @@ def assemble_audio_track(
         logger.error(f"Lỗi concat audio: {e.stderr.decode('utf-8', errors='ignore')}")
         raise RuntimeError("Không thể concat audio chunks")
 
-    # 4. Mix Final (Concatenated Audio + Ambient)
+    # 3.5. Xử lý Demucs BGM Track (synced theo timeline)
+    synced_bgm_path = str(Path(tmp_dir) / "synced_bgm.wav")
+    has_bgm = False
+    if demucs_bgm_path and Path(demucs_bgm_path).exists():
+        logger.info("Đang xử lý Demucs BGM track (synced theo timeline)...")
+        bgm_results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(_prepare_bgm_chunk, i, seg, demucs_bgm_path, tmp_dir, sample_rate) for i, seg in enumerate(timeline)]
+            for future in concurrent.futures.as_completed(futures):
+                bgm_results.append(future.result())
+        bgm_results.sort(key=lambda x: x[0])
+        ordered_bgm_paths = [path for _, path in bgm_results if path]
+        
+        if ordered_bgm_paths:
+            bgm_concat_list = str(Path(tmp_dir) / "bgm_concat_list.txt")
+            with open(bgm_concat_list, "w", encoding="utf-8") as f:
+                for p in ordered_bgm_paths:
+                    safe_p = Path(p).as_posix().replace("'", "'\\''")
+                    f.write(f"file '{safe_p}'\n")
+            subprocess.run([
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                "-i", bgm_concat_list,
+                "-c", "copy",
+                synced_bgm_path
+            ], check=True, capture_output=True)
+            has_bgm = True
+            logger.info(f"Đã tạo synced BGM track: {synced_bgm_path}")
+
+    # 4. Mix Final
     logger.info("Đang thực hiện mix cuối cùng (Final Mix)...")
     
-    if not has_ambient:
+    if not has_ambient and not has_bgm:
         shutil.copy(concatenated_audio, output_path)
-        logger.info("Mix audio hoàn tất (chỉ có track chính, không có ambient).")
+        logger.info("Mix audio hoàn tất (chỉ có track chính).")
     else:
+        inputs = [concatenated_audio]
+        filter_parts = []
+        mix_labels = ["[a0]"]
+        
+        # Main track
+        filter_parts.append("[0:a]volume=1.0[a0]")
+        
+        input_idx = 1
+        
+        if has_ambient:
+            inputs.append(ambient_processed_path)
+            amb_vol = audio_mix_config.get("ambient_volume", 0.03) if audio_mix_config else 0.03
+            filter_parts.append(f"[{input_idx}:a]volume={amb_vol}[a{input_idx}]")
+            mix_labels.append(f"[a{input_idx}]")
+            input_idx += 1
+        
+        if has_bgm:
+            inputs.append(synced_bgm_path)
+            bgm_vol = audio_mix_config.get("demucs_bgm_volume", 1.0) if audio_mix_config else 1.0
+            filter_parts.append(f"[{input_idx}:a]volume={bgm_vol}[a{input_idx}]")
+            mix_labels.append(f"[a{input_idx}]")
+            input_idx += 1
+        
+        filter_complex = ";".join(filter_parts)
+        filter_complex += ";" + "".join(mix_labels) + f"amix=inputs={len(mix_labels)}:duration=first:dropout_transition=0:normalize=0[out]"
+        
         mix_cmd = [
             "ffmpeg", "-y",
-            "-i", concatenated_audio,
-            "-i", ambient_processed_path,
-            "-filter_complex", "amix=inputs=2:duration=first:dropout_transition=0:normalize=0[out]",
+            *sum([["-i", p] for p in inputs], []),
+            "-filter_complex", filter_complex,
             "-map", "[out]",
             "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le",
             output_path
@@ -395,7 +488,7 @@ def assemble_audio_track(
         
         try:
             subprocess.run(mix_cmd, check=True, capture_output=True)
-            logger.info("Mix audio hoàn tất thành công (Main Track + Ambient).")
+            logger.info("Mix audio hoàn tất thành công.")
         except subprocess.CalledProcessError as e:
             logger.error(f"Lỗi final mix: {e.stderr.decode('utf-8', errors='ignore')}")
             shutil.copy(concatenated_audio, output_path)

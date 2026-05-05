@@ -49,5 +49,9 @@
   "note_overlay": {
     "enabled": true,
     "png_path": "assets/note_overlay.png"
+  },
+  "audio_mix": {
+    "ambient_volume": 0.03,
+    "demucs_bgm_volume": 1.0
   }
 }
