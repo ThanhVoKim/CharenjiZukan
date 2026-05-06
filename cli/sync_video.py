@@ -13,6 +13,7 @@ import tempfile
 import shutil
 import time
 import json
+import yaml
 from typing import Optional
 
 from utils.logger import get_logger, setup_logging
@@ -41,6 +42,24 @@ def _load_render_config(config_path: str) -> dict:
     with open(config_file, "r", encoding="utf-8") as f:
         config = json.load(f)
     logger.info(f"Đã nạp cấu hình render từ: {config_file}")
+    return config
+
+
+def _load_tts_config(config_path: str) -> dict:
+    """Đọc file YAML cấu hình TTS.
+
+    Hỗ trợ đường dẫn tương đối (từ PROJECT_ROOT) và tuyệt đối.
+    Trả về dict rỗng nếu file không tồn tại.
+    """
+    config_file = Path(config_path)
+    if not config_file.is_absolute():
+        config_file = PROJECT_ROOT / config_file
+    if not config_file.exists():
+        logger.warning(f"Không tìm thấy file cấu hình TTS: {config_file}. Sử dụng cấu hình mặc định.")
+        return {}
+    with open(config_file, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+    logger.info(f"Đã nạp cấu hình TTS từ: {config_file}")
     return config
 
 def _probe_video_duration(video_path: str) -> float:
@@ -75,8 +94,10 @@ def run_sync_pipeline(args):
         logger.info(f"Subtitle: {args.subtitle}")
         if args.tts_provider == "edge":
             logger.info(f"TTS Voice: {args.tts_voice}")
-        else:
+        elif args.tts_provider == "voicevox":
             logger.info(f"Voice ID: {args.tts_voice}")
+        else:
+            logger.info(f"TTS Provider: {args.tts_provider}")
         
         # Parse inputs
         if not Path(args.subtitle).exists():
@@ -122,6 +143,7 @@ def run_sync_pipeline(args):
         from sync_engine.analyzer import filter_tts_subtitles
         from tts.edgetts import EdgeTTSEngine
         from tts.voicevox import VoicevoxTTSEngine
+        from tts.qwen import QwenTTSEngine
         
         tts_only = filter_tts_subtitles(subtitle_segments, mute_segments)
         queue_tts = []
@@ -136,29 +158,44 @@ def run_sync_pipeline(args):
             })
             
         logger.info(f"Đang sinh {len(queue_tts)} audio clips bằng {args.tts_provider.upper()}...")
+        
+        # Load TTS config một lần duy nhất (dùng cho tất cả provider)
+        tts_cfg_full = _load_tts_config(args.tts_config)
+        
         if args.tts_provider == "edge":
+            edge_cfg = tts_cfg_full.get("edge", {})
             engine = EdgeTTSEngine(
                 queue_tts=queue_tts,
-                voice=args.tts_voice,
-                rate=args.tts_rate,
-                volume=args.tts_volume,
-                pitch=args.tts_pitch,
-                strip_silence=True,
-                max_concurrent=10,
-                min_silence_len_ms=300
+                voice=args.tts_voice or edge_cfg.get("voice", "vi-VN-HoaiMyNeural"),
+                rate=edge_cfg.get("rate", "+0%"),
+                volume=edge_cfg.get("volume", "+0%"),
+                pitch=edge_cfg.get("pitch", "+0Hz"),
+                strip_silence=edge_cfg.get("strip_silence", True),
+                max_concurrent=edge_cfg.get("concurrent", 10),
+                min_silence_len_ms=edge_cfg.get("min_silence_len_ms", 300),
             )
         elif args.tts_provider == "voicevox":
+            vv_cfg = tts_cfg_full.get("voicevox", {})
+            raw_voice = args.tts_voice or vv_cfg.get("voice_id", 10008)
             try:
-                voice_id = int(args.tts_voice)
+                voice_id = int(raw_voice)
             except ValueError:
-                raise ValueError(f"Với Voicevox, tham số --tts-voice phải là ID dạng số nguyên (ví dụ: 10008). Giá trị hiện tại: {args.tts_voice}")
+                raise ValueError(f"Với Voicevox, tham số --tts-voice phải là ID dạng số nguyên (ví dụ: 10008). Giá trị hiện tại: {raw_voice}")
             
             engine = VoicevoxTTSEngine(
                 queue_tts=queue_tts,
                 voice_id=voice_id,
-                concurrent_requests=100,
-                speed_scale=1.12,
-                pitch_scale=-0.05,
+                concurrent_requests=vv_cfg.get("concurrent_requests", 100),
+                speed_scale=vv_cfg.get("speed_scale", 1.12),
+                pitch_scale=vv_cfg.get("pitch_scale", -0.05),
+                intonation_scale=vv_cfg.get("intonation_scale", 1.0),
+                volume_scale=vv_cfg.get("volume_scale", 2.0),
+            )
+        elif args.tts_provider == "qwen":
+            qwen_cfg = tts_cfg_full.get("qwen", {})
+            engine = QwenTTSEngine(
+                queue_tts=queue_tts,
+                **qwen_cfg
             )
         else:
             raise ValueError(f"Provider không hợp lệ: {args.tts_provider}")
@@ -342,11 +379,10 @@ def main():
     parser.add_argument("--subtitle", required=True, help="File subtitle.srt đầy đủ (kể cả vùng mute)")
     
     # TTS Settings
-    parser.add_argument("--tts-provider", choices=["edge", "voicevox"], default="edge", help="Chọn TTS engine (mặc định: edge)")
-    parser.add_argument("--tts-voice", default="vi-VN-HoaiMyNeural", help="Tên giọng EdgeTTS hoặc ID nhân vật Voicevox")
-    parser.add_argument("--tts-rate", default="+0%", help="Tốc độ giọng đọc EdgeTTS")
-    parser.add_argument("--tts-volume", default="+0%", help="Âm lượng EdgeTTS")
-    parser.add_argument("--tts-pitch", default="+0Hz", help="Pitch EdgeTTS")
+    parser.add_argument("--tts-provider", choices=["edge", "voicevox", "qwen"], default="edge", help="Chọn TTS engine (mặc định: edge)")
+    parser.add_argument("--tts-voice", default=None, help="Tên giọng EdgeTTS hoặc ID nhân vật Voicevox (ghi đè YAML)")
+    parser.add_argument("--tts-config", default=str(PROJECT_ROOT / "config" / "tts_config.yaml"),
+                        help="File YAML cấu hình TTS (mặc định: config/tts_config.yaml)")
     
     # Tùy chọn - Input
     parser.add_argument("--mute", help="File mute.srt")

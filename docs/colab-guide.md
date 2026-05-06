@@ -1083,6 +1083,19 @@ Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
     --output-dir /content/output_sync
 ```
 
+#### Chạy nhanh với Qwen3-TTS
+
+Yêu cầu đã cài đặt `qwen-tts` và `transformers` (xem phần 2.6).
+
+```colab
+!uv run sync-video \
+    --video /content/video.mp4 \
+    --subtitle /content/subtitle_translated.srt \
+    --tts-provider qwen \
+    --tts-config /content/CharenjiZukan/config/tts_config.yaml \
+    --output-dir /content/output_sync
+```
+
 #### Chạy đầy đủ tham số
 
 ```colab
@@ -1114,8 +1127,9 @@ Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
 | ---------------------- | ---------------------------------------------------------------------- | ----------------------------------- |
 | `--video`              | File video gốc (`.mp4`, `.mkv`)                                        | (bắt buộc)                          |
 | `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có)              | (bắt buộc)                          |
-| `--tts-provider`       | Provider TTS (`edge` hoặc `voicevox`)                                  | `edge`                              |
-| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox                            | `vi-VN-HoaiMyNeural`                |
+| `--tts-provider`       | Provider TTS (`edge`, `voicevox`, `qwen`)                              | `edge`                              |
+| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox (ghi đè YAML)              | (lấy từ `tts_config.yaml`)          |
+| `--tts-config`         | File YAML cấu hình TTS (dùng cho `edge`, `voicevox`, `qwen`)           | `config/tts_config.yaml`            |
 | `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                           | (không dùng)                        |
 | `--note-overlay-ass`   | File ASS text cho note overlay                                         | (không dùng)                        |
 | `--render-config`      | File JSON cấu hình render (style, resolution, dải đen, watermark...)   | `assets/default_render_config.json` |

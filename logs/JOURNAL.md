@@ -1,5 +1,70 @@
 # Project Journal
 
+## 2026-05-06: Refactor CLI TTS — Dọn dẹp tham số và chuẩn hóa cấu hình YAML
+
+### Yêu cầu
+
+- Sau khi thêm Qwen3-TTS, CLI `sync_video` vẫn còn các tham số chuyên biệt của EdgeTTS (`--tts-rate`, `--tts-volume`, `--tts-pitch`) gây rác giao diện.
+- Cần chuẩn hóa toàn bộ provider (`edge`, `voicevox`, `qwen`) đều đọc cấu hình từ `config/tts_config.yaml`, chỉ giữ lại `--tts-voice` làm cờ ghi đè nhanh.
+
+### Thay đổi đã thực hiện
+
+1. **`cli/sync_video.py`**:
+   - Xóa 3 CLI argument: `--tts-rate`, `--tts-volume`, `--tts-pitch`.
+   - Đổi `--tts-voice` từ `default="vi-VN-HoaiMyNeural"` sang `default=None`.
+   - Refactor **PHASE 0**: Tất cả provider đều gọi `_load_tts_config(args.tts_config)` trước khi khởi tạo engine.
+     - `edge`: lấy `voice`, `rate`, `volume`, `pitch`, `strip_silence`, `concurrent`, `min_silence_len_ms` từ YAML. `--tts-voice` CLI ghi đè `voice`.
+     - `voicevox`: lấy `voice_id`, `concurrent_requests`, `speed_scale`, `pitch_scale`, `intonation_scale`, `volume_scale` từ YAML. `--tts-voice` CLI ghi đè `voice_id`.
+     - `qwen`: giữ nguyên logic lấy block `qwen` từ YAML.
+
+2. **`docs/colab-guide.md`**:
+   - Cập nhật bảng tham số `sync-video`: thêm `--tts-config`, cập nhật mô tả `--tts-voice` thành "ghi đè YAML".
+   - Thêm ví dụ "Chạy nhanh với Qwen3-TTS" trong section 2.11.
+
+### Trạng thái hiện tại
+
+- ✅ CLI đã tinh gọn, chỉ còn `--tts-provider`, `--tts-voice`, `--tts-config` cho nhóm TTS.
+- ✅ Cú pháp `python -m py_compile` pass.
+
+---
+
+## 2026-05-06: Tích hợp Qwen3-TTS vào pipeline `sync_video`
+
+### Yêu cầu
+
+- `cli/sync_video.py` hiện tại chỉ hỗ trợ 2 TTS provider (`edge`, `voicevox`), trong khi `cli/tts.py` đã hỗ trợ thêm `qwen`.
+- Cần đưa Qwen3-TTS vào luồng `sync_video` để có thể tạo video đồng bộ với giọng nói do Qwen3-TTS sinh ra, đồng thời tái sử dụng cơ chế cấu hình YAML (`config/tts_config.yaml`) thay vì nhồi tham số vào `render_config.json`.
+
+### Thay đổi đã thực hiện
+
+1. **`cli/sync_video.py`**:
+   - Thêm `import yaml` để đọc file cấu hình TTS.
+   - Thêm hàm `_load_tts_config(config_path: str) -> dict`: đọc file YAML cấu hình TTS, hỗ trợ đường dẫn tương đối/tuyệt đối, trả về dict rỗng nếu file không tồn tại.
+   - Cập nhật CLI argument `--tts-provider`: mở rộng `choices` thêm `"qwen"`.
+   - Thêm CLI argument `--tts-config` (mặc định: `config/tts_config.yaml`).
+   - Cập nhật **PHASE 0 (AUTO GENERATE TTS)**:
+     - Import thêm `QwenTTSEngine` từ `tts.qwen`.
+     - Khi `args.tts_provider == "qwen"`, gọi `_load_tts_config(args.tts_config)` để lấy block `qwen`, sau đó khởi tạo `QwenTTSEngine(queue_tts=queue_tts, **qwen_cfg)`.
+   - Cập nhật log in ra màn hình: phân biệt rõ `edge` (voice), `voicevox` (voice_id), và `qwen` (provider name).
+
+### Trạng thái hiện tại
+
+- ✅ `cli/sync_video.py` đã được chỉnh sửa và cú pháp pass (`python -m py_compile`).
+- ✅ Qwen3-TTS đã được tích hợp vào pipeline `sync_video` thông qua YAML config.
+
+### Outstanding / Pending
+
+1. Chạy end-to-end test với provider `qwen` trên môi trường có GPU để xác nhận:
+   - Model load và sinh audio hoạt động đúng.
+   - VRAM được giải phóng sạch sau Phase 0 (do `QwenTTSEngine` đã có `torch.cuda.empty_cache()` trong `finally`, nhưng cần kiểm chứng trên luồng dài).
+   - Audio clips được đặt đúng vị trí trên timeline và không gây drift.
+
+### Đối chiếu Data Flow
+
+- Thay đổi chỉ nằm ở Phase 0 (khởi tạo engine TTS). Các phase sau (Analysis, Video Processing, Audio Assembly, Render) không thay đổi logic, chỉ nhận đầu vào là các file `.wav` trong `tts_dir` như các provider khác.
+
+---
+
 ## 2026-05-05: Thêm tính năng Demucs BGM Synced Track vào pipeline sync_video
 
 ### Yêu cầu
