@@ -371,12 +371,48 @@ def run_sync_pipeline(args):
             shutil.rmtree(tmp_dir, ignore_errors=True)
             logger.info("Hoàn tất dọn dẹp thư mục tạm.")
 
+def worker_task(task_data: dict, base_args: argparse.Namespace):
+    """
+    Hàm này chạy trong một Process hoàn toàn độc lập.
+    Khi hàm này return (hoặc crash), OS sẽ dọn sạch 100% RAM và VRAM.
+    """
+    try:
+        import copy
+        from utils.task_utils import resolve_output_dir_and_stem
+        
+        args = copy.deepcopy(base_args)
+        
+        # Ghi đè các tham số từ JSON
+        args.video = task_data["input"]
+        if "subtitle" not in task_data:
+            raise ValueError("Task JSON thiếu 'subtitle'. Sync video bắt buộc phải có subtitle.")
+        args.subtitle = task_data["subtitle"]
+        
+        if "mute" in task_data:
+            args.mute = task_data["mute"]
+        if "note_overlay_ass" in task_data:
+            args.note_overlay_ass = task_data["note_overlay_ass"]
+            
+        out_dir, stem = resolve_output_dir_and_stem(task_data)
+        args.output_dir = str(out_dir)
+        args.output_name = stem
+        
+        # Chạy pipeline
+        run_sync_pipeline(args)
+        
+    except Exception as e:
+        logger.exception(f"❌ [Worker] Lỗi nghiêm trọng khi chạy video {task_data.get('input')}: {e}")
+        sys.exit(1)  # Báo cho OS biết process này fail
+
 def main():
     parser = argparse.ArgumentParser(description="TTS-Video Sync - Chunk-Based Stretch")
     
-    # Bắt buộc
-    parser.add_argument("--video", required=True, help="File video gốc (.mp4, .mkv)")
-    parser.add_argument("--subtitle", required=True, help="File subtitle.srt đầy đủ (kể cả vùng mute)")
+    # Task File integration
+    parser.add_argument("--task-file", type=str, help="Đường dẫn đến file JSON chứa danh sách task")
+    
+    # Bắt buộc (nếu không dùng --task-file)
+    parser.add_argument("--video", help="File video gốc (.mp4, .mkv)")
+    parser.add_argument("--subtitle", help="File subtitle.srt đầy đủ (kể cả vùng mute)")
     
     # TTS Settings
     parser.add_argument("--tts-provider", choices=["edge", "voicevox", "qwen"], default="edge", help="Chọn TTS engine (mặc định: edge)")
@@ -417,11 +453,47 @@ def main():
     
     setup_logging()
     
-    try:
-        run_sync_pipeline(args)
-    except Exception as e:
-        logger.exception("Đã xảy ra lỗi:")
-        sys.exit(1)
+    import multiprocessing as mp
+    from utils.task_utils import resolve_cli_tasks
+    
+    if getattr(args, "task_file", None):
+        # Resolve tasks
+        tasks = resolve_cli_tasks(
+            task_file=args.task_file,
+            input_file=None,
+            output_path=None,
+            default_ext=".mp4" # Sync video default output ext is mp4
+        )
+        
+        logger.info(f"Đã tải {len(tasks)} tasks từ JSON.")
+        
+        # Bắt buộc dùng 'spawn' cho CUDA
+        ctx = mp.get_context('spawn')
+        
+        for idx, task_data in enumerate(tasks):
+            logger.info("=============================================")
+            logger.info(f"▶ Đang xử lý Task {idx + 1}/{len(tasks)}")
+            logger.info("=============================================")
+            
+            p = ctx.Process(target=worker_task, args=(task_data, args))
+            p.start()
+            p.join()
+            
+            if p.exitcode == 0:
+                logger.info(f"✅ Task {idx + 1} hoàn tất.")
+            else:
+                logger.warning(f"⚠️ Task {idx + 1} thất bại (Exit code: {p.exitcode}). Bỏ qua và chạy task tiếp theo.")
+                
+    else:
+        # Fallback chạy đơn lẻ
+        if not args.video or not args.subtitle:
+            parser.error("Khi không dùng --task-file, phải cung cấp --video và --subtitle")
+            
+        try:
+            run_sync_pipeline(args)
+        except Exception as e:
+            logger.exception("Đã xảy ra lỗi:")
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()

@@ -469,23 +469,23 @@ gemini_key = userdata.get('gemini_key')
 
 #### Tham số
 
-| Tham số             | Mô tả                                                                                                                      | Mặc định                            |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `--input`, `-i`     | File .srt đầu vào                                                                                                          | (bắt buộc nếu không dùng task-file) |
-| `--task-file`, `-t` | File JSON chứa danh sách task (`{"input": "...", "output": "..."}`)                                                        | (không dùng)                        |
-| `--output`, `-o`    | File .srt đầu ra (chỉ dùng với `--input`)                                                                                  | `<input>_<lang>.srt`                |
-| `--provider`, `-p`  | Provider (gemini/openai/vertexai)                                                                                          | `gemini`                            |
-| `--provider-config` | Đường dẫn file config YAML                                                                                                 | (tuỳ provider)                      |
-| `--base-url`        | Override base URL cho OpenAI provider                                                                                      | `None`                              |
-| `--keys`, `-k`      | API key(s), phân cách bằng dấu phẩy                                                                                        | (bắt buộc gemini/openai)            |
-| `--lang`, `-l`      | Ngôn ngữ đích (tên tiếng Anh đầy đủ)                                                                                       | `Vietnamese`                        |
-| `--model`, `-m`     | Model Gemini (nếu dùng gemini provider)                                                                                    | `gemini-3-flash-preview`            |
-| `--prompt`          | Đường dẫn tới file prompt gemini.txt                                                                                       | `prompts/gemini.txt`                |
-| `--batch`, `-b`     | Số dòng dịch mỗi lần                                                                                                       | `30`                                |
-| `--budget`          | Thinking budget tokens (Gemini only)                                                                                       | `24576`                             |
-| `--wait`            | Giây chờ giữa mỗi batch                                                                                                    | `0`                                 |
-| `--no-context`      | Tắt global context - gộp toàn bộ text của file SRT gốc thành một đoạn "Read-Only Reference" và gửi kèm trong prompt cho AI | (mặc định bật)                      |
-| `--verbose`, `-v`   | Hiển thị log chi tiết                                                                                                      | (tắt)                               |
+| Tham số             | Mô tả                                                                                                                     | Mặc định                            |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `--input`, `-i`     | File .srt đầu vào                                                                                                         | (bắt buộc nếu không dùng task-file) |
+| `--task-file`, `-t` | File JSON chứa danh sách task (`{"input": "...", "output": "..."}`)                                                       | (không dùng)                        |
+| `--output`, `-o`    | File .srt đầu ra (chỉ dùng với `--input`)                                                                                 | `<input>_<lang>.srt`                |
+| `--provider`, `-p`  | Provider (gemini/openai/vertexai)                                                                                         | `gemini`                            |
+| `--provider-config` | Đường dẫn file config YAML                                                                                                | (tuỳ provider)                      |
+| `--base-url`        | Override base URL cho OpenAI provider                                                                                     | `None`                              |
+| `--keys`, `-k`      | API key(s), phân cách bằng dấu phẩy                                                                                       | (bắt buộc gemini/openai)            |
+| `--lang`, `-l`      | Ngôn ngữ đích (tên tiếng Anh đầy đủ)                                                                                      | `Vietnamese`                        |
+| `--model`, `-m`     | Model Gemini (nếu dùng gemini provider)                                                                                   | `gemini-3-flash-preview`            |
+| `--prompt`          | Đường dẫn tới file prompt gemini.txt                                                                                      | `prompts/gemini.txt`                |
+| `--batch`, `-b`     | Số dòng dịch mỗi lần                                                                                                      | `30`                                |
+| `--budget`          | Thinking budget tokens (Gemini only)                                                                                      | `24576`                             |
+| `--wait`            | Giây chờ giữa mỗi batch                                                                                                   | `0`                                 |
+| `--no-context`      | Tắt global context, gộp toàn bộ text của file SRT gốc thành một đoạn "Read-Only Reference" và gửi kèm trong prompt cho AI | (mặc định bật)                      |
+| `--verbose`, `-v`   | Hiển thị log chi tiết                                                                                                     | (tắt)                               |
 
 ---
 
@@ -1121,31 +1121,68 @@ Yêu cầu đã cài đặt `qwen-tts` và `transformers` (xem phần 2.6).
     --subtitle-max-chars 0
 ```
 
+#### Chạy hàng loạt nhiều video (Batch JSON)
+
+Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. Mỗi task chạy trong **Process riêng biệt** (dùng `multiprocessing` context `spawn`) để đảm bảo giải phóng VRAM hoàn toàn sau khi xử lý QwenTTS/Demucs.
+
+**Cấu trúc JSON:**
+
+```json
+[
+  {
+    "input": "/content/video1.mp4",
+    "subtitle": "/content/video1_translated.srt",
+    "mute": "/content/video1_mute.srt",
+    "note_overlay_ass": "/content/video1_note.ass",
+    "output": "/content/output/video1_synced.mp4"
+  }
+]
+```
+
+**Lệnh chạy:**
+
+```colab
+!uv run sync-video \
+    --task-file /content/tasks_batch.json \
+    --tts-provider qwen \
+    --tts-config /content/CharenjiZukan/config/tts_config.yaml \
+    --render-config /content/CharenjiZukan/assets/default_render_config.json \
+    --workers 4
+```
+
+**Lưu ý:**
+
+- Task JSON bắt buộc phải có `input` (video) và `subtitle`.
+- `mute`, `note_overlay_ass` là tùy chọn.
+- `output` phải là đường dẫn file `.mp4` đầy đủ (hệ thống tự tách `output_dir` và `output_name` từ đường dẫn này).
+- Mỗi video chạy trong Process riêng — khi process kết thúc, OS tự động giải phóng VRAM cho model (QwenTTS, Demucs) để task tiếp theo không bị OOM.
+
 #### Tham số
 
-| Tham số                | Mô tả                                                                  | Mặc định                            |
-| ---------------------- | ---------------------------------------------------------------------- | ----------------------------------- |
-| `--video`              | File video gốc (`.mp4`, `.mkv`)                                        | (bắt buộc)                          |
-| `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có)              | (bắt buộc)                          |
-| `--tts-provider`       | Provider TTS (`edge`, `voicevox`, `qwen`)                              | `edge`                              |
-| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox (ghi đè YAML)              | (lấy từ `tts_config.yaml`)          |
-| `--tts-config`         | File YAML cấu hình TTS (dùng cho `edge`, `voicevox`, `qwen`)           | `config/tts_config.yaml`            |
-| `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                           | (không dùng)                        |
-| `--note-overlay-ass`   | File ASS text cho note overlay                                         | (không dùng)                        |
-| `--render-config`      | File JSON cấu hình render (style, resolution, dải đen, watermark...)   | `assets/default_render_config.json` |
-| `--ambient`            | Nhạc nền ambient cho toàn bộ video                                     | `assets/ambient.mp3`                |
-| `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)                      | `0.5`                               |
-| `--use-demucs`         | Dùng Demucs tách lời (vocals) cho các đoạn quoted audio                | (tắt)                               |
-| `--demucs-bgm`         | Dùng Demucs tách BGM từ video gốc, giãn theo timeline và mix vào final | (tắt)                               |
-| `--output-dir`         | Thư mục output                                                         | `./sync_output/`                    |
-| `--output-name`        | Tên base cho tất cả file output                                        | `video_synced`                      |
-| `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap                      | (tắt)                               |
-| `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video                  | `4`                                 |
-| `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)               | `100`                               |
-| `--no-gpu`             | Dùng `libx264` thay `h264_nvenc` (CPU mode)                            | (tắt)                               |
-| `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                     | (tắt)                               |
-| `--note-max-chars`     | Số ký tự tối đa mỗi dòng khi wrap text ASS note                        | `15`                                |
-| `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                        | `0`                                 |
+| Tham số                | Mô tả                                                                  | Mặc định                                |
+| ---------------------- | ---------------------------------------------------------------------- | --------------------------------------- |
+| `--task-file`          | File JSON chứa danh sách tasks cho xử lý hàng loạt                     | (không dùng)                            |
+| `--video`              | File video gốc (`.mp4`, `.mkv`)                                        | (bắt buộc khi không dùng `--task-file`) |
+| `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có)              | (bắt buộc khi không dùng `--task-file`) |
+| `--tts-provider`       | Provider TTS (`edge`, `voicevox`, `qwen`)                              | `edge`                                  |
+| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox (ghi đè YAML)              | (lấy từ `tts_config.yaml`)              |
+| `--tts-config`         | File YAML cấu hình TTS (dùng cho `edge`, `voicevox`, `qwen`)           | `config/tts_config.yaml`                |
+| `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                           | (không dùng)                            |
+| `--note-overlay-ass`   | File ASS text cho note overlay                                         | (không dùng)                            |
+| `--render-config`      | File JSON cấu hình render (style, resolution, dải đen, watermark...)   | `assets/default_render_config.json`     |
+| `--ambient`            | Nhạc nền ambient cho toàn bộ video                                     | `assets/ambient.mp3`                    |
+| `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)                      | `0.5`                                   |
+| `--use-demucs`         | Dùng Demucs tách lời (vocals) cho các đoạn quoted audio                | (tắt)                                   |
+| `--demucs-bgm`         | Dùng Demucs tách BGM từ video gốc, giãn theo timeline và mix vào final | (tắt)                                   |
+| `--output-dir`         | Thư mục output                                                         | `./sync_output/`                        |
+| `--output-name`        | Tên base cho tất cả file output                                        | `video_synced`                          |
+| `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap                      | (tắt)                                   |
+| `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video                  | `4`                                     |
+| `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)               | `100`                                   |
+| `--no-gpu`             | Dùng `libx264` thay `h264_nvenc` (CPU mode)                            | (tắt)                                   |
+| `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                     | (tắt)                                   |
+| `--note-max-chars`     | Số ký tự tối đa mỗi dòng khi wrap text ASS note                        | `15`                                    |
+| `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                        | `0`                                     |
 
 > **Lưu ý về âm lượng (Volume):** Khi dùng `--demucs-bgm`, bạn có thể điều chỉnh âm lượng của BGM đã tách và ambient thông qua file `render-config`. Thêm block `audio_mix` vào JSON:
 >

@@ -1,5 +1,33 @@
 # Project Journal
 
+## 2026-05-08: Tích hợp task_utils và Multiprocessing vào cli/sync_video.py
+
+### Yêu cầu
+
+- Hỗ trợ truyền `--task-file` JSON cho `cli/sync_video.py` để xử lý hàng loạt video.
+- Tích hợp `utils/task_utils` để đồng bộ chuẩn hóa JSON với các CLI khác (`tts`, `qwen3_asr`, `whisper_srt`).
+- Xử lý vấn đề rò rỉ VRAM của PyTorch (QwenTTS, Demucs) khi chạy nhiều video liên tiếp bằng cách bọc hàm `run_sync_pipeline` trong `multiprocessing.Process` với context `spawn`.
+
+### Thay đổi đã thực hiện
+
+1. **`cli/sync_video.py`**:
+   - Thêm CLI argument `--task-file`.
+   - Sửa tham số `--video` và `--subtitle` thành không bắt buộc (chỉ bắt buộc khi chạy đơn lẻ không có `--task-file`).
+   - Thêm hàm `worker_task(task_data, base_args)`: chạy trong tiến trình độc lập, clone arguments, setup cấu hình output thông qua `resolve_output_dir_and_stem` của `task_utils`, và tự động báo lỗi `sys.exit(1)` khi exception.
+   - Thêm logic đọc JSON qua `resolve_cli_tasks` và gọi `worker_task` song song qua `mp.get_context('spawn').Process`.
+
+2. **`docs/colab-guide.md`**:
+   - Thêm section "Chạy hàng loạt nhiều video (Batch JSON)" trong mục 2.11.
+   - Cập nhật bảng tham số: thêm `--task-file`, sửa mô tả `--video`/`--subtitle` thành "bắt buộc khi không dùng `--task-file`".
+
+### Trạng thái hiện tại
+
+- ✅ Chức năng Batch Processing và Multiprocessing đã hoàn thiện.
+- ✅ Cú pháp `python -m py_compile` pass.
+- ✅ Giải quyết triệt để rủi ro OOM VRAM trên GPU do framework (PyTorch/CUDA) không nhả memory sau khi tắt model.
+
+---
+
 ## 2026-05-06: Refactor CLI TTS — Dọn dẹp tham số và chuẩn hóa cấu hình YAML
 
 ### Yêu cầu
