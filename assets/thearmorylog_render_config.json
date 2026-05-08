@@ -1,0 +1,29 @@
+{
+  "project_id": "TheArmoryLog",
+  "description": "Default render configuration for vertical video format",
+  "resolution": {
+    "bypass_scale": false,
+    "width": 1080,
+    "height": 1920
+  },
+  "watermark_img": {
+    "enabled": true,
+    "path": "/content/assets/TheArmoryLog20-watermark.png",
+    "x": "main_w-overlay_w",
+    "y": "main_h-overlay_h"
+  },
+  "watermark_text": {
+    "enabled": true,
+    "text": "@TheArmoryLog",
+    "font_path": "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
+    "fontsize": 46,
+    "color": "white",
+    "alpha": 0.7,
+    "x": "10",
+    "y": "h-th-10"
+  },
+  "audio_mix": {
+    "ambient_volume": 0.03,
+    "demucs_bgm_volume": 0.7
+  }
+}
