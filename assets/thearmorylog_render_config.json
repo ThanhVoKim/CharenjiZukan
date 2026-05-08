@@ -24,6 +24,6 @@
   },
   "audio_mix": {
     "ambient_volume": 0.03,
-    "demucs_bgm_volume": 0.7
+    "demucs_bgm_volume": 0.5
   }
 }

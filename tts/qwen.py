@@ -33,6 +33,8 @@ class QwenTTSEngine(BaseTTSEngine):
         dtype: str = "bfloat16",
         attn_implementation: str = "flash_attention_2",
         gen_kwargs: Dict[str, Any] = None,
+        pre_phoneme_length: float = 0.0,
+        post_phoneme_length: float = 0.0,
         **kwargs,
     ):
         super().__init__(queue_tts, **kwargs)
@@ -43,6 +45,8 @@ class QwenTTSEngine(BaseTTSEngine):
         self.device = device
         self.dtype = dtype
         self.attn_implementation = attn_implementation
+        self.pre_phoneme_length = pre_phoneme_length
+        self.post_phoneme_length = post_phoneme_length
         self.gen_kwargs = gen_kwargs or {
             "max_new_tokens": 2048,
             "do_sample": True,
@@ -78,7 +82,7 @@ class QwenTTSEngine(BaseTTSEngine):
             model = Qwen3TTSModel.from_pretrained(
                 self.model_path,
                 device_map=self.device,
-                dtype=torch.bfloat16,
+                dtype=torch_dtype,
                 attn_implementation=self.attn_implementation,
             )
 
@@ -130,6 +134,15 @@ class QwenTTSEngine(BaseTTSEngine):
                         wav_data_safe = wav_data.detach().cpu().numpy()
                     else:
                         wav_data_safe = np.copy(wav_data)
+
+                    # --- Thêm khoảng lặng (silence padding) ---
+                    if self.pre_phoneme_length > 0 or self.post_phoneme_length > 0:
+                        pre_samples = int(sr * self.pre_phoneme_length)
+                        post_samples = int(sr * self.post_phoneme_length)
+                        if wav_data_safe.ndim == 1:
+                            wav_data_safe = np.pad(wav_data_safe, (pre_samples, post_samples), mode='constant')
+                        elif wav_data_safe.ndim == 2:
+                            wav_data_safe = np.pad(wav_data_safe, ((pre_samples, post_samples), (0, 0)), mode='constant')
 
                     sf.write(wav_path, wav_data_safe, sr)
                     ok_count += 1
