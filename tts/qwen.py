@@ -78,7 +78,7 @@ class QwenTTSEngine(BaseTTSEngine):
             model = Qwen3TTSModel.from_pretrained(
                 self.model_path,
                 device_map=self.device,
-                dtype=torch_dtype,
+                dtype=torch.bfloat16,
                 attn_implementation=self.attn_implementation,
             )
 

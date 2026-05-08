@@ -193,7 +193,7 @@ def render_final_video(
 
     # 6. Subtitles (SRT)
     sub_cfg = render_config.get("subtitles", {})
-    if sub_cfg.get("enabled", True) and sub_cfg.get("burn_hardsub", True):
+    if sub_cfg.get("enabled", False) and sub_cfg.get("burn_hardsub", True):
         style_dict = sub_cfg.get("style", {})
         if style_dict:
             # Escape dấu phẩy trong style FFmpeg, r"\,Bold=1" -> "\,Bold=1"
