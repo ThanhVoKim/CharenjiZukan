@@ -18,7 +18,7 @@
     "font_path": "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
     "fontsize": 46,
     "color": "white",
-    "alpha": 0.7,
+    "alpha": 0.8,
     "x": "10",
     "y": "h-th-10"
   },
@@ -27,7 +27,13 @@
     "bgm_volume": 0.5
   },
   "audio_separator": {
-    "extract_bgm": true,
-    "extract_vocals": false
+    "extract_bgm": false,
+    "extract_vocals": false,
+    "mdxc_params": {
+      "segment_size": 512,
+      "overlap": 64,
+      "batch_size": 8,
+      "pitch_shift": 0
+    }
   }
 }
