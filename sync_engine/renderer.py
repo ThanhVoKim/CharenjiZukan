@@ -63,15 +63,19 @@ def render_final_video(
     # Path format for ffmpeg filters on Windows needs escaping or forward slashes
     subtitle_synced_srt_esc = subtitle_synced_srt.replace('\\', '/')
     
+    enc_cfg = render_config.get("video_encoding", {})
+    quality_override = enc_cfg.get("quality")
+    preset_override = enc_cfg.get("preset")
+    
     has_gpu, auto_encoder, auto_preset = detect_gpu_encoder()
     if use_gpu and has_gpu:
         encoder = auto_encoder
-        preset = auto_preset
-        quality = ["-cq", "23"]
+        preset = preset_override if preset_override else auto_preset
+        quality = quality_override if quality_override else ["-cq", "23"]
     else:
         encoder = "libx264"
-        preset = "fast"
-        quality = ["-crf", "23"]
+        preset = preset_override if preset_override else "fast"
+        quality = quality_override if quality_override else ["-crf", "23"]
 
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
 

@@ -27,7 +27,7 @@
     "bgm_volume": 0.5
   },
   "audio_separator": {
-    "extract_bgm": false,
+    "extract_bgm": true,
     "extract_vocals": false,
     "mdxc_params": {
       "segment_size": 512,
@@ -35,5 +35,12 @@
       "batch_size": 16,
       "pitch_shift": 0
     }
+  },
+  "video_encoding": {
+    "preset": "p5",
+    "quality": [
+      "-cq",
+      "23"
+    ]
   }
 }

@@ -63,5 +63,12 @@
       "batch_size": 16,
       "pitch_shift": 0
     }
+  },
+  "video_encoding": {
+    "preset": "p5",
+    "quality": [
+      "-cq",
+      "23"
+    ]
   }
 }

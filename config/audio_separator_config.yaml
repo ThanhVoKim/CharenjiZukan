@@ -4,8 +4,8 @@ bgm_extraction:
   mdxc_params:
     segment_size: 512
     override_model_segment_size: true
-    overlap: 32
-    batch_size: 4
+    overlap: 64
+    batch_size: 8
     pitch_shift: 0
 
 vocal_extraction:
@@ -15,6 +15,6 @@ vocal_extraction:
   mdxc_params:
     segment_size: 512
     override_model_segment_size: true
-    overlap: 32
-    batch_size: 4
+    overlap: 64
+    batch_size: 8
     pitch_shift: 0
