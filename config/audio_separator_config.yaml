@@ -1,0 +1,20 @@
+bgm_extraction:
+  model: "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
+  use_autocast: true
+  mdxc_params:
+    segment_size: 512
+    override_model_segment_size: true
+    overlap: 32
+    batch_size: 4
+    pitch_shift: 0
+
+vocal_extraction:
+  model: "vocals_mel_band_roformer.ckpt"
+  use_autocast: true
+  normalization_threshold: 0.9
+  mdxc_params:
+    segment_size: 512
+    override_model_segment_size: true
+    overlap: 32
+    batch_size: 4
+    pitch_shift: 0

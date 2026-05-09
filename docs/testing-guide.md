@@ -55,7 +55,7 @@ CharenjiZukan/
 │   │   └── test_media_utils.py
 │   ├── cli/                    ← Mirror: cli/*
 │   │   ├── test_media_speed.py
-│   │   ├── test_demucs_audio.py
+│   │   ├── test_audio_separator.py
 │   │   └── test_extractor_config.py
 │   ├── sync_engine/            ← Mirror: sync_engine/*
 │   │   ├── conftest.py         ← synthetic_video_path, timeline fixtures
@@ -95,21 +95,21 @@ CharenjiZukan/
 
 Dự án này chọn **Domain-Based** (`tests/<domain>/`) làm mặc định. Tuy nhiên, bạn cần hiểu rõ tiêu chí phân chia để không tạo ra cấu trúc rối khi thêm feature mới.
 
-| Tiêu chí            | Domain-Based (`tests/cli/`)                                                                                                      | Feature-Based (`tests/test_demucs/`)                                         |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| **Nguyên tắc**      | Mirror cấu trúc source code (`cli/`, `utils/`, `sync_engine/`)                                                                   | Mỗi feature/tool có thư mục riêng                                            |
-| **Khi nào dùng**    | Khi source code đã được tổ chức theo domain rõ ràng                                                                              | Khi feature phức tạp, span nhiều domain, hoặc có rất nhiều file test         |
-| **Ví dụ dự án này** | `tests/cli/` chứa test cho `cli/demucs_audio.py`, `cli/media_speed.py`, `cli/extractor_config.py` vì chúng cùng nằm trong `cli/` | Không áp dụng vì mỗi CLI tool chỉ có 1 file test, không đủ lớn để tách riêng |
-| **Ưu điểm**         | Tìm test nhanh: sửa `cli/media_speed.py` → vào `tests/cli/test_media_speed.py`                                                   | Tách biệt hoàn toàn, dễ chạy test 1 feature                                  |
-| **Nhược điểm**      | Nếu 1 domain có quá nhiều file test (20+) thì folder bị loãng                                                                    | Tạo quá nhiều folder nhỏ, khó biết feature nào thuộc domain nào              |
+| Tiêu chí            | Domain-Based (`tests/cli/`)                                                                                                         | Feature-Based (`tests/test_demucs/`)                                         |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| **Nguyên tắc**      | Mirror cấu trúc source code (`cli/`, `utils/`, `sync_engine/`)                                                                      | Mỗi feature/tool có thư mục riêng                                            |
+| **Khi nào dùng**    | Khi source code đã được tổ chức theo domain rõ ràng                                                                                 | Khi feature phức tạp, span nhiều domain, hoặc có rất nhiều file test         |
+| **Ví dụ dự án này** | `tests/cli/` chứa test cho `cli/audio_separator.py`, `cli/media_speed.py`, `cli/extractor_config.py` vì chúng cùng nằm trong `cli/` | Không áp dụng vì mỗi CLI tool chỉ có 1 file test, không đủ lớn để tách riêng |
+| **Ưu điểm**         | Tìm test nhanh: sửa `cli/media_speed.py` → vào `tests/cli/test_media_speed.py`                                                      | Tách biệt hoàn toàn, dễ chạy test 1 feature                                  |
+| **Nhược điểm**      | Nếu 1 domain có quá nhiều file test (20+) thì folder bị loãng                                                                       | Tạo quá nhiều folder nhỏ, khó biết feature nào thuộc domain nào              |
 
 **Quy tắc quyết định cho dự án này:**
 
 1. **Mặc định dùng Domain-Based** (`tests/<domain>/`) vì source code đã tổ chức theo domain (`cli/`, `utils/`, `sync_engine/`, `translation/`, `tts/`, `video_subtitle_extractor/`).
-2. **Chỉ tách Feature-Based** khi một feature có **>= 3 file test riêng biệt** hoặc cần fixtures phức tạp chỉ dùng cho feature đó. Ví dụ: nếu `demucs_audio.py` có cả unit test, integration test, benchmark test, và visual test → mới xem xét `tests/demucs/`.
-3. **Không bao giờ dùng cả hai cùng lúc** vì sẽ gây confusion: `tests/cli/test_demucs_audio.py` vs `tests/demucs/test_xxx.py` → developer không biết test mới thêm vào đâu.
+2. **Chỉ tách Feature-Based** khi một feature có **>= 3 file test riêng biệt** hoặc cần fixtures phức tạp chỉ dùng cho feature đó. Ví dụ: nếu `audio_separator.py` có cả unit test, integration test, benchmark test, và visual test → mới xem xét `tests/audio_separator/`.
+3. **Không bao giờ dùng cả hai cùng lúc** vì sẽ gây confusion: `tests/cli/test_audio_separator.py` vs `tests/audio_separator/test_xxx.py` → developer không biết test mới thêm vào đâu.
 
-> **Tóm lại:** Dự án này chọn `tests/cli/` vì tất cả CLI tools (demucs, media_speed, extractor_config, tts_srt, translate_srt...) đều nằm trong cùng 1 source folder `cli/`, và mỗi tool chỉ có 1 file test. Việc tách `tests/demucs/`, `tests/media_speed/`... sẽ tạo ra 10+ folder nhỏ với mỗi folder chỉ 1 file → rối hơn.
+> **Tóm lại:** Dự án này chọn `tests/cli/` vì tất cả CLI tools (audio_separator, media_speed, extractor_config, tts_srt, translate_srt...) đều nằm trong cùng 1 source folder `cli/`, và mỗi tool chỉ có 1 file test. Việc tách `tests/audio_separator/`, `tests/media_speed/`... sẽ tạo ra 10+ folder nhỏ với mỗi folder chỉ 1 file → rối hơn.
 
 ---
 
@@ -189,7 +189,7 @@ def sample_srt_file(tmp_path: Path) -> Path:
 
 ### 3.2 Feature xử lý audio (FFmpeg)
 
-**Ví dụ**: `mute_srt.py`, `extract_srt.py`, `demucs_audio.py`, `media_speed.py` (audio mode)
+**Ví dụ**: `mute_srt.py`, `extract_srt.py`, `audio_separator.py`, `media_speed.py` (audio mode)
 
 Các feature này cần FFmpeg trong PATH và có thể cần `pyrubberband`.
 
@@ -322,15 +322,15 @@ monkeypatch.setattr(extractor, "_infer", fake_infer)
 
 Mỗi entry trong `test_matrix.yaml` phải có ít nhất 1 tag. Dưới đây là toàn bộ tag hợp lệ và ý nghĩa của chúng:
 
-| Tag           | Ý nghĩa                                             | Phụ thuộc hardware     |
-| ------------- | --------------------------------------------------- | ---------------------- |
-| `unit`        | Test thuần logic, không I/O, không external process | Không có               |
-| `integration` | Test với file thật hoặc subprocess bên ngoài        | Python dependencies    |
-| `ffmpeg`      | Cần `ffmpeg` trong PATH                             | FFmpeg binary          |
-| `gpu`         | Cần CUDA GPU với VRAM theo `NATIVE_OCR_MIN_VRAM_GB` | CUDA GPU ≥ 8GB         |
-| `gpu_small`   | Cần CUDA GPU nhưng VRAM nhỏ hơn (< 4GB)             | CUDA GPU ≥ 4GB         |
-| `native_ocr`  | Liên quan đến Native Video OCR pipeline (Qwen3-VL)  | Tùy layer              |
-| `demucs`      | Liên quan đến Demucs audio separation               | GPU hoặc CPU ≥ 4 cores |
+| Tag               | Ý nghĩa                                              | Phụ thuộc hardware     |
+| ----------------- | ---------------------------------------------------- | ---------------------- |
+| `unit`            | Test thuần logic, không I/O, không external process  | Không có               |
+| `integration`     | Test với file thật hoặc subprocess bên ngoài         | Python dependencies    |
+| `ffmpeg`          | Cần `ffmpeg` trong PATH                              | FFmpeg binary          |
+| `gpu`             | Cần CUDA GPU với VRAM theo `NATIVE_OCR_MIN_VRAM_GB`  | CUDA GPU ≥ 8GB         |
+| `gpu_small`       | Cần CUDA GPU nhưng VRAM nhỏ hơn (< 4GB)              | CUDA GPU ≥ 4GB         |
+| `native_ocr`      | Liên quan đến Native Video OCR pipeline (Qwen3-VL)   | Tùy layer              |
+| `audio_separator` | Liên quan đến thư viện tách âm thanh audio-separator | GPU hoặc CPU ≥ 4 cores |
 
 **Quy tắc gán nhiều tag**: Một entry có thể và nên có nhiều tag khi phù hợp:
 

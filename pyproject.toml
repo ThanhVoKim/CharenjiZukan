@@ -9,7 +9,7 @@ dependencies = [
     "edge-tts>=6.1.0",
     "pydub>=0.25.0",
     "pyrubberband>=0.3.0",
-    "demucs",
+    "audio-separator[gpu]",
     "einops",
     "PyMuPDF",
     "addict>=2.4.0",
@@ -23,7 +23,7 @@ mute-srt = "cli.mute_srt:main"
 extract-srt = "cli.extract_srt:main"
 merge-srt = "cli.merge_srt:main"
 srt-to-ass = "cli.srt_to_ass:main"
-demucs-audio = "cli.demucs_audio:main"
+audio-separator = "cli.audio_separator:main"
 media-speed = "cli.media_speed:main"
 sync-video = "cli.sync_video:main"
 video-ocr = "cli.video_ocr:main"

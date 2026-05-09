@@ -43,7 +43,7 @@ def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_p
     
     subprocess.run(cmd, check=True, capture_output=True)
 
-def _prepare_bgm_chunk(index: int, seg: TimelineSegment, demucs_bgm_path: str, tmp_dir: str, sample_rate: int) -> Tuple[int, str]:
+def _prepare_bgm_chunk(index: int, seg: TimelineSegment, bgm_path: str, tmp_dir: str, sample_rate: int) -> Tuple[int, str]:
     """Tạo 1 chunk BGM đã được time-stretch theo video_speed và pad/trim đúng duration."""
     target_dur_s = seg.new_chunk_dur / 1000.0
     if target_dur_s <= 0:
@@ -72,7 +72,7 @@ def _prepare_bgm_chunk(index: int, seg: TimelineSegment, demucs_bgm_path: str, t
         "ffmpeg", "-y",
         "-ss", f"{start_s:.6f}",
         "-t", f"{orig_dur_s:.6f}",
-        "-i", demucs_bgm_path,
+        "-i", bgm_path,
         "-filter:a", filter_str,
         "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le",
         bgm_chunk
@@ -172,7 +172,7 @@ def _process_ambient_track(
     total_ms: float,
     output_path: str,
     sample_rate: int = 48000,
-    use_demucs: bool = False
+    use_vocal_extraction: bool = False
 ) -> bool:
     """
     Xử lý nhạc nền: loop, giảm âm lượng, và mute tại các đoạn quoted audio.
@@ -186,7 +186,7 @@ def _process_ambient_track(
     # Base volume: -25dB ~ 0.056
     base_vol = 0.03
     
-    if not mute_ranges or use_demucs:
+    if not mute_ranges or use_vocal_extraction:
         volume_expr = f"volume={base_vol}"
     else:
         # Xây dựng biểu thức: if(between(t, start1, end1) + between(t, start2, end2) + ..., 0, base_vol)
@@ -240,11 +240,12 @@ def assemble_audio_track(
     output_path: str,
     tmp_dir: str,
     sample_rate: int = 48000,
-    use_demucs: bool = False,
+    use_vocal_extraction: bool = False,
     tts_provider: str = "edge",
     video_duration_override: Optional[float] = None,
-    demucs_bgm_path: Optional[str] = None,
+    bgm_path: Optional[str] = None,
     audio_mix_config: Optional[dict] = None,
+    audio_separator_config: Optional[dict] = None,
 ) -> None:
     """
     Sử dụng FFmpeg để ghép (concat) audio tuần tự.
@@ -266,7 +267,7 @@ def assemble_audio_track(
     logger.info(f"Bắt đầu mix audio (Concat approach), tổng thời lượng: {total_ms/1000:.2f}s")
 
     # Cấu hình padding cho Demucs
-    pad_s = 3.5 if use_demucs else 0.0
+    pad_s = 1.0 if use_vocal_extraction else 0.0
     quoted_pad_info = {} # dict lưu {path: (actual_left_pad_s, duration_s, final_q, target_dur_s)}
     
     # Danh sách lưu đường dẫn các chunk đã được xử lý xong, theo đúng thứ tự timeline
@@ -290,12 +291,12 @@ def assemble_audio_track(
                     actual_left_pad = extract_quoted_audio(
                         video_path, seg.orig_start, seg.orig_end, tmp_q, pad_s=pad_s
                     )
-                    if use_demucs:
+                    if use_vocal_extraction:
                         duration_s = (seg.orig_end - seg.orig_start) / 1000.0
                         quoted_pad_info[tmp_q] = (actual_left_pad, duration_s, final_q, target_dur_s)
                 
                 # Nếu không dùng demucs, tạo final chunk luôn bằng atrim/apad
-                if not use_demucs and Path(tmp_q).exists():
+                if not use_vocal_extraction and Path(tmp_q).exists():
                     cmd = [
                         "ffmpeg", "-y", "-i", tmp_q,
                         "-filter:a", f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}",
@@ -337,28 +338,26 @@ def assemble_audio_track(
     ordered_chunk_paths = [path for _, path in results if path]
 
     # Xử lý riêng cho Demucs (chạy batch trên các tmp_q)
-    if use_demucs and quoted_pad_info:
+    if use_vocal_extraction and quoted_pad_info:
         raw_quoted_paths = list(quoted_pad_info.keys())
-        logger.info(f"Đang chạy Demucs trên {len(raw_quoted_paths)} đoạn quoted clips (batch, có padding {pad_s}s)...")
-        from cli.demucs_audio import separate_audio_batch
+        logger.info(f"Đang chạy audio-separator trên {len(raw_quoted_paths)} đoạn quoted clips (batch, có padding {pad_s}s)...")
+        from cli.audio_separator import separate_audio_batch
         
-        demucs_outputs = [str(Path(p).with_name(f"{Path(p).stem}_vocals.wav")) for p in raw_quoted_paths]
+        separator_outputs = [str(Path(p).with_name(f"{Path(p).stem}_vocals.wav")) for p in raw_quoted_paths]
         
         try:
             separate_audio_batch(
                 input_paths=raw_quoted_paths,
-                output_paths=demucs_outputs,
-                model="htdemucs",
-                keep="vocals",
-                device=None,
-                segment=7
+                output_paths=separator_outputs,
+                preset="vocal_extraction",
+                override_kwargs=audio_separator_config
             )
             
             # Cắt bỏ phần padding (trim) sau khi có kết quả Demucs, và apad/atrim chuẩn hóa
-            for raw_p, demucs_p in zip(raw_quoted_paths, demucs_outputs):
+            for raw_p, sep_p in zip(raw_quoted_paths, separator_outputs):
                 actual_left_pad, dur_s, final_q, target_dur_s = quoted_pad_info[raw_p]
                 
-                src_to_trim = demucs_p if Path(demucs_p).exists() else raw_p
+                src_to_trim = sep_p if Path(sep_p).exists() else raw_p
                 
                 trim_cmd = [
                     "ffmpeg", "-y",
@@ -368,9 +367,9 @@ def assemble_audio_track(
                     final_q
                 ]
                 subprocess.run(trim_cmd, check=True, capture_output=True)
-            logger.info("Hoàn tất tách lời và trim padding bằng Demucs.")
+            logger.info("Hoàn tất tách lời và trim padding bằng audio-separator.")
         except Exception as e:
-            logger.error(f"Lỗi khi chạy Demucs batch, fallback dùng audio có nhạc nền: {e}")
+            logger.error(f"Lỗi khi chạy audio-separator batch, fallback dùng audio có nhạc nền: {e}")
             for raw_p in raw_quoted_paths:
                 actual_left_pad, dur_s, final_q, target_dur_s = quoted_pad_info[raw_p]
                 trim_cmd = [
@@ -388,7 +387,7 @@ def assemble_audio_track(
     if ambient_path and Path(ambient_path).exists():
         logger.info("Đang xử lý nhạc nền (ambient)...")
         has_ambient = _process_ambient_track(
-            ambient_path, timeline, total_ms, ambient_processed_path, sample_rate, use_demucs
+            ambient_path, timeline, total_ms, ambient_processed_path, sample_rate, use_vocal_extraction
         )
 
     # 3. Concat tất cả các chunks
@@ -419,11 +418,11 @@ def assemble_audio_track(
     # 3.5. Xử lý Demucs BGM Track (synced theo timeline)
     synced_bgm_path = str(Path(tmp_dir) / "synced_bgm.wav")
     has_bgm = False
-    if demucs_bgm_path and Path(demucs_bgm_path).exists():
-        logger.info("Đang xử lý Demucs BGM track (synced theo timeline)...")
+    if bgm_path and Path(bgm_path).exists():
+        logger.info("Đang xử lý BGM track (synced theo timeline)...")
         bgm_results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(_prepare_bgm_chunk, i, seg, demucs_bgm_path, tmp_dir, sample_rate) for i, seg in enumerate(timeline)]
+            futures = [executor.submit(_prepare_bgm_chunk, i, seg, bgm_path, tmp_dir, sample_rate) for i, seg in enumerate(timeline)]
             for future in concurrent.futures.as_completed(futures):
                 bgm_results.append(future.result())
         bgm_results.sort(key=lambda x: x[0])
@@ -469,7 +468,7 @@ def assemble_audio_track(
         
         if has_bgm:
             inputs.append(synced_bgm_path)
-            bgm_vol = audio_mix_config.get("demucs_bgm_volume", 1.0) if audio_mix_config else 1.0
+            bgm_vol = audio_mix_config.get("bgm_volume", 1.0) if audio_mix_config else 1.0
             filter_parts.append(f"[{input_idx}:a]volume={bgm_vol}[a{input_idx}]")
             mix_labels.append(f"[a{input_idx}]")
             input_idx += 1

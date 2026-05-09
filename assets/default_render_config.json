@@ -52,6 +52,16 @@
   },
   "audio_mix": {
     "ambient_volume": 0.03,
-    "demucs_bgm_volume": 1.0
+    "bgm_volume": 1.0
+  },
+  "audio_separator": {
+    "extract_bgm": false,
+    "extract_vocals": false,
+    "mdxc_params": {
+      "segment_size": 512,
+      "overlap": 64,
+      "batch_size": 8,
+      "pitch_shift": 0
+    }
   }
 }

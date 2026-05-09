@@ -24,6 +24,10 @@
   },
   "audio_mix": {
     "ambient_volume": 0.03,
-    "demucs_bgm_volume": 0.5
+    "bgm_volume": 0.5
+  },
+  "audio_separator": {
+    "extract_bgm": true,
+    "extract_vocals": false
   }
 }

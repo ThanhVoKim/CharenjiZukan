@@ -705,118 +705,42 @@ qwen:
 
 ---
 
-### 2.7. Demucs Audio Separation (demucs-audio)
+### 2.7. Audio Separation (audio-separator)
 
-Tách voice/background từ audio sử dụng AI model Demucs.
+Tách voice/background từ audio sử dụng thư viện audio-separator với các mô hình ROFORMER.
 
 #### Tách background music (mặc định)
 
 ```colab
-!uv run demucs-audio --input /content/audio_muted.wav
+!uv run audio-separator --input /content/audio_muted.wav
 ```
 
 #### Tách vocals (giữ lại giọng nói)
 
 ```colab
-!uv run demucs-audio --input /content/audio.wav --keep vocals
+!uv run audio-separator --input /content/audio.wav --preset vocal_extraction
 ```
 
 #### Đầy đủ tham số
 
 ```colab
-!uv run demucs-audio \
+!uv run audio-separator \
     --input   /content/audio_muted.wav \
-    --output  /content/audio_bgm.wav \
-    --model   htdemucs \
-    --keep    bgm \
-    --bitrate 128k \
-    --device  cuda \
-    --segment 7 \
-    --verbose
-```
-
-#### Ví dụ nâng cao với `--keep`
-
-```colab
-# Chỉ lấy source "other" (index 2)
-!uv run demucs-audio --input audio.wav --keep 2 --output other.mp3
-
-# Lấy drums + bass (index 0,1)
-!uv run demucs-audio --input audio.wav --keep 0,1 --output drums_bass.m4a
-
-# Lấy drums + bass + other (index 0-2)
-!uv run demucs-audio --input audio.wav --keep 0-2 --output bgm.mp3
-
-# Lấy tất cả trừ vocals
-!uv run demucs-audio --input audio.wav --keep 0-2 --output no_vocals.mp3
+    --output-dir  /content \
+    --preset  bgm_extraction
 ```
 
 #### Tham số
 
-| Tham số           | Mô tả                                               | Mặc định          |
-| ----------------- | --------------------------------------------------- | ----------------- |
-| `--input`, `-i`   | File audio đầu vào                                  | (bắt buộc)        |
-| `--output`, `-o`  | File audio đầu ra (.wav, .mp3, .m4a, .aac)          | `<input>_bgm.wav` |
-| `--model`, `-m`   | Model Demucs: htdemucs, htdemucs_ft, mdx, mdx_extra | `htdemucs`        |
-| `--keep`, `-k`    | Sources giữ lại (xem bảng dưới)                     | `bgm`             |
-| `--bitrate`, `-b` | Bitrate cho MP3/M4A output                          | `192k`            |
-| `--device`, `-d`  | Device: cuda, cuda:0, cpu                           | auto-detect       |
-| `--segment`       | Độ dài chunk (giây) để xử lý                        | `7`               |
-| `--verbose`, `-v` | Hiển thị log chi tiết                               | (tắt)             |
-
-#### Tham số `--keep` (chọn sources)
-
-Demucs tách audio thành 4 sources với index:
-
-| Index | Source | Mô tả     |
-| ----- | ------ | --------- |
-| 0     | drums  | Trống     |
-| 1     | bass   | Bass      |
-| 2     | other  | Nhạc khác |
-| 3     | vocals | Giọng hát |
-
-**Cách sử dụng `--keep`:**
-
-```colab
-# Presets
---keep bgm      # drums + bass + other (mặc định)
---keep vocals   # chỉ giọng hát
---keep drums    # chỉ trống
---keep bass     # chỉ bass
---keep other    # chỉ nhạc khác
-
-# Index đơn lẻ
---keep 2        # chỉ other
---keep 3        # chỉ vocals
-
-# Nhiều index (phẩy)
---keep 0,2      # drums + other
---keep 1,2      # bass + other
-
-# Range index (gạch nối)
---keep 0-2      # drums + bass + other (tương đương bgm)
---keep 1-3      # bass + other + vocals
-```
-
-#### Output formats
-
-```colab
-# WAV (mặc định - chất lượng cao, file lớn)
---output bgm.wav
-
-# MP3 (nén, file nhỏ hơn)
---output bgm.mp3 --bitrate 128k
-
-# M4A/AAC (tốt cho video)
---output bgm.m4a --bitrate 192k
-```
+| Tham số              | Mô tả                                                 | Mặc định         |
+| -------------------- | ----------------------------------------------------- | ---------------- |
+| `--input`, `-i`      | File audio đầu vào                                    | (bắt buộc)       |
+| `--output-dir`, `-o` | Thư mục output đầu ra                                 | `.`              |
+| `--preset`, `-p`     | Preset cấu hình: `bgm_extraction`, `vocal_extraction` | `bgm_extraction` |
 
 #### Lưu ý quan trọng
 
-- Demucs yêu cầu audio **stereo (2 channels)** và **44.1kHz+** để có chất lượng tốt
-- Nếu input là mono, script sẽ tự động convert sang stereo
-- Nên dùng audio chất lượng cao thay vì audio 16kHz mono từ WhisperX
-- WAV có chất lượng cao nhất nhưng file lớn; MP3/M4A nhỏ hơn nhưng mất chất lượng
+- `audio-separator` nhận diện tự động và sẽ sử dụng GPU L4 để chạy ROFORMER nhanh nhất thông qua `use_autocast=true` được thiết lập trong yaml.
 
 ---
 
@@ -1109,8 +1033,6 @@ Yêu cầu đã cài đặt `qwen-tts` và `transformers` (xem phần 2.6).
     --render-config /content/CharenjiZukan/assets/default_render_config.json \
     --ambient /content/ambient.mp3 \
     --slow-cap 0.5 \
-    --use-demucs \
-    --demucs-bgm \
     --output-dir /content/output_sync \
     --output-name video_synced \
     --no-hardsub \
@@ -1155,41 +1077,39 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 - Task JSON bắt buộc phải có `input` (video) và `subtitle`.
 - `mute`, `note_overlay_ass` là tùy chọn.
 - `output` phải là đường dẫn file `.mp4` đầy đủ (hệ thống tự tách `output_dir` và `output_name` từ đường dẫn này).
-- Mỗi video chạy trong Process riêng — khi process kết thúc, OS tự động giải phóng VRAM cho model (QwenTTS, Demucs) để task tiếp theo không bị OOM.
+- Mỗi video chạy trong Process riêng — khi process kết thúc, OS tự động giải phóng VRAM cho model (QwenTTS, audio-separator) để task tiếp theo không bị OOM.
 
 #### Tham số
 
-| Tham số                | Mô tả                                                                  | Mặc định                                |
-| ---------------------- | ---------------------------------------------------------------------- | --------------------------------------- |
-| `--task-file`          | File JSON chứa danh sách tasks cho xử lý hàng loạt                     | (không dùng)                            |
-| `--video`              | File video gốc (`.mp4`, `.mkv`)                                        | (bắt buộc khi không dùng `--task-file`) |
-| `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có)              | (bắt buộc khi không dùng `--task-file`) |
-| `--tts-provider`       | Provider TTS (`edge`, `voicevox`, `qwen`)                              | `edge`                                  |
-| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox (ghi đè YAML)              | (lấy từ `tts_config.yaml`)              |
-| `--tts-config`         | File YAML cấu hình TTS (dùng cho `edge`, `voicevox`, `qwen`)           | `config/tts_config.yaml`                |
-| `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                           | (không dùng)                            |
-| `--note-overlay-ass`   | File ASS text cho note overlay                                         | (không dùng)                            |
-| `--render-config`      | File JSON cấu hình render (style, resolution, dải đen, watermark...)   | `assets/default_render_config.json`     |
-| `--ambient`            | Nhạc nền ambient cho toàn bộ video                                     | `assets/ambient.mp3`                    |
-| `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)                      | `0.5`                                   |
-| `--use-demucs`         | Dùng Demucs tách lời (vocals) cho các đoạn quoted audio                | (tắt)                                   |
-| `--demucs-bgm`         | Dùng Demucs tách BGM từ video gốc, giãn theo timeline và mix vào final | (tắt)                                   |
-| `--output-dir`         | Thư mục output                                                         | `./sync_output/`                        |
-| `--output-name`        | Tên base cho tất cả file output                                        | `video_synced`                          |
-| `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap                      | (tắt)                                   |
-| `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video                  | `4`                                     |
-| `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)               | `100`                                   |
-| `--no-gpu`             | Dùng `libx264` thay `h264_nvenc` (CPU mode)                            | (tắt)                                   |
-| `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                     | (tắt)                                   |
-| `--note-max-chars`     | Số ký tự tối đa mỗi dòng khi wrap text ASS note                        | `15`                                    |
-| `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                        | `0`                                     |
+| Tham số                | Mô tả                                                                | Mặc định                                |
+| ---------------------- | -------------------------------------------------------------------- | --------------------------------------- |
+| `--task-file`          | File JSON chứa danh sách tasks cho xử lý hàng loạt                   | (không dùng)                            |
+| `--video`              | File video gốc (`.mp4`, `.mkv`)                                      | (bắt buộc khi không dùng `--task-file`) |
+| `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có)            | (bắt buộc khi không dùng `--task-file`) |
+| `--tts-provider`       | Provider TTS (`edge`, `voicevox`, `qwen`)                            | `edge`                                  |
+| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox (ghi đè YAML)            | (lấy từ `tts_config.yaml`)              |
+| `--tts-config`         | File YAML cấu hình TTS (dùng cho `edge`, `voicevox`, `qwen`)         | `config/tts_config.yaml`                |
+| `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                         | (không dùng)                            |
+| `--note-overlay-ass`   | File ASS text cho note overlay                                       | (không dùng)                            |
+| `--render-config`      | File JSON cấu hình render (style, resolution, dải đen, watermark...) | `assets/default_render_config.json`     |
+| `--ambient`            | Nhạc nền ambient cho toàn bộ video                                   | `assets/ambient.mp3`                    |
+| `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)                    | `0.5`                                   |
+| `--output-dir`         | Thư mục output                                                       | `./sync_output/`                        |
+| `--output-name`        | Tên base cho tất cả file output                                      | `video_synced`                          |
+| `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap                    | (tắt)                                   |
+| `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video                | `4`                                     |
+| `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)             | `100`                                   |
+| `--no-gpu`             | Dùng `libx264` thay `h264_nvenc` (CPU mode)                          | (tắt)                                   |
+| `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                   | (tắt)                                   |
+| `--note-max-chars`     | Số ký tự tối đa mỗi dòng khi wrap text ASS note                      | `15`                                    |
+| `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                      | `0`                                     |
 
-> **Lưu ý về âm lượng (Volume):** Khi dùng `--demucs-bgm`, bạn có thể điều chỉnh âm lượng của BGM đã tách và ambient thông qua file `render-config`. Thêm block `audio_mix` vào JSON:
+> **Lưu ý về âm lượng (Volume):** Khi cấu hình tách BGM trong `render_config`, bạn có thể điều chỉnh âm lượng của BGM đã tách và ambient thông qua block `audio_mix`:
 >
 > ```json
 > "audio_mix": {
 >   "ambient_volume": 0.03,
->   "demucs_bgm_volume": 1.0
+>   "bgm_volume": 1.0
 > }
 > ```
 
