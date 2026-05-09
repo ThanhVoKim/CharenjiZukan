@@ -9,7 +9,6 @@ dependencies = [
     "edge-tts>=6.1.0",
     "pydub>=0.25.0",
     "pyrubberband>=0.3.0",
-    "audio-separator[gpu]",
     "einops",
     "PyMuPDF",
     "addict>=2.4.0",

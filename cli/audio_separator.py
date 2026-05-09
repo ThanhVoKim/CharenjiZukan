@@ -8,9 +8,9 @@ import logging
 import argparse
 import shutil
 from pathlib import Path
-from utils.logger import setup_logger
+from utils.logger import get_logger
 
-logger = setup_logger(__name__)
+logger = get_logger(__name__)
 
 def load_config(config_path="config/audio_separator_config.yaml"):
     try:
