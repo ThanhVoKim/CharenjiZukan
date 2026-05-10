@@ -20,7 +20,7 @@ def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_p
         base_filter = ""
     else:
         # EdgeTTS và các provider khác: áp dụng filter tăng âm lượng và limiter
-        base_filter = "volume=1.75,alimiter=limit=0.95:level_in=1:level_out=1"
+        base_filter = "volume=2,alimiter=limit=0.95:level_in=1:level_out=1"
     
     if audio_speed > 1.01:
         atempo_str = _build_atempo_filter(audio_speed)  # Reuse từ media_utils.py
