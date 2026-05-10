@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import List
 
-from utils.srt_parser import parse_srt, segments_to_srt, wrap_subtitle_text
+from utils.srt_parser import parse_srt, segments_to_srt, segments_to_txt, wrap_subtitle_text
 from translation.base import BaseTranslationProvider
 from translation.response_parser import parse_translation_response
 from translation.gemini_provider import GeminiProvider
@@ -192,6 +192,12 @@ def translate_srt_file(
     output_content = segments_to_srt(translated_srt)
     Path(output_file).parent.mkdir(parents=True, exist_ok=True)
     Path(output_file).write_text(output_content, encoding="utf-8")
+
+    # Ghi file .txt (text liên tục không ngắt dòng)
+    txt_output = str(Path(output_file).with_suffix('.txt'))
+    txt_content = segments_to_txt(translated_srt)
+    Path(txt_output).write_text(txt_content, encoding="utf-8")
+    logger.info(f"📄 Đã lưu text: {txt_output}")
 
     elapsed_total = time.time() - t_start
     stats = {

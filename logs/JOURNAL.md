@@ -1,5 +1,29 @@
 # Project Journal
 
+## 2026-05-10: Tự động xuất file .txt song song khi dịch SRT
+
+### Yêu cầu
+
+- Trong flow `cli/translate_srt.py`, khi output kết quả dịch (ví dụ `[ten]_en.srt`), cần xuất thêm một file text văn bản liên tục không ngắt dòng ngay tại thư mục output.
+- Người dùng nhớ đã có chức năng `srt_to_txt` trong `utils`, nhưng thực tế module này chưa tồn tại.
+
+### Thay đổi đã thực hiện
+
+1. **`utils/srt_parser.py`**:
+   - Thêm hàm `segments_to_txt(segments: List[Dict]) -> str`: nối toàn bộ text từ các segment SRT thành một chuỗi liên tục, thay thế dấu xuống dòng `\n` bằng khoảng trắng, loại bỏ segment rỗng.
+
+2. **`translation/translator.py`**:
+   - Cập nhật import để thêm `segments_to_txt` từ `utils.srt_parser`.
+   - Trong hàm `translate_srt_file`, sau khi ghi file `.srt` (dòng 193-194), tự động gọi `segments_to_txt` để sinh chuỗi text liên tục và ghi ra file `.txt` cùng tên (ví dụ `video_en.srt` → `video_en.txt`) trong cùng thư mục.
+
+### Trạng thái hiện tại
+
+- ✅ Hàm `segments_to_txt` đã được thêm vào `utils/srt_parser.py`.
+- ✅ `translate_srt_file` giờ đây tự động xuất cả `.srt` và `.txt` cho mỗi task dịch.
+- ✅ Tên file `.txt` được sinh bằng `Path(output_file).with_suffix('.txt')`, đảm bảo đồng bộ với tên file `.srt`.
+
+---
+
 ## 2026-05-09: Thay thế Demucs bằng Audio-Separator (ROFORMER models)
 
 ### Yêu cầu

@@ -1,3 +1,5 @@
+# Project Journal
+
 ---
 
 ## 2026-04-29: Bổ sung `--split-on-comma` và test case `test_no_protect_brackets`

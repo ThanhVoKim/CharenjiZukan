@@ -239,6 +239,34 @@ def segments_to_srt(segments: List[Dict], include_text: bool = True) -> str:
     return "\n".join(lines)
 
 
+def segments_to_txt(segments: List[Dict]) -> str:
+    """
+    Chuyển list of segments thành text liên tục không ngắt dòng.
+
+    Mỗi segment text được nối với nhau bằng khoảng trắng,
+    các dấu xuống dòng (\\n) trong text được thay thế bằng khoảng trắng.
+
+    Args:
+        segments: List of segment dicts (từ parse_srt)
+
+    Returns:
+        Chuỗi text liên tục
+
+    Example:
+        >>> segments = [{'text': 'Hello world'}, {'text': 'This is a test'}]
+        >>> segments_to_txt(segments)
+        'Hello world This is a test'
+    """
+    texts = []
+    for seg in segments:
+        text = seg.get('text', '')
+        if text:
+            text = text.replace('\n', ' ').strip()
+            if text:
+                texts.append(text)
+    return ' '.join(texts)
+
+
 if __name__ == "__main__":
     # Test với sample SRT
     sample = """1
