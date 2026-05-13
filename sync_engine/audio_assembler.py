@@ -19,8 +19,8 @@ def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_p
     if tts_provider.startswith("voicevox"):
         base_filter = ""
     else:
-        # EdgeTTS và các provider khác: áp dụng filter tăng âm lượng và limiter
-        base_filter = "volume=2,alimiter=limit=0.95:level_in=1:level_out=1"
+        # EdgeTTS và các provider khác: chuẩn hóa âm lượng theo chuẩn EBU R128
+        base_filter = "loudnorm=I=-14:TP=-1.5:LRA=11"
     
     if audio_speed > 1.01:
         atempo_str = _build_atempo_filter(audio_speed)  # Reuse từ media_utils.py
