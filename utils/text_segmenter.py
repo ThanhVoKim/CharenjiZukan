@@ -34,7 +34,7 @@ CLOSING_PUNCT = set("”’）》】")
 BRACKET_PAIRS = {"（": "）", "《": "》", "【": "】", "“": "”", "‘": "’"}
 
 # Dấu câu mặc định dùng để cắt ở Giai đoạn 1 (strong split, KHÔNG bao gồm dấu phẩy)
-DEFAULT_GRAMMAR_SPLIT_CHARS = set(".!?:;。！？：；")
+DEFAULT_GRAMMAR_SPLIT_CHARS = set(".!?:。！？：；")
 
 # Dấu câu mở rộng — bao gồm cả dấu phẩy (weak split)
 EXTENDED_GRAMMAR_SPLIT_CHARS = set(".,!?:;。，！？：；、")

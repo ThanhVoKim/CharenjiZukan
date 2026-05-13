@@ -34,5 +34,5 @@ qwen:
   device: "cuda:0"
   dtype: "bfloat16"
   attn_implementation: "flash_attention_2"
-  pre_phoneme_length: 0 # Thêm khoảng lặng 0 giây trước mỗi phoneme
+  pre_phoneme_length: 0.1 # Thêm khoảng lặng 0 giây trước mỗi phoneme
   post_phoneme_length: 0.1 # Thêm khoảng lặng 0.1 giây sau mỗi phoneme
