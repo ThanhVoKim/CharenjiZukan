@@ -1,23 +1,5 @@
 # Project Journal
 
-## 2026-05-13: Thay thế volume+alimiter bằng loudnorm (EBU R128) trong audio_assembler
-
-### Yêu cầu
-
-- Thay thế bộ lọc âm thanh thô `volume=2,alimiter=limit=0.95:level_in=1:level_out=1` trong hàm `compress_tts_clip` của `sync_engine/audio_assembler.py`.
-- Chuyển sang sử dụng bộ chuẩn hóa âm lượng chuyên nghiệp `loudnorm=I=-14:TP=-1.5:LRA=11` theo chuẩn EBU R128.
-
-### Thay đổi đã thực hiện
-
-1. **`sync_engine/audio_assembler.py`**:
-   - Sửa `base_filter` trong `compress_tts_clip` (dòng 23): thay `"volume=2,alimiter=limit=0.95:level_in=1:level_out=1"` bằng `"loudnorm=I=-14:TP=-1.5:LRA=11"`.
-   - Cập nhật comment giải thích: "EdgeTTS và các provider khác: chuẩn hóa âm lượng theo chuẩn EBU R128".
-
-### Trạng thái hiện tại
-
-- ✅ `sync_engine/audio_assembler.py` đã được cập nhật và sẵn sàng test.
-- ✅ Âm thanh TTS sẽ được chuẩn hóa về -14 LUFS, đảm bảo đồng đều giữa các provider (EdgeTTS, QwenTTS) và không bao giờ vượt ngưỡng True Peak -1.5 dB.
-
 ---
 
 ## 2026-05-10: Tự động xuất file .txt song song khi dịch SRT
