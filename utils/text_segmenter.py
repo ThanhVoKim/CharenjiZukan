@@ -42,10 +42,105 @@ EXTENDED_GRAMMAR_SPLIT_CHARS = set(".,!?:;。，！？：；、")
 # Dấu câu mạnh — dùng để tăng điểm khi chấm điểm cắt ở GĐ2
 STRONG_SPLIT_CHARS = set(".!?。！？")
 
+# Dấu phân cách số — không được coi là điểm cắt khi nằm giữa 2 chữ số
+NUMERIC_SEPARATOR_CHARS = set(".,，．")
+
+# Ký tự hậu tố đơn vị/tiền tệ/phần trăm thường dính trực tiếp sau số
+NUMERIC_UNIT_SUFFIX_CHARS = set("%％‰°℃℉¥$€£₩₫円元")
+
 
 def _block_text_len(block: List[Dict[str, Any]]) -> int:
     """Tổng số ký tự của một block."""
     return sum(len(t.get("text", "")) for t in block)
+
+
+def _get_char_before(tokens: List[Dict[str, Any]], token_idx: int, char_idx: int) -> str:
+    """Lấy ký tự ngay trước vị trí hiện tại trong chuỗi ghép từ tokens."""
+    for i in range(token_idx, -1, -1):
+        text = tokens[i].get("text", "")
+        start = char_idx - 1 if i == token_idx else len(text) - 1
+        for j in range(start, -1, -1):
+            return text[j]
+    return ""
+
+
+def _get_char_after(tokens: List[Dict[str, Any]], token_idx: int, char_idx: int) -> str:
+    """Lấy ký tự ngay sau vị trí hiện tại trong chuỗi ghép từ tokens."""
+    for i in range(token_idx, len(tokens)):
+        text = tokens[i].get("text", "")
+        start = char_idx + 1 if i == token_idx else 0
+        for j in range(start, len(text)):
+            return text[j]
+    return ""
+
+
+def _is_numeric_separator_at(
+    tokens: List[Dict[str, Any]],
+    token_idx: int,
+    char_idx: int,
+) -> bool:
+    """True nếu dấu chấm/phẩy tại vị trí đang xét là dấu phân cách trong số."""
+    text = tokens[token_idx].get("text", "")
+    if char_idx < 0 or char_idx >= len(text):
+        return False
+
+    char = text[char_idx]
+    if char not in NUMERIC_SEPARATOR_CHARS:
+        return False
+
+    prev_char = _get_char_before(tokens, token_idx, char_idx)
+    next_char = _get_char_after(tokens, token_idx, char_idx)
+    return prev_char.isdigit() and next_char.isdigit()
+
+
+def _is_numeric_unit_suffix_start(char: str) -> bool:
+    """True nếu ký tự có thể là phần đầu của hậu tố đơn vị/tiền tệ dính với số."""
+    return bool(char) and (char.isalpha() or char in NUMERIC_UNIT_SUFFIX_CHARS)
+
+
+def _is_numeric_split_boundary(block: List[Dict[str, Any]], idx: int) -> bool:
+    """True nếu cắt sau token idx sẽ tách rời số, dấu phân cách số hoặc đơn vị."""
+    if idx < 0 or idx + 1 >= len(block):
+        return False
+
+    left_text = block[idx].get("text", "")
+    right_text = block[idx + 1].get("text", "")
+    if not left_text or not right_text:
+        return False
+
+    left_char = left_text[-1]
+    right_char = right_text[0]
+    if left_char.isspace() or right_char.isspace():
+        return False
+
+    if left_char in NUMERIC_SEPARATOR_CHARS and right_char.isdigit():
+        prev_char = _get_char_before(block, idx, len(left_text) - 1)
+        return prev_char.isdigit()
+
+    if left_char.isdigit() and right_char in NUMERIC_SEPARATOR_CHARS:
+        next_after_separator = _get_char_after(block, idx + 1, 0)
+        return next_after_separator.isdigit()
+
+    if left_char.isdigit() and _is_numeric_unit_suffix_start(right_char):
+        return True
+
+    return False
+
+
+def _has_sentence_split_punct(
+    tokens: List[Dict[str, Any]],
+    token_idx: int,
+    split_chars: set,
+) -> bool:
+    """True nếu token có dấu câu thật dùng được làm điểm cắt câu."""
+    text = tokens[token_idx].get("text", "")
+    for char_idx, char in enumerate(text):
+        if char not in split_chars:
+            continue
+        if _is_numeric_separator_at(tokens, token_idx, char_idx):
+            continue
+        return True
+    return False
 
 
 def _split_by_grammar(
@@ -66,12 +161,12 @@ def _split_by_grammar(
     blocks: List[List[Dict[str, Any]]] = []
     current: List[Dict[str, Any]] = []
 
-    for token in tokens:
-        text = token.get("text", "")
+    for token_idx, token in enumerate(tokens):
         current.append(token)
 
-        # Cắt tại dấu câu (không quan tâm ngoặc bọc)
-        if any(c in text for c in split_chars):
+        # Cắt tại dấu câu thật (không quan tâm ngoặc bọc), nhưng bỏ qua
+        # dấu chấm/phẩy thuộc số như 1.2, 3,14, 1,000,000.
+        if _has_sentence_split_punct(tokens, token_idx, split_chars):
             blocks.append(current)
             current = []
 
@@ -100,14 +195,22 @@ def _score_split_point(
     token = block[idx]
     text = token.get("text", "")
 
-    # 2. Ưu tiên cắt sau khoảng trắng hoặc dấu câu mạnh
+    # 2. Ưu tiên cắt sau khoảng trắng hoặc dấu câu mạnh.
+    #    Nếu boundary đang nằm trong chuỗi số/đơn vị thì phạt nặng để
+    #    tránh chia 1.2, 12.5kg, 3,000円 thành nhiều block.
+    if _is_numeric_split_boundary(block, idx):
+        score -= 1000.0
+
+    last_char_idx = len(text) - 1
+    ends_with_numeric_separator = bool(text) and _is_numeric_separator_at(block, idx, last_char_idx)
+
     if text.endswith(" "):
         score += 8.0
     if text.endswith("\t"):
         score += 8.0
-    if any(text.endswith(c) for c in STRONG_SPLIT_CHARS):
+    if not ends_with_numeric_separator and any(text.endswith(c) for c in STRONG_SPLIT_CHARS):
         score += 12.0
-    if any(text.endswith(c) for c in set(",，、;；")):
+    if not ends_with_numeric_separator and any(text.endswith(c) for c in set(",，、;；")):
         score += 6.0
 
     # 3. Ưu tiên khoảng lặng âm thanh (nếu có timestamp)

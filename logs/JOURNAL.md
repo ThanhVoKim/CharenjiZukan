@@ -2,6 +2,35 @@
 
 ---
 
+## 2026-05-15: Bảo vệ định dạng số khi chia câu trong text_segmenter
+
+### Yêu cầu
+
+- Khắc phục lỗi chia câu nhầm tại dấu chấm/phẩy nằm trong số thập phân, số hàng nghìn, số kèm đơn vị/tiền tệ và phần trăm.
+- Các ví dụ cần bảo vệ: `1.2`, `3,14`, `1,000,000`, `12.5kg`, `3,000円`, `99.9%`.
+- Vẫn phải cắt bình thường tại dấu câu thật sau số, ví dụ `99.9%. Sau đó...`.
+
+### Thay đổi đã thực hiện
+
+1. **`utils/text_segmenter.py`**:
+   - Thêm helper nhận diện dấu phân cách số bằng ngữ cảnh ký tự liền trước/liền sau trong chuỗi ghép từ tokens.
+   - Cập nhật Giai đoạn 1 để bỏ qua dấu chấm/phẩy nằm giữa hai chữ số khi quyết định điểm cắt ngữ pháp.
+   - Cập nhật chấm điểm Giai đoạn 2 để phạt nặng boundary tách rời số, dấu phân cách số hoặc hậu tố đơn vị/tiền tệ/phần trăm dính trực tiếp với số.
+
+2. **`tests/utils/test_text_segmenter.py`**:
+   - Bổ sung unit tests cho số thập phân bằng dấu chấm và dấu phẩy.
+   - Bổ sung unit tests cho số hàng nghìn, số kèm đơn vị/tiền tệ, phần trăm và dấu câu thật sau số.
+   - Bổ sung test hồi quy cho Giai đoạn 2 để không ưu tiên cắt giữa `1.2kg`.
+
+### Trạng thái hiện tại
+
+- ✅ Logic chia câu đã phân biệt dấu câu thật với dấu phân cách số phổ biến.
+- ✅ Hành vi `split_on_comma=True` vẫn cắt dấu phẩy ngữ pháp nhưng không cắt dấu phẩy số.
+- ✅ `python -m pytest tests/utils/test_text_segmenter.py -k Layer1 -v` pass toàn bộ 26 tests trên môi trường hiện tại.
+- ✅ `python -m pytest tests/cli/test_qwen3_asr.py -k Layer1 -v` pass toàn bộ 19 tests, xác nhận caller ASR không bị phá.
+
+---
+
 ## 2026-05-10: Tự động xuất file .txt song song khi dịch SRT
 
 ### Yêu cầu

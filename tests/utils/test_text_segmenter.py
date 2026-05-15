@@ -129,6 +129,46 @@ class TestLayer1_TextSegmenterGrammar:
         assert len(blocks) == 1
         assert "".join(t["text"] for t in blocks[0]) == "（测试），继续。"
 
+    def test_decimal_dot_not_split_inside_number(self):
+        """Dấu chấm giữa 2 chữ số không phải điểm cắt câu."""
+        tokens = make_tokens(["Giá trị ", "1", ".", "2", " tiếp tục", ". ", "Xong"])
+        blocks = _split_by_grammar(tokens, split_on_comma=False)
+        assert len(blocks) == 2
+        assert "".join(t["text"] for t in blocks[0]) == "Giá trị 1.2 tiếp tục. "
+        assert "".join(t["text"] for t in blocks[1]) == "Xong"
+
+    def test_decimal_comma_not_split_when_comma_enabled(self):
+        """Dấu phẩy thập phân không cắt, nhưng dấu phẩy ngữ pháp vẫn cắt."""
+        tokens = make_tokens(["Pi là ", "3", ",", "14", ", ", "xong", "."])
+        blocks = _split_by_grammar(tokens, split_on_comma=True)
+        assert len(blocks) == 2
+        assert "".join(t["text"] for t in blocks[0]) == "Pi là 3,14, "
+        assert "".join(t["text"] for t in blocks[1]) == "xong."
+
+    def test_thousands_separator_not_split_when_comma_enabled(self):
+        """Dấu phẩy hàng nghìn giữa các chữ số không phải điểm cắt câu."""
+        tokens = make_tokens(["Có ", "1", ",", "000", ",", "000", " người", "."])
+        blocks = _split_by_grammar(tokens, split_on_comma=True)
+        assert len(blocks) == 1
+        assert "".join(t["text"] for t in blocks[0]) == "Có 1,000,000 người."
+
+    def test_number_unit_and_percent_keep_number_but_split_real_punctuation(self):
+        """Số kèm đơn vị/phần trăm không cắt ở phần số, vẫn cắt ở dấu câu thật."""
+        tokens = make_tokens(["Nặng ", "12", ".", "5", "kg", ", đạt ", "99", ".", "9", "%", ". ", "Hết"])
+        blocks = _split_by_grammar(tokens, split_on_comma=True)
+        assert len(blocks) == 3
+        assert "".join(t["text"] for t in blocks[0]) == "Nặng 12.5kg, đạt "
+        assert "".join(t["text"] for t in blocks[1]) == "99.9%. "
+        assert "".join(t["text"] for t in blocks[2]) == "Hết"
+
+    def test_thousands_number_with_currency_unit_and_cjk_period(self):
+        """Số hàng nghìn kèm đơn vị tiền tệ không bị cắt trước dấu câu thật."""
+        tokens = make_tokens(["予算", "3", ",", "000", "円", "です", "。", "次"])
+        blocks = _split_by_grammar(tokens, split_on_comma=True)
+        assert len(blocks) == 2
+        assert "".join(t["text"] for t in blocks[0]) == "予算3,000円です。"
+        assert "".join(t["text"] for t in blocks[1]) == "次"
+
 
 class TestLayer1_TextSegmenterMinMax:
     """Test Giai đoạn 2: Xử lý min/max."""
@@ -236,6 +276,14 @@ class TestLayer1_TextSegmenterMinMax:
         assert len(result) == 2
         assert "".join(t["text"] for t in result[0]) == "ABC"
         assert "".join(t["text"] for t in result[1]) == "DEF"
+
+    def test_split_long_block_avoids_decimal_unit_boundary(self):
+        """GĐ2 không ưu tiên cắt giữa số thập phân và đơn vị dính liền."""
+        tokens = make_tokens(["AAAA", "1", ".", "2", "kg", " ", "BBBBBBBB"])
+        result = smart_segment(tokens, min_chars=1, max_chars=10, ideal_chars=10)
+        texts = ["".join(t["text"] for t in block) for block in result]
+        assert texts[0] == "AAAA1.2kg "
+        assert "".join(texts) == "AAAA1.2kg BBBBBBBB"
 
     def test_empty_input(self):
         """Input rỗng trả về list rỗng."""

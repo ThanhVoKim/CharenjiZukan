@@ -5,6 +5,6 @@ temperature: 1
 max_tokens: 8192
 system_prompt: "You are a top-tier Subtitle Translation Engine."
 prompt_file: "prompts/gemini.txt"
-request_timeout: 180
+request_timeout: 300
 retry_attempts: 3
 retry_wait_seconds: 5
