@@ -1,7 +1,7 @@
 task_name: "seo_metadata"
 provider: "openai"
 provider_config: "config/llm/openai_compat.yaml"
-prompt_file: "prompts/llm_tasks/seo_metadata.txt"
+prompt_file: "prompts/llm_tasks/TheArmoryLog-metadata.txt"
 input_placeholder: "[Video Content]"
 default_ext: "_metadata.md"
 output_parser: "raw"
