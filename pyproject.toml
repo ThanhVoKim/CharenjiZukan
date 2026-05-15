@@ -13,10 +13,13 @@ dependencies = [
     "PyMuPDF",
     "addict>=2.4.0",
     "imagehash>=4.3.1",
+    "PyYAML>=6.0",
+    "tenacity>=8.0.0",
 ]
 
 [project.scripts]
 translate-srt = "cli.translate_srt:main"
+llm-task = "cli.llm_task:main"
 tts = "cli.tts:main"
 mute-srt = "cli.mute_srt:main"
 extract-srt = "cli.extract_srt:main"
@@ -31,7 +34,7 @@ whisper-srt = "cli.whisper_srt:main"
 qwen3-asr-srt = "cli.qwen3_asr:main"
 
 [tool.setuptools.packages.find]
-include = ["cli*", "utils*", "sync_engine*", "video_subtitle_extractor*", "translation*"]
+include = ["cli*", "utils*", "sync_engine*", "video_subtitle_extractor*", "translation*", "llm_ai*"]
 
 [project.optional-dependencies]
 openai-provider = [

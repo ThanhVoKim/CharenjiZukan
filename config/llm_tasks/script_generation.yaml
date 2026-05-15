@@ -1,0 +1,9 @@
+task_name: "script_generation"
+provider: "openai"
+provider_config: "config/llm/openai_compat.yaml"
+prompt_file: "prompts/llm_tasks/script_generation.txt"
+input_placeholder: "[Content Brief]"
+default_ext: "_script.md"
+output_parser: "raw"
+prompt_strict: true
+system_prompt: "You are a professional video script writer."

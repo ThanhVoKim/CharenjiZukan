@@ -294,6 +294,26 @@ tests:
     enabled: true
 
   # ──────────────────────────────────────────────
+  # GENERIC LLM TASK TESTS
+  # ──────────────────────────────────────────────
+
+  - name: "LLM AI — Layer 1: Generic Text Task Unit Tests"
+    file: "tests/llm_ai/test_generic_text_task.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "LLM AI — Layer 2: Generic Text Task Component"
+    file: "tests/llm_ai/test_generic_text_task.py"
+    keyword: "Layer2"
+    timeout_sec: 30
+    pytest_args: ["-v", "-s"]
+    tags: ["unit"]
+    enabled: true
+
+  # ──────────────────────────────────────────────
   # MULTI-PROVIDER TRANSLATE TESTS
   # ──────────────────────────────────────────────
 

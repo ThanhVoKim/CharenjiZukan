@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-translate_srt.py — CLI: Dịch file .srt bằng Gemini API
+translate_srt.py — CLI: Dịch file .srt bằng multi-provider LLM
 
-Dịch subtitle sang ngôn ngữ đích sử dụng Google Gemini API.
-Hỗ trợ batch processing và rotate API keys.
-
-Xem hướng dẫn chi tiết tại: docs/colab-usage.md
-
-Ví dụ nhanh:
-    uv run translate_srt.py --input video.srt --keys "AIza..."
-    uv run translate_srt.py --input video.srt --lang "Japanese" --keys "AIza..."
+Dịch subtitle sang ngôn ngữ đích sử dụng provider từ llm_ai.
+Hỗ trợ batch processing, full-context và task-file.
 """
 
-import sys
-import logging
 import argparse
+import logging
+import os
+import sys
 from pathlib import Path
+from typing import Any
 
 # ─────────────────────────────────────────────────────────────
 # Add project root to path for imports
@@ -24,10 +20,24 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from translation.translator import translate_srt_file  # noqa: E402
-from translation.factory import create_provider  # noqa: E402
+from llm_ai.factory import create_provider, load_provider_config  # noqa: E402
+from llm_ai.tasks.generic_text_task import load_task_config  # noqa: E402
+from translation.srt_translator import translate_srt_file  # noqa: E402
 from utils.logger import setup_logging, get_logger  # noqa: E402
 from utils.task_utils import resolve_cli_tasks  # noqa: E402
+
+DEFAULT_PROVIDER_CONFIGS = {
+    "gemini": "config/llm/gemini.yaml",
+    "openai": "config/llm/openai_compat.yaml",
+    "vertexai": "config/llm/vertexai.yaml",
+}
+
+
+def _resolve_project_path(path_value: str | None) -> Path | None:
+    if not path_value:
+        return None
+    path = Path(path_value)
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
 
 # ─────────────────────────────────────────────────────────────
@@ -36,25 +46,25 @@ from utils.task_utils import resolve_cli_tasks  # noqa: E402
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="translate_srt",
-        description="Dịch file .srt bằng Gemini API (pyvideotrans logic)",
+        description="Dịch file .srt bằng multi-provider LLM (llm_ai)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ví dụ nhanh:
   python translate_srt.py --input video.srt --keys "AIzaSy..."
 
 Ví dụ đầy đủ:
-  python translate_srt.py \\
-      --input   /content/video.srt         \\
-      --output  /content/video_vi.srt      \\
-      --lang    "Vietnamese"               \\
-      --keys    "AIza...k1,AIza...k2"      \\
-      --model   gemini-3-flash-preview           \\
-      --batch   30                         \\
+  python translate_srt.py \
+      --input   /content/video.srt         \
+      --output  /content/video_vi.srt      \
+      --lang    "Vietnamese"               \
+      --provider gemini                    \
+      --keys    "AIza...k1,AIza...k2"      \
+      --model   gemini-3-flash-preview     \
+      --batch   30                         \
       --budget  8192
         """,
     )
 
-    # Input / Output
     parser.add_argument(
         "--input", "-i",
         default=None,
@@ -68,19 +78,27 @@ Ví dụ đầy đủ:
         help="File JSON chứa danh sách [{'input': '...', 'output': '...'}]",
     )
 
-    # Provider Settings
     parser.add_argument(
         "--provider", "-p",
         default="gemini",
         choices=["gemini", "openai", "vertexai"],
         metavar="PROVIDER",
-        help="Translation provider (mặc định: gemini). Các lựa chọn: gemini | openai | vertexai",
+        help="LLM provider (mặc định: gemini). Các lựa chọn: gemini | openai | vertexai",
     )
     parser.add_argument(
         "--provider-config",
         default=None,
         metavar="FILE",
-        help="Đường dẫn tới file config YAML của provider. Mặc định: config/openai_compat_translate.yaml (openai) hoặc config/vertexai_translate.yaml (vertexai).",
+        help=(
+            "Đường dẫn tới provider YAML. Mặc định: "
+            "config/llm/gemini.yaml, config/llm/openai_compat.yaml hoặc config/llm/vertexai.yaml."
+        ),
+    )
+    parser.add_argument(
+        "--task-config",
+        default=str(PROJECT_ROOT / "config/llm_tasks/srt_translation.yaml"),
+        metavar="FILE",
+        help="Đường dẫn tới task YAML của SRT translation.",
     )
     parser.add_argument(
         "--base-url",
@@ -88,15 +106,16 @@ Ví dụ đầy đủ:
         metavar="URL",
         help="[openai provider only] Override base_url trong config YAML. Ví dụ: http://localhost:1234/v1",
     )
-
     parser.add_argument(
         "--keys", "-k",
         default=None,
         metavar="KEY[,KEY2,...]",
-        help="API key(s) (bắt buộc cho gemini và openai, nhiều key cách nhau dấu phẩy đối với gemini)",
+        help=(
+            "API key(s). Có thể bỏ qua nếu đã set GEMINI_API_KEY hoặc OPENAI_API_KEY. "
+            "Nhiều key cách nhau dấu phẩy đối với gemini."
+        ),
     )
 
-    # Tuỳ chọn
     parser.add_argument(
         "--output", "-o",
         default=None,
@@ -119,14 +138,14 @@ Ví dụ đầy đủ:
         "--prompt",
         default=None,
         metavar="FILE",
-        help="Đường dẫn tới gemini.txt (mặc định: gemini.txt cùng thư mục script)",
+        help="Đường dẫn prompt dịch SRT (mặc định lấy từ config/llm_tasks/srt_translation.yaml)",
     )
     parser.add_argument(
         "--batch", "-b",
         type=int,
         default=None,
         metavar="N",
-        help="Số SRT block mỗi batch (ưu tiên: CLI > config > mặc định 30)",
+        help="Số SRT block mỗi batch (ưu tiên: CLI > task config > mặc định 30)",
     )
     parser.add_argument(
         "--budget",
@@ -139,14 +158,14 @@ Ví dụ đầy đủ:
         "--context",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Bật/tắt full-context (ưu tiên: CLI > config > mặc định bật). Dùng --no-context để tắt.",
+        help="Bật/tắt full-context (ưu tiên: CLI > task config > mặc định bật). Dùng --no-context để tắt.",
     )
     parser.add_argument(
         "--wait",
         type=float,
         default=None,
         metavar="SEC",
-        help="Giây chờ giữa mỗi batch (ưu tiên: CLI > config > mặc định 0)",
+        help="Giây chờ giữa mỗi batch (ưu tiên: CLI > task config > mặc định 0)",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -169,6 +188,48 @@ def resolve_by_priority(cli_value, config: dict, config_keys: list[str], default
     return default_value
 
 
+def _resolve_provider_config_path(provider_type: str, config_path: str | None) -> Path | None:
+    raw_path = config_path or DEFAULT_PROVIDER_CONFIGS.get(provider_type)
+    return _resolve_project_path(raw_path)
+
+
+def _load_translation_task_config(config_path: str | None) -> dict[str, Any]:
+    resolved = _resolve_project_path(config_path)
+    if not resolved or not resolved.exists():
+        return {}
+    return load_task_config(str(resolved))
+
+
+def _build_secrets(provider_type: str, keys_arg: str | None) -> dict[str, Any]:
+    secrets: dict[str, Any] = {}
+
+    if provider_type == "gemini":
+        raw_keys = keys_arg or os.getenv("GEMINI_API_KEY", "")
+        api_keys = [key.strip() for key in raw_keys.split(",") if key.strip()]
+        if not api_keys:
+            raise ValueError("--keys hoặc GEMINI_API_KEY là bắt buộc đối với provider gemini")
+        secrets["api_keys"] = api_keys
+    elif provider_type == "openai":
+        api_key = keys_arg or os.getenv("OPENAI_API_KEY", "")
+        if not api_key:
+            raise ValueError("--keys hoặc OPENAI_API_KEY là bắt buộc đối với provider openai")
+        secrets["api_key"] = api_key.strip()
+
+    return secrets
+
+
+def _load_provider_config(provider_type: str, config_path: str | None, logger: logging.Logger) -> dict[str, Any]:
+    resolved_config_path = _resolve_provider_config_path(provider_type, config_path)
+    if not resolved_config_path:
+        return {}
+
+    try:
+        return load_provider_config(str(resolved_config_path))
+    except Exception as exc:
+        logger.warning(f"Không thể tải config {resolved_config_path}: {exc}")
+        return {}
+
+
 # ─────────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────────
@@ -176,12 +237,12 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
 
-    # Logging
     log_level = logging.DEBUG if args.verbose else logging.INFO
     setup_logging(level=log_level)
     logger = get_logger(__name__)
 
-    # Resolve tasks
+    task_config = _load_translation_task_config(args.task_config)
+
     lang_slug = args.lang.lower().replace(" ", "_")
     try:
         tasks = resolve_cli_tasks(
@@ -190,60 +251,42 @@ def main():
             output_path=args.output,
             default_ext=f"_{lang_slug}.srt",
         )
-    except ValueError as e:
-        parser.error(str(e))
+    except ValueError as exc:
+        parser.error(str(exc))
 
-    # Validate all inputs are .srt
     for task in tasks:
         inp = Path(task["input"])
         if inp.suffix.lower() != ".srt":
             parser.error(f"File phải có đuôi .srt: {task['input']}")
 
-    # Resolve prompt file (shared)
     if args.prompt:
-        prompt_file = args.prompt
-        if not Path(prompt_file).exists():
-            parser.error(f"Prompt file không tồn tại: {prompt_file}")
+        prompt_path = _resolve_project_path(args.prompt)
     else:
-        prompt_file = str(PROJECT_ROOT / "prompts" / "gemini.txt")
-        if not Path(prompt_file).exists():
-            parser.error(
-                f"Không tìm thấy gemini.txt tại: {prompt_file}\n"
-                "Hãy đặt gemini.txt trong thư mục prompts/ "
-                "hoặc dùng --prompt <đường_dẫn>"
-            )
+        prompt_path = _resolve_project_path(
+            task_config.get("prompt_file") or "prompts/translation/srt_translate.txt"
+        )
 
-    # Parse Provider Config & Keys (shared)
+    if not prompt_path or not prompt_path.exists():
+        parser.error(
+            f"Prompt file không tồn tại: {prompt_path}. "
+            "Hãy dùng --prompt <đường_dẫn> hoặc cập nhật task config."
+        )
+    prompt_file = str(prompt_path)
+
     provider_type = args.provider
-    config_path = args.provider_config
-    base_url = args.base_url
+    try:
+        secrets = _build_secrets(provider_type, args.keys)
+    except ValueError as exc:
+        parser.error(str(exc))
 
-    secrets = {}
-    if provider_type in ["gemini", "openai"]:
-        if not args.keys:
-            parser.error(f"--keys là bắt buộc đối với provider {provider_type}")
-        if provider_type == "gemini":
-            secrets["api_keys"] = [k.strip() for k in args.keys.split(",") if k.strip()]
-            if not secrets["api_keys"]:
-                parser.error("Không có API key hợp lệ nào cho Gemini")
-        else:
-            secrets["api_key"] = args.keys.strip()
+    provider_config = _load_provider_config(provider_type, args.provider_config, logger)
 
-    provider_config = {}
-    if provider_type == "openai":
-        config_path = config_path or str(PROJECT_ROOT / "config/openai_compat_translate.yaml")
-    elif provider_type == "vertexai":
-        config_path = config_path or str(PROJECT_ROOT / "config/vertexai_translate.yaml")
+    if args.base_url and provider_type == "openai":
+        provider_config["base_url"] = args.base_url
 
-    if config_path:
-        from translation.factory import load_provider_config
-        try:
-            provider_config = load_provider_config(config_path)
-        except Exception as e:
-            logger.warning(f"Không thể tải config {config_path}: {e}")
-
-    if base_url and provider_type == "openai":
-        provider_config["base_url"] = base_url
+    task_system_prompt = task_config.get("system_prompt")
+    if task_system_prompt:
+        provider_config["system_prompt"] = task_system_prompt
 
     default_model_by_provider = {
         "gemini": "gemini-3-flash-preview",
@@ -266,25 +309,24 @@ def main():
             24576,
         )
 
-    batch_size = resolve_by_priority(args.batch, provider_config, ["batch", "batch_size"], 30)
-    wait_sec = resolve_by_priority(args.wait, provider_config, ["wait", "wait_sec"], 0.0)
+    batch_size = resolve_by_priority(args.batch, task_config, ["batch", "batch_size"], 30)
+    wait_sec = resolve_by_priority(args.wait, task_config, ["wait", "wait_sec"], 0.0)
     use_full_context = resolve_by_priority(
         args.context,
-        provider_config,
+        task_config,
         ["use_full_context", "full_context"],
         True,
     )
 
     provider = create_provider(provider_type, provider_config, secrets)
 
-    # Process each task
     ok_tasks = 0
     for task in tasks:
         input_file = task["input"]
         output_file = task["output"]
 
         print("=" * 55)
-        print("  🎬  SRT Translator — Multi-Provider")
+        print("  🎬  SRT Translator — llm_ai Multi-Provider")
         print("=" * 55)
         print(f"  Input    : {input_file}")
         print(f"  Output   : {output_file}")
@@ -296,22 +338,22 @@ def main():
 
         try:
             translate_srt_file(
-                input_file      = input_file,
-                output_file     = output_file,
-                prompt_file     = prompt_file,
-                provider        = provider,
-                target_language = args.lang,
-                batch_size      = batch_size,
-                use_full_context= use_full_context,
-                wait_sec        = wait_sec,
+                input_file=input_file,
+                output_file=output_file,
+                prompt_file=prompt_file,
+                provider=provider,
+                target_language=args.lang,
+                batch_size=batch_size,
+                use_full_context=use_full_context,
+                wait_sec=wait_sec,
             )
             ok_tasks += 1
         except KeyboardInterrupt:
             print("\n⚠️  Đã dừng bởi người dùng")
             sys.exit(1)
-        except Exception as e:
-            print(f"\n❌ Lỗi nghiêm trọng khi xử lý {input_file}: {e}")
-            logging.exception(e)
+        except Exception as exc:
+            print(f"\n❌ Lỗi nghiêm trọng khi xử lý {input_file}: {exc}")
+            logging.exception(exc)
 
     print(f"\n{'='*55}")
     print(f"  Tổng kết: {ok_tasks}/{len(tasks)} task thành công")

@@ -2,6 +2,60 @@
 
 ---
 
+## 2026-05-15: Refactor LLM provider sang llm_ai và thêm generic LLM task
+
+### Yêu cầu
+
+- Tách toàn bộ hạ tầng gọi LLM khỏi flow dịch phụ đề để có thể tái sử dụng cho metadata, script, summary và các tác vụ generative khác.
+- Chuẩn hóa package mới là `llm_ai` thay vì đặt provider trong `translation`.
+- Tạo flow generic cho SEO metadata: input raw text, thay vào prompt TheArmoryLog tại placeholder `[Video Content]`, output markdown.
+- Giữ tương thích tạm thời với import cũ trong `translation/*` để không phá CLI/test hiện tại.
+
+### Thay đổi đã thực hiện
+
+1. **Tầng LLM dùng chung `llm_ai/`**:
+   - Tạo `llm_ai/base.py`, `llm_ai/factory.py`, `llm_ai/providers/openai.py`, `llm_ai/providers/gemini.py`, `llm_ai/providers/vertexai.py`.
+   - `BaseLLMProvider` là interface mới, giữ alias `BaseTranslationProvider` để tương thích.
+   - Factory mới hỗ trợ `gemini`, `openai`, `vertexai` và lazy import `PyYAML` khi thật sự load config.
+
+2. **Tầng generic task `llm_ai/tasks/`**:
+   - Tạo runner `generic_text_task.py` cho flow text-in/text-out.
+   - Tách helper `prompt_template.py`, `output_writer.py`, `response_parser.py`.
+   - Hỗ trợ parser `raw`, `tag`, `json` để task mới có thể chủ yếu thêm YAML + prompt mà không cần code mới.
+
+3. **Tách workflow dịch SRT**:
+   - Tạo `translation/srt_translator.py`, `translation/batching.py`, `translation/prompting.py`, giữ `translation/response_parser.py` như wrapper tag `<TRANSLATE_TEXT>`.
+   - `translation/translator.py`, `translation/base.py`, `translation/factory.py`, các provider cũ trở thành compatibility wrappers.
+
+4. **Config và prompt mới**:
+   - Provider config chuyển sang `config/llm/openai_compat.yaml`, `config/llm/vertexai.yaml`, `config/llm/gemini.yaml`.
+   - Task config nằm trong `config/llm_tasks/seo_metadata.yaml`, `script_generation.yaml`, `summary.yaml`, `srt_translation.yaml`.
+   - Prompt được tách sang `prompts/llm_tasks/seo_metadata.txt`, `script_generation.txt`, `summary.txt`, và `prompts/translation/srt_translate.txt`.
+
+5. **CLI và packaging**:
+   - Thêm `cli/llm_task.py` và entrypoint `llm-task` trong `pyproject.toml`.
+   - Cập nhật `cli/translate_srt.py` dùng provider từ `llm_ai` và prompt/config translation mới.
+   - Cập nhật package include thêm `llm_ai*`, dependency thêm `PyYAML` và `tenacity`.
+
+6. **Tests & docs**:
+   - Thêm `tests/llm_ai/test_generic_text_task.py` theo domain-based test structure.
+   - Cập nhật `tests/test_matrix.yaml` với Layer 1/2 cho generic LLM task.
+   - Cập nhật `docs/colab-guide.md` cho đường dẫn config/prompt mới và ví dụ `llm-task` tạo SEO metadata.
+
+### Trạng thái hiện tại
+
+- ✅ `python -m py_compile ...` pass cho các module `llm_ai`, `translation` và CLI mới.
+- ✅ `python -m pytest tests/llm_ai/test_generic_text_task.py -v` pass 6/6 tests.
+- ✅ `python -m pytest tests/translation/test_translation_providers.py -k "Layer1 or Layer2" -v` pass phần không phụ thuộc dependency ngoài; các provider/config tests skip hợp lệ khi môi trường chưa cài `PyYAML`, `google-genai`, `openai`, `tenacity`.
+- ✅ Flow SEO metadata hiện chạy qua `llm-task` bằng `config/llm_tasks/seo_metadata.yaml` + `prompts/llm_tasks/seo_metadata.txt`.
+
+### Outstanding / Pending
+
+- Các file legacy `config/openai_compat_translate.yaml`, `config/vertexai_translate.yaml`, `prompts/gemini.txt`, `prompts/TheArmoryLog-metadata.txt` vẫn được giữ lại để tránh phá workflow cũ; có thể dọn sau khi xác nhận toàn bộ notebook/docs đã chuyển sang cấu trúc mới.
+- Layer 4 real API tests vẫn phụ thuộc API key/ADC thật trên môi trường người dùng.
+
+---
+
 ## 2026-05-15: Bảo vệ định dạng số khi chia câu trong text_segmenter
 
 ### Yêu cầu

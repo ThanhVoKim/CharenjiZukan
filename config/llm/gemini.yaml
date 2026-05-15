@@ -1,0 +1,13 @@
+# Provider config chung cho Gemini API key mode
+provider: "gemini"
+model: "gemini-3-flash-preview"
+temperature: 1
+max_output_tokens: 65530
+thinking_budget: 24576
+retry_attempts: 3
+retry_wait_seconds: 5
+safety_settings:
+  HARM_CATEGORY_HATE_SPEECH: "BLOCK_NONE"
+  HARM_CATEGORY_HARASSMENT: "BLOCK_NONE"
+  HARM_CATEGORY_SEXUALLY_EXPLICIT: "BLOCK_NONE"
+  HARM_CATEGORY_DANGEROUS_CONTENT: "BLOCK_NONE"

@@ -22,7 +22,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 # ── Project root ─────────────────────────────────────────────────────
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from translation.base import BaseTranslationProvider
@@ -592,7 +592,7 @@ class TestLayer4_RealAPIs:
         pytest.importorskip("openai")
 
         api_key = os.getenv("OPENAI_API_KEY")
-        config_path = PROJECT_ROOT / "config" / "openai_compat_translate.yaml"
+        config_path = PROJECT_ROOT / "config" / "llm" / "openai_compat.yaml"
         
         if not config_path.exists():
             pytest.skip(f"Không tìm thấy file config thật tại {config_path}")
@@ -626,7 +626,7 @@ class TestLayer4_RealAPIs:
         """Test gửi request thực tế đến Vertex AI lấy cấu hình từ thư mục config/."""
         pytest.importorskip("google.genai")
 
-        config_path = PROJECT_ROOT / "config" / "vertexai_translate.yaml"
+        config_path = PROJECT_ROOT / "config" / "llm" / "vertexai.yaml"
         if not config_path.exists():
             skip_msg = f"Không tìm thấy file config thật tại {config_path}"
             print(f"\n[SKIPPED Vertex AI] Lý do: {skip_msg}")

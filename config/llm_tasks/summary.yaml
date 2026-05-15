@@ -1,0 +1,9 @@
+task_name: "summary"
+provider: "openai"
+provider_config: "config/llm/openai_compat.yaml"
+prompt_file: "prompts/llm_tasks/summary.txt"
+input_placeholder: "[Content]"
+default_ext: "_summary.md"
+output_parser: "raw"
+prompt_strict: true
+system_prompt: "You are a concise content summarization assistant."

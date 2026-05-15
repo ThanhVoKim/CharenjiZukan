@@ -1,0 +1,9 @@
+task_name: "seo_metadata"
+provider: "openai"
+provider_config: "config/llm/openai_compat.yaml"
+prompt_file: "prompts/llm_tasks/seo_metadata.txt"
+input_placeholder: "[Video Content]"
+default_ext: "_metadata.md"
+output_parser: "raw"
+prompt_strict: true
+system_prompt: "You are an expert YouTube SEO metadata strategist."

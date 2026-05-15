@@ -1,0 +1,10 @@
+task_name: "srt_translation"
+system_prompt: "You are a top-tier Subtitle Translation Engine."
+prompt_file: "prompts/translation/srt_translate.txt"
+target_language: "Vietnamese"
+batch_size: 30
+use_full_context: true
+wait_sec: 0
+response_parser:
+  type: "tag"
+  tag: "TRANSLATE_TEXT"

@@ -415,7 +415,7 @@ gemini_key = userdata.get('gemini_key')
 !uv run translate-srt \
     --input /content/video.srt \
     --provider openai \
-    --provider-config config/openai_compat_translate.yaml \
+    --provider-config config/llm/openai_compat.yaml \
     --keys "sk-deepseek-xxx" \
     --lang "Japanese"
 ```
@@ -426,7 +426,7 @@ gemini_key = userdata.get('gemini_key')
 !uv run translate-srt \
     --input /content/video.srt \
     --provider vertexai \
-    --provider-config config/vertexai_translate.yaml \
+    --provider-config config/llm/vertexai.yaml \
     --lang "Japanese"
 ```
 
@@ -456,10 +456,12 @@ gemini_key = userdata.get('gemini_key')
     --input     /content/video.srt \
     --output    /content/video_ja.srt \
     --provider  gemini \
+    --provider-config config/llm/gemini.yaml \
+    --task-config config/llm_tasks/srt_translation.yaml \
     --lang      "Japanese" \
     --keys      "{gemini_key}" \
     --model     "gemini-3-flash-preview" \
-    --prompt    /content/prompts/gemini.txt \
+    --prompt    /content/prompts/translation/srt_translate.txt \
     --batch     30 \
     --budget    24576 \
     --wait      0.5 \
@@ -469,23 +471,63 @@ gemini_key = userdata.get('gemini_key')
 
 #### Tham số
 
-| Tham số             | Mô tả                                                                                                                     | Mặc định                            |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `--input`, `-i`     | File .srt đầu vào                                                                                                         | (bắt buộc nếu không dùng task-file) |
-| `--task-file`, `-t` | File JSON chứa danh sách task (`{"input": "...", "output": "..."}`)                                                       | (không dùng)                        |
-| `--output`, `-o`    | File .srt đầu ra (chỉ dùng với `--input`)                                                                                 | `<input>_<lang>.srt`                |
-| `--provider`, `-p`  | Provider (gemini/openai/vertexai)                                                                                         | `gemini`                            |
-| `--provider-config` | Đường dẫn file config YAML                                                                                                | (tuỳ provider)                      |
-| `--base-url`        | Override base URL cho OpenAI provider                                                                                     | `None`                              |
-| `--keys`, `-k`      | API key(s), phân cách bằng dấu phẩy                                                                                       | (bắt buộc gemini/openai)            |
-| `--lang`, `-l`      | Ngôn ngữ đích (tên tiếng Anh đầy đủ)                                                                                      | `Vietnamese`                        |
-| `--model`, `-m`     | Model Gemini (nếu dùng gemini provider)                                                                                   | `gemini-3-flash-preview`            |
-| `--prompt`          | Đường dẫn tới file prompt gemini.txt                                                                                      | `prompts/gemini.txt`                |
-| `--batch`, `-b`     | Số dòng dịch mỗi lần                                                                                                      | `30`                                |
-| `--budget`          | Thinking budget tokens (Gemini only)                                                                                      | `24576`                             |
-| `--wait`            | Giây chờ giữa mỗi batch                                                                                                   | `0`                                 |
-| `--no-context`      | Tắt global context, gộp toàn bộ text của file SRT gốc thành một đoạn "Read-Only Reference" và gửi kèm trong prompt cho AI | (mặc định bật)                      |
-| `--verbose`, `-v`   | Hiển thị log chi tiết                                                                                                     | (tắt)                               |
+| Tham số             | Mô tả                                                                                                                     | Mặc định                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `--input`, `-i`     | File .srt đầu vào                                                                                                         | (bắt buộc nếu không dùng task-file)          |
+| `--task-file`, `-t` | File JSON chứa danh sách task (`{"input": "...", "output": "..."}`)                                                       | (không dùng)                                 |
+| `--output`, `-o`    | File .srt đầu ra (chỉ dùng với `--input`)                                                                                 | `<input>_<lang>.srt`                         |
+| `--provider`, `-p`  | Provider (gemini/openai/vertexai)                                                                                         | `gemini`                                     |
+| `--provider-config` | Đường dẫn provider YAML                                                                                                   | `config/llm/<provider>.yaml`                 |
+| `--task-config`     | Đường dẫn task YAML của SRT translation                                                                                   | `config/llm_tasks/srt_translation.yaml`      |
+| `--base-url`        | Override base URL cho OpenAI provider                                                                                     | `None`                                       |
+| `--keys`, `-k`      | API key(s), phân cách bằng dấu phẩy; có thể dùng `GEMINI_API_KEY` hoặc `OPENAI_API_KEY`                                   | (bắt buộc gemini/openai nếu chưa có env var) |
+| `--lang`, `-l`      | Ngôn ngữ đích (tên tiếng Anh đầy đủ)                                                                                      | `Vietnamese`                                 |
+| `--model`, `-m`     | Model provider                                                                                                            | theo provider config                         |
+| `--prompt`          | Đường dẫn prompt dịch SRT                                                                                                 | `prompts/translation/srt_translate.txt`      |
+| `--batch`, `-b`     | Số dòng dịch mỗi lần                                                                                                      | `30`                                         |
+| `--budget`          | Thinking budget tokens (Gemini only)                                                                                      | `24576`                                      |
+| `--wait`            | Giây chờ giữa mỗi batch                                                                                                   | `0`                                          |
+| `--no-context`      | Tắt global context, gộp toàn bộ text của file SRT gốc thành một đoạn "Read-Only Reference" và gửi kèm trong prompt cho AI | (mặc định bật)                               |
+| `--verbose`, `-v`   | Hiển thị log chi tiết                                                                                                     | (tắt)                                        |
+
+#### Generic LLM task: tạo SEO metadata
+
+Flow LLM generic dùng `llm-task` để chạy các tác vụ dạng text-in/text-out bằng provider trong `llm_ai`.
+Metadata SEO mặc định dùng task config `config/llm_tasks/seo_metadata.yaml`, prompt `prompts/llm_tasks/seo_metadata.txt`, input raw text `.txt` và output markdown `.md`.
+
+```colab
+!uv run llm-task \
+    --task-config config/llm_tasks/seo_metadata.yaml \
+    --input /content/video_content.txt \
+    --output /content/video_metadata.md \
+    --provider openai \
+    --provider-config config/llm/openai_compat.yaml \
+    --keys "sk-xxx"
+```
+
+Chạy hàng loạt bằng JSON task-file:
+
+```json
+[
+  {
+    "input": "/content/video_001.txt",
+    "output": "/content/video_001_metadata.md"
+  },
+  {
+    "input": "/content/video_002.txt",
+    "output": "/content/video_002_metadata.md"
+  }
+]
+```
+
+```colab
+!uv run llm-task \
+    --task-config config/llm_tasks/seo_metadata.yaml \
+    --task-file /content/metadata_tasks.json \
+    --provider openai \
+    --provider-config config/llm/openai_compat.yaml \
+    --keys "sk-xxx"
+```
 
 ---
 
