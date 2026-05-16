@@ -22,11 +22,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         except ImportError as exc:
             raise ImportError("openai package chưa cài. Chạy: pip install openai>=1.35.0") from exc
 
-        http_client = httpx.Client(
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-        )
+        http_client = httpx.Client()
         self._client = openai.OpenAI(
             base_url=base_url,
             api_key=api_key,
