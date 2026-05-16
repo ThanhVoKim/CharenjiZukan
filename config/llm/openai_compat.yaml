@@ -1,7 +1,7 @@
 # Provider config chung cho OpenAI-Compatible LLM APIs
 provider: "openai"
-base_url: "https://ramclouds.me/v1"
-model: "gpt-5.4"
+base_url: "https://api.freemodel.dev/v1"
+model: "gpt-5.5"
 temperature: 1
 max_tokens: 8192
 request_timeout: 300

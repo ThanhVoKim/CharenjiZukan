@@ -1,4 +1,5 @@
 from llm_ai.base import BaseLLMProvider, BaseTranslationProvider
+from llm_ai.provider_chain import FallbackLLMProvider, ProviderChainError
 
 
 def create_provider(*args, **kwargs):
@@ -18,6 +19,8 @@ def create_llm_provider(*args, **kwargs):
 __all__ = [
     "BaseLLMProvider",
     "BaseTranslationProvider",
+    "FallbackLLMProvider",
+    "ProviderChainError",
     "create_provider",
     "create_llm_provider",
 ]

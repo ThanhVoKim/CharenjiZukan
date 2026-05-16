@@ -22,7 +22,13 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from llm_ai.base import BaseLLMProvider  # noqa: E402
 from llm_ai.factory import create_provider, load_provider_config  # noqa: E402
+from llm_ai.provider_chain import (  # noqa: E402
+    FallbackLLMProvider,
+    apply_provider_chain_entry_overrides,
+    normalize_provider_chain,
+)
 from llm_ai.tasks.generic_text_task import (  # noqa: E402
     GenericTextTaskConfig,
     load_task_config,
@@ -118,6 +124,14 @@ def _resolve_provider_config_path(args: argparse.Namespace, task_cfg: dict[str, 
     return resolved
 
 
+def _resolve_chain_provider_config_path(entry: dict[str, Any], provider_type: str) -> Path:
+    raw_path = entry.get("provider_config") or DEFAULT_PROVIDER_CONFIGS.get(provider_type)
+    resolved = _resolve_project_path(str(raw_path) if raw_path else None)
+    if not resolved:
+        raise ValueError(f"Không xác định được provider config cho provider_chain entry: {entry}")
+    return resolved
+
+
 def _build_secrets(provider_type: str, keys_arg: str | None) -> dict[str, Any]:
     secrets: dict[str, Any] = {}
     if provider_type == "gemini":
@@ -157,6 +171,49 @@ def _apply_provider_overrides(provider_config: dict[str, Any], args: argparse.Na
     return cfg
 
 
+def _create_single_provider(args: argparse.Namespace, task_cfg: dict[str, Any]) -> BaseLLMProvider:
+    provider_type = (args.provider or task_cfg.get("provider") or "openai").lower().strip()
+    provider_config_path = _resolve_provider_config_path(args, task_cfg, provider_type)
+    provider_config = load_provider_config(str(provider_config_path))
+    provider_config = _apply_provider_overrides(provider_config, args, task_cfg)
+    secrets = _build_secrets(provider_type, args.keys)
+    return create_provider(provider_type, provider_config, secrets)
+
+
+def _create_provider_from_chain_entry(
+    entry: dict[str, Any],
+    args: argparse.Namespace,
+    task_cfg: dict[str, Any],
+) -> BaseLLMProvider:
+    provider_type = entry["provider"]
+    provider_config_path = _resolve_chain_provider_config_path(entry, provider_type)
+    provider_config = load_provider_config(str(provider_config_path))
+    provider_config = apply_provider_chain_entry_overrides(
+        provider_config,
+        entry,
+        task_system_prompt=task_cfg.get("system_prompt"),
+    )
+
+    if args.system_prompt is not None:
+        provider_config["system_prompt"] = args.system_prompt
+
+    secrets = _build_secrets(provider_type, args.keys)
+    return create_provider(provider_type, provider_config, secrets)
+
+
+def _create_task_provider(args: argparse.Namespace, task_cfg: dict[str, Any]) -> BaseLLMProvider:
+    raw_chain = normalize_provider_chain(task_cfg.get("provider_chain"))
+    if args.provider or args.provider_config or not raw_chain:
+        return _create_single_provider(args, task_cfg)
+
+    factories = [
+        (lambda entry=entry: _create_provider_from_chain_entry(entry, args, task_cfg))
+        for entry in raw_chain
+    ]
+    names = [str(entry.get("name") or entry["provider"]) for entry in raw_chain]
+    return FallbackLLMProvider(factories, names)
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -180,13 +237,7 @@ def main() -> None:
             task_cfg["output_parser"] = args.parser
 
         generic_cfg = GenericTextTaskConfig.from_dict(task_cfg)
-
-        provider_type = (args.provider or task_cfg.get("provider") or "openai").lower().strip()
-        provider_config_path = _resolve_provider_config_path(args, task_cfg, provider_type)
-        provider_config = load_provider_config(str(provider_config_path))
-        provider_config = _apply_provider_overrides(provider_config, args, task_cfg)
-        secrets = _build_secrets(provider_type, args.keys)
-        provider = create_provider(provider_type, provider_config, secrets)
+        provider = _create_task_provider(args, task_cfg)
 
         tasks = resolve_cli_tasks(
             task_file=args.task_file,

@@ -1,6 +1,7 @@
 import logging
 
 from llm_ai.base import BaseLLMProvider
+from llm_ai.retry import build_linear_retry_wait
 
 
 class OpenAICompatibleProvider(BaseLLMProvider):
@@ -43,18 +44,14 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
     def call(self, message: str) -> str:
         from openai import AuthenticationError, BadRequestError, PermissionDeniedError
-        from tenacity import Retrying, retry_if_not_exception_type, stop_after_attempt, wait_exponential
+        from tenacity import Retrying, retry_if_not_exception_type, stop_after_attempt
 
         no_retry_errors = (AuthenticationError, BadRequestError, PermissionDeniedError)
 
         for attempt in Retrying(
             retry=retry_if_not_exception_type(no_retry_errors),
             stop=stop_after_attempt(self._retry_attempts),
-            wait=wait_exponential(
-                multiplier=1,
-                min=self._retry_wait_seconds,
-                max=self._retry_wait_seconds * 2,
-            ),
+            wait=build_linear_retry_wait(self._retry_wait_seconds),
             reraise=True,
         ):
             with attempt:

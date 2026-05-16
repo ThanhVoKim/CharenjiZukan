@@ -2,6 +2,7 @@ import logging
 from typing import Any, List
 
 from llm_ai.base import BaseLLMProvider
+from llm_ai.retry import build_linear_retry_wait
 
 logger = logging.getLogger("llm_ai")
 
@@ -88,7 +89,7 @@ class GeminiProvider(BaseLLMProvider):
 
     def call(self, message: str) -> str:
         try:
-            from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_fixed
+            from tenacity import Retrying, retry_if_exception_type, stop_after_attempt
         except ImportError as exc:
             raise ImportError("tenacity chưa cài. Chạy: pip install tenacity>=8.0.0") from exc
 
@@ -98,7 +99,7 @@ class GeminiProvider(BaseLLMProvider):
         for attempt in Retrying(
             retry=retry_if_exception_type(RuntimeError),
             stop=stop_after_attempt(self._retry_attempts),
-            wait=wait_fixed(self._retry_wait_seconds),
+            wait=build_linear_retry_wait(self._retry_wait_seconds),
             reraise=True,
         ):
             with attempt:

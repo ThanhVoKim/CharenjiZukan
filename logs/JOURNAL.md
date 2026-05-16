@@ -2,6 +2,48 @@
 
 ---
 
+## 2026-05-16: Thêm provider_chain fallback và retry wait tuyến tính cho llm_ai
+
+### Yêu cầu
+
+- Thêm cơ chế fallback: sau khi provider chính retry hết `retry_attempts` và vẫn thất bại, tự chuyển sang LLM config khác.
+- Đặt fallback trong task config bằng schema `provider_chain`, ví dụ primary `config/llm/openai_compat.yaml` và fallback `config/llm/vertexai.yaml`.
+- Đổi retry wait từ fixed/exponential sang tuyến tính theo `retry_wait_seconds * attempt_number`.
+- Áp dụng cho cả generic `llm-task` và workflow `translate-srt`.
+
+### Thay đổi đã thực hiện
+
+1. **Fallback provider chain dùng chung**:
+   - Thêm `llm_ai/provider_chain.py` với `FallbackLLMProvider`, `ProviderChainError`, parser/normalizer `provider_chain` và helper merge override.
+   - Wrapper gọi provider hiện tại đến khi provider đó raise lỗi cuối sau retry, sau đó chuyển sang provider kế tiếp.
+   - Provider trong chain được khởi tạo lazy để không kéo dependency/credential của fallback trước khi cần.
+
+2. **Retry wait tuyến tính**:
+   - Thêm `llm_ai/retry.py` với `calculate_linear_retry_wait_seconds()` và `build_linear_retry_wait()`.
+   - Cập nhật `llm_ai/providers/openai.py`, `llm_ai/providers/gemini.py`, `llm_ai/providers/vertexai.py` dùng wait tuyến tính.
+   - Cập nhật retry integrity của SRT batch trong `translation/srt_translator.py` dùng cùng công thức tuyến tính.
+
+3. **CLI và config**:
+   - Cập nhật `cli/llm_task.py` để ưu tiên `provider_chain` trong task config, vẫn giữ single-provider mode nếu truyền `--provider` hoặc `--provider-config`.
+   - Cập nhật `cli/translate_srt.py` tương tự, dùng `provider_chain` từ `config/llm_tasks/srt_translation.yaml`.
+   - Thêm `provider_chain` vào `config/llm_tasks/seo_metadata.yaml` và `config/llm_tasks/srt_translation.yaml` với primary OpenAI-compatible và fallback Vertex AI.
+
+4. **Tests**:
+   - Cập nhật `tests/llm_ai/test_generic_text_task.py` với test retry wait tuyến tính và fallback provider chain.
+
+### Trạng thái hiện tại
+
+- ✅ `python -m compileall -q llm_ai translation cli tests` pass.
+- ✅ Import smoke các module `llm_ai`, `llm_ai.retry`, `llm_ai.provider_chain`, providers, `translation.srt_translator`, `cli.llm_task`, `cli.translate_srt` pass.
+- ✅ `pytest tests/llm_ai/test_generic_text_task.py tests/translation/test_translation_providers.py -k "Layer1 or Layer2" -q` pass: 13 passed, 8 skipped, 8 deselected.
+
+### Outstanding / Pending
+
+- Còn cảnh báo `PytestUnknownMarkWarning` cho marker `api`; không ảnh hưởng logic fallback/retry.
+- Nếu cần fallback với nhiều secret khác nhau cho nhiều OpenAI endpoint, nên bổ sung schema secret/env riêng theo từng provider_chain entry ở task sau.
+
+---
+
 ## 2026-05-16: Fix import-time dependency sau cleanup translation legacy
 
 ### Yêu cầu

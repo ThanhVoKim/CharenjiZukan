@@ -14,6 +14,7 @@ from translation.batching import (
 )
 from translation.prompting import build_global_context, load_prompt, render_batch_prompt
 from translation.response_parser import parse_translation_response
+from llm_ai.retry import calculate_linear_retry_wait_seconds
 
 logger = logging.getLogger("srt_translator")
 
@@ -122,9 +123,13 @@ def translate_srt_file(
                         f"Batch {idx + 1} phản hồi không hợp lệ "
                         f"(lần {attempt}/{batch_retry_attempts}): {exc}"
                     )
-                    if batch_retry_wait_seconds > 0:
-                        print(f"   ⏳ chờ {batch_retry_wait_seconds:g}s trước khi retry...")
-                        time.sleep(batch_retry_wait_seconds)
+                    wait_seconds = calculate_linear_retry_wait_seconds(
+                        batch_retry_wait_seconds,
+                        attempt,
+                    )
+                    if wait_seconds > 0:
+                        print(f"   ⏳ chờ {wait_seconds:g}s trước khi retry...")
+                        time.sleep(wait_seconds)
                     continue
 
                 failed_count += 1

@@ -1,6 +1,13 @@
 task_name: "seo_metadata"
 provider: "openai"
 provider_config: "config/llm/openai_compat.yaml"
+provider_chain:
+  - name: "primary_openai"
+    provider: "openai"
+    provider_config: "config/llm/openai_compat.yaml"
+  - name: "fallback_vertexai"
+    provider: "vertexai"
+    provider_config: "config/llm/vertexai.yaml"
 prompt_file: "prompts/llm_tasks/TheArmoryLog-metadata.txt"
 input_placeholder: "[Video Content]"
 default_ext: "_metadata.md"

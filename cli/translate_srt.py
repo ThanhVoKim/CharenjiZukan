@@ -4,7 +4,7 @@
 translate_srt.py — CLI: Dịch file .srt bằng multi-provider LLM
 
 Dịch subtitle sang ngôn ngữ đích sử dụng provider từ llm_ai.
-Hỗ trợ batch processing, full-context và task-file.
+Hỗ trợ batch processing, full-context, task-file và provider_chain fallback.
 """
 
 import argparse
@@ -20,7 +20,13 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from llm_ai.base import BaseLLMProvider  # noqa: E402
 from llm_ai.factory import create_provider, load_provider_config  # noqa: E402
+from llm_ai.provider_chain import (  # noqa: E402
+    FallbackLLMProvider,
+    apply_provider_chain_entry_overrides,
+    normalize_provider_chain,
+)
 from llm_ai.tasks.generic_text_task import load_task_config  # noqa: E402
 from translation.srt_translator import translate_srt_file  # noqa: E402
 from utils.logger import setup_logging, get_logger  # noqa: E402
@@ -80,10 +86,10 @@ Ví dụ đầy đủ:
 
     parser.add_argument(
         "--provider", "-p",
-        default="gemini",
+        default=None,
         choices=["gemini", "openai", "vertexai"],
         metavar="PROVIDER",
-        help="LLM provider (mặc định: gemini). Các lựa chọn: gemini | openai | vertexai",
+        help="LLM provider. Nếu task config có provider_chain và không truyền --provider, sẽ dùng provider_chain.",
     )
     parser.add_argument(
         "--provider-config",
@@ -91,7 +97,8 @@ Ví dụ đầy đủ:
         metavar="FILE",
         help=(
             "Đường dẫn tới provider YAML. Mặc định: "
-            "config/llm/gemini.yaml, config/llm/openai_compat.yaml hoặc config/llm/vertexai.yaml."
+            "config/llm/gemini.yaml, config/llm/openai_compat.yaml hoặc config/llm/vertexai.yaml. "
+            "Nếu truyền flag này sẽ dùng single-provider mode thay cho provider_chain."
         ),
     )
     parser.add_argument(
@@ -132,7 +139,7 @@ Ví dụ đầy đủ:
         "--model", "-m",
         default=None,
         metavar="MODEL",
-        help="Model name cho provider (ưu tiên: CLI > config > default provider)",
+        help="Model name cho single-provider mode (ưu tiên: CLI > config > default provider)",
     )
     parser.add_argument(
         "--prompt",
@@ -193,6 +200,11 @@ def _resolve_provider_config_path(provider_type: str, config_path: str | None) -
     return _resolve_project_path(raw_path)
 
 
+def _resolve_chain_provider_config_path(entry: dict[str, Any], provider_type: str) -> Path | None:
+    raw_path = entry.get("provider_config") or DEFAULT_PROVIDER_CONFIGS.get(provider_type)
+    return _resolve_project_path(str(raw_path) if raw_path else None)
+
+
 def _load_translation_task_config(config_path: str | None) -> dict[str, Any]:
     resolved = _resolve_project_path(config_path)
     if not resolved or not resolved.exists():
@@ -228,6 +240,101 @@ def _load_provider_config(provider_type: str, config_path: str | None, logger: l
     except Exception as exc:
         logger.warning(f"Không thể tải config {resolved_config_path}: {exc}")
         return {}
+
+
+def _apply_single_provider_overrides(
+    provider_type: str,
+    provider_config: dict[str, Any],
+    args: argparse.Namespace,
+    task_config: dict[str, Any],
+) -> dict[str, Any]:
+    cfg = dict(provider_config)
+
+    if args.base_url and provider_type == "openai":
+        cfg["base_url"] = args.base_url
+
+    task_system_prompt = task_config.get("system_prompt")
+    if task_system_prompt:
+        cfg["system_prompt"] = task_system_prompt
+
+    default_model_by_provider = {
+        "gemini": "gemini-3-flash-preview",
+        "openai": "gpt-5.4",
+        "vertexai": "gemini-3-flash-preview",
+    }
+
+    cfg["model"] = resolve_by_priority(
+        args.model,
+        cfg,
+        ["model"],
+        default_model_by_provider.get(provider_type, "gemini-3-flash-preview"),
+    )
+
+    if provider_type == "gemini":
+        cfg["thinking_budget"] = resolve_by_priority(
+            args.budget,
+            cfg,
+            ["thinking_budget", "budget"],
+            24576,
+        )
+
+    return cfg
+
+
+def _create_single_provider(
+    provider_type: str,
+    args: argparse.Namespace,
+    task_config: dict[str, Any],
+    logger: logging.Logger,
+) -> BaseLLMProvider:
+    provider_config = _load_provider_config(provider_type, args.provider_config, logger)
+    provider_config = _apply_single_provider_overrides(provider_type, provider_config, args, task_config)
+    secrets = _build_secrets(provider_type, args.keys)
+    return create_provider(provider_type, provider_config, secrets)
+
+
+def _create_provider_from_chain_entry(
+    entry: dict[str, Any],
+    args: argparse.Namespace,
+    task_config: dict[str, Any],
+    logger: logging.Logger,
+) -> BaseLLMProvider:
+    provider_type = entry["provider"]
+    resolved_config_path = _resolve_chain_provider_config_path(entry, provider_type)
+    if not resolved_config_path:
+        raise ValueError(f"Không xác định được provider_config cho provider_chain entry: {entry}")
+
+    try:
+        provider_config = load_provider_config(str(resolved_config_path))
+    except Exception as exc:
+        logger.warning(f"Không thể tải provider_chain config {resolved_config_path}: {exc}")
+        provider_config = {}
+
+    provider_config = apply_provider_chain_entry_overrides(
+        provider_config,
+        entry,
+        task_system_prompt=task_config.get("system_prompt"),
+    )
+    secrets = _build_secrets(provider_type, args.keys)
+    return create_provider(provider_type, provider_config, secrets)
+
+
+def _create_task_provider(
+    args: argparse.Namespace,
+    task_config: dict[str, Any],
+    logger: logging.Logger,
+) -> BaseLLMProvider:
+    raw_chain = normalize_provider_chain(task_config.get("provider_chain"))
+    if args.provider or args.provider_config or not raw_chain:
+        provider_type = (args.provider or task_config.get("provider") or "gemini").lower().strip()
+        return _create_single_provider(provider_type, args, task_config, logger)
+
+    factories = [
+        (lambda entry=entry: _create_provider_from_chain_entry(entry, args, task_config, logger))
+        for entry in raw_chain
+    ]
+    names = [str(entry.get("name") or entry["provider"]) for entry in raw_chain]
+    return FallbackLLMProvider(factories, names)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -273,41 +380,10 @@ def main():
         )
     prompt_file = str(prompt_path)
 
-    provider_type = args.provider
     try:
-        secrets = _build_secrets(provider_type, args.keys)
+        provider = _create_task_provider(args, task_config, logger)
     except ValueError as exc:
         parser.error(str(exc))
-
-    provider_config = _load_provider_config(provider_type, args.provider_config, logger)
-
-    if args.base_url and provider_type == "openai":
-        provider_config["base_url"] = args.base_url
-
-    task_system_prompt = task_config.get("system_prompt")
-    if task_system_prompt:
-        provider_config["system_prompt"] = task_system_prompt
-
-    default_model_by_provider = {
-        "gemini": "gemini-3-flash-preview",
-        "openai": "gpt-5.4",
-        "vertexai": "gemini-3-flash-preview",
-    }
-
-    provider_config["model"] = resolve_by_priority(
-        args.model,
-        provider_config,
-        ["model"],
-        default_model_by_provider.get(provider_type, "gemini-3-flash-preview"),
-    )
-
-    if provider_type == "gemini":
-        provider_config["thinking_budget"] = resolve_by_priority(
-            args.budget,
-            provider_config,
-            ["thinking_budget", "budget"],
-            24576,
-        )
 
     batch_size = resolve_by_priority(args.batch, task_config, ["batch", "batch_size"], 30)
     wait_sec = resolve_by_priority(args.wait, task_config, ["wait", "wait_sec"], 0.0)
@@ -317,8 +393,6 @@ def main():
         ["use_full_context", "full_context"],
         True,
     )
-
-    provider = create_provider(provider_type, provider_config, secrets)
 
     ok_tasks = 0
     for task in tasks:

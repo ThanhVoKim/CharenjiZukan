@@ -1,5 +1,12 @@
 task_name: "srt_translation"
 system_prompt: "You are a top-tier Subtitle Translation Engine."
+provider_chain:
+  - name: "primary_openai"
+    provider: "openai"
+    provider_config: "config/llm/openai_compat.yaml"
+  - name: "fallback_vertexai"
+    provider: "vertexai"
+    provider_config: "config/llm/vertexai.yaml"
 prompt_file: "prompts/translation/srt_translate.txt"
 target_language: "Vietnamese"
 batch_size: 30

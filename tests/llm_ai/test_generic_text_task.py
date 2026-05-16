@@ -25,6 +25,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from llm_ai.base import BaseLLMProvider
+from llm_ai.provider_chain import FallbackLLMProvider, ProviderChainError
+from llm_ai.retry import calculate_linear_retry_wait_seconds
 from llm_ai.tasks.generic_text_task import GenericTextTaskConfig, run_generic_text_task
 from llm_ai.tasks.prompt_template import render_single_input_prompt
 from llm_ai.tasks.response_parser import parse_task_response
@@ -37,6 +39,15 @@ class FakeProvider(BaseLLMProvider):
 
     def call(self, message: str) -> str:
         return f"Generated from: {message}"
+
+
+class FailingProvider(BaseLLMProvider):
+    @property
+    def name(self) -> str:
+        return "FailingLLM"
+
+    def call(self, message: str) -> str:
+        raise RuntimeError("primary failed")
 
 
 class TestLayer1_PromptTemplate:
@@ -71,6 +82,35 @@ class TestLayer1_ResponseParser:
         parsed = parse_task_response(raw, "json")
         assert '"title": "Demo"' in parsed
         assert '"tags": [' in parsed
+
+
+class TestLayer1_RetryAndProviderChain:
+    """Test retry wait tuyến tính và fallback provider wrapper."""
+
+    def test_calculate_linear_retry_wait_seconds(self):
+        assert calculate_linear_retry_wait_seconds(10, 1) == 10
+        assert calculate_linear_retry_wait_seconds(10, 2) == 20
+        assert calculate_linear_retry_wait_seconds(10, 3) == 30
+
+    def test_fallback_provider_uses_next_provider_after_failure(self):
+        provider = FallbackLLMProvider(
+            [FailingProvider(), FakeProvider()],
+            names=["primary", "fallback"],
+        )
+
+        assert provider.call("hello") == "Generated from: hello"
+        assert provider.active_provider_name == "FakeLLM"
+
+    def test_fallback_provider_raises_chain_error_when_all_fail(self):
+        provider = FallbackLLMProvider(
+            [FailingProvider(), FailingProvider()],
+            names=["primary", "fallback"],
+        )
+
+        with pytest.raises(ProviderChainError, match="Tất cả provider") as exc_info:
+            provider.call("hello")
+
+        assert len(exc_info.value.failures) == 2
 
 
 class TestLayer2_GenericTextTask:
