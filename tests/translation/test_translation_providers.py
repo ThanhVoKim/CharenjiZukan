@@ -25,7 +25,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from translation.base import BaseTranslationProvider
+from llm_ai.base import BaseTranslationProvider
 from translation.response_parser import parse_translation_response
 
 
@@ -40,7 +40,7 @@ def _import_tenacity_or_skip():
 def _import_translate_modules_or_skip():
     _import_tenacity_or_skip()
     try:
-        from translation.translator import translate_srt_file as _translate_srt_file
+        from translation.srt_translator import translate_srt_file as _translate_srt_file
         return _translate_srt_file
     except ImportError as exc:
         if "google" in str(exc).lower() or "genai" in str(exc).lower():
@@ -50,13 +50,13 @@ def _import_translate_modules_or_skip():
 
 def create_provider(*args, **kwargs):
     _import_yaml_or_skip()
-    from translation.factory import create_provider as _create_provider
+    from llm_ai.factory import create_provider as _create_provider
     return _create_provider(*args, **kwargs)
 
 
 def load_provider_config(*args, **kwargs):
     _import_yaml_or_skip()
-    from translation.factory import load_provider_config as _load_provider_config
+    from llm_ai.factory import load_provider_config as _load_provider_config
     return _load_provider_config(*args, **kwargs)
 
 
@@ -636,7 +636,7 @@ class TestLayer4_RealAPIs:
         
         # Bỏ qua nếu user chưa cấu hình project_id thật
         if config.get("project_id") in ["your-gcp-project-id", ""]:
-            skip_msg = "Chưa cấu hình 'project_id' thật trong file vertexai_translate.yaml. Vui lòng mở file và cập nhật."
+            skip_msg = "Chưa cấu hình 'project_id' thật trong file config/llm/vertexai.yaml. Vui lòng mở file và cập nhật."
             print(f"\n[SKIPPED Vertex AI] Lý do: {skip_msg}")
             pytest.skip(skip_msg)
             

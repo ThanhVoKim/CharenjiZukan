@@ -1,8 +1,6 @@
 import logging
 from typing import Any, List
 
-from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_fixed
-
 from llm_ai.base import BaseLLMProvider
 
 logger = logging.getLogger("llm_ai")
@@ -89,6 +87,11 @@ class GeminiProvider(BaseLLMProvider):
         return types.GenerateContentConfig(**cfg)
 
     def call(self, message: str) -> str:
+        try:
+            from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_fixed
+        except ImportError as exc:
+            raise ImportError("tenacity chưa cài. Chạy: pip install tenacity>=8.0.0") from exc
+
         from google import genai
         from google.genai import types
 

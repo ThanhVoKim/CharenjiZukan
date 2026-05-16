@@ -14,12 +14,16 @@ from translation.batching import (
 )
 from translation.prompting import build_global_context, load_prompt, render_batch_prompt
 from translation.response_parser import parse_translation_response
-from llm_ai.providers.gemini import GeminiProvider
 
 logger = logging.getLogger("srt_translator")
 
-# Giữ tên cũ như alias để không break code cũ
-GeminiCaller = GeminiProvider
+# Giữ tên cũ như alias để không break code cũ mà không import provider Gemini tại import-time.
+def GeminiCaller(*args, **kwargs):
+    from llm_ai.providers.gemini import GeminiProvider
+
+    return GeminiProvider(*args, **kwargs)
+
+
 parse_gemini_response = parse_translation_response
 
 

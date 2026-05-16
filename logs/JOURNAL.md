@@ -2,6 +2,72 @@
 
 ---
 
+## 2026-05-16: Fix import-time dependency sau cleanup translation legacy
+
+### Yêu cầu
+
+- Kiểm tra lỗi cú pháp hoặc bug cú pháp sau khi xóa các file legacy của `translation`.
+- Xác minh các import liên quan không bị hỏng trong môi trường hiện tại.
+
+### Vấn đề phát hiện
+
+- `compileall` không phát hiện lỗi cú pháp.
+- Import smoke ban đầu fail khi import `translation.srt_translator` vì `translation/srt_translator.py` import `llm_ai.providers.gemini.GeminiProvider` tại module import-time.
+- Import provider Gemini kéo `tenacity` ngay khi import module, khiến môi trường chưa cài dependency runtime bị lỗi `ModuleNotFoundError: No module named 'tenacity'` dù chỉ đang kiểm tra import.
+
+### Thay đổi đã thực hiện
+
+1. **Giảm import-time optional dependency**:
+   - Cập nhật `llm_ai/providers/__init__.py` để không import eager các provider concrete.
+   - Cập nhật `llm_ai/providers/gemini.py` để lazy import `tenacity` trong `GeminiProvider.call()`.
+   - Cập nhật `translation/srt_translator.py` để `GeminiCaller` là lazy factory, không import Gemini provider tại module import-time.
+
+2. **Kiểm tra sau sửa**:
+   - `python -m compileall -q llm_ai translation cli tests` pass.
+   - Import smoke các module `translation`, `translation.srt_translator`, `llm_ai.factory`, `llm_ai.providers`, `cli.llm_task`, `cli.translate_srt` pass.
+   - `pytest tests/llm_ai/test_generic_text_task.py tests/translation/test_translation_providers.py -k "Layer1 or Layer2" -q` pass: 10 passed, 8 skipped, 8 deselected.
+
+### Outstanding / Pending
+
+- Còn cảnh báo `PytestUnknownMarkWarning` cho marker `api`; không phải lỗi cú pháp/import và có thể xử lý bằng cách đăng ký marker trong cấu hình test ở task riêng.
+
+---
+
+## 2026-05-16: Cleanup legacy translation wrappers sau refactor llm_ai
+
+### Yêu cầu
+
+- Dọn code cũ không còn sử dụng sau refactor `llm_ai`, bắt đầu từ `translation/factory.py`.
+- Ưu tiên dùng command để xóa file legacy và kiểm tra tham chiếu còn sót.
+
+### Thay đổi đã thực hiện
+
+1. **Xóa compatibility wrappers legacy trong `translation/`**:
+   - Xóa `translation/factory.py`, `translation/base.py`, `translation/translator.py`.
+   - Xóa các wrapper provider cũ: `translation/openai_provider.py`, `translation/gemini_provider.py`, `translation/vertexai_provider.py`.
+   - Giữ workflow dịch SRT hiện hành trong `translation/srt_translator.py`, `translation/batching.py`, `translation/prompting.py`, `translation/response_parser.py`.
+
+2. **Cập nhật import sang canonical modules**:
+   - `translation/__init__.py` export trực tiếp từ `llm_ai` và lazy import workflow SRT hiện hành.
+   - `tests/translation/test_translation_providers.py` chuyển từ `translation.factory`/`translation.base`/`translation.translator` sang `llm_ai.factory`/`llm_ai.base`/`translation.srt_translator`.
+
+3. **Dọn config legacy**:
+   - Xóa `config/openai_compat_translate.yaml` và `config/vertexai_translate.yaml`.
+   - Cập nhật notebook sang config mới trong `config/llm/`.
+
+### Trạng thái hiện tại
+
+- ✅ Không còn tham chiếu legacy trong các file active `*.py`, `*.yaml`, `*.ipynb` đối với `translation.factory`, `translation.base`, `translation.translator`, provider wrappers cũ và config translate cũ.
+- ✅ `py_compile` pass cho các module `llm_ai`, `translation` và CLI LLM/translation liên quan.
+- ✅ `pytest tests/llm_ai/test_generic_text_task.py tests/translation/test_translation_providers.py -k 'Layer1 or Layer2' -q` pass: 10 passed, 8 skipped, 8 deselected.
+
+### Outstanding / Pending
+
+- Các tham chiếu trong tài liệu lịch sử như `logs/JOURNAL-2604.md` và plan cũ vẫn được giữ nguyên vì là record/plan quá khứ, không phải code active.
+- Pytest vẫn cảnh báo `PytestUnknownMarkWarning` cho marker `api`; có thể đăng ký marker này trong cấu hình test ở một cleanup riêng.
+
+---
+
 ## 2026-05-15: Refactor LLM provider sang llm_ai và thêm generic LLM task
 
 ### Yêu cầu
