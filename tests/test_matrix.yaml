@@ -85,6 +85,14 @@ tests:
     tags: ["unit"]
     enabled: true
 
+  - name: "Sync Video — Layer 1: LLM Metadata Helpers"
+    file: "tests/cli/test_sync_video_llm_metadata.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit", "sync_engine"]
+    enabled: true
+
   # ──────────────────────────────────────────────
   # INTEGRATION TESTS — Cần FFmpeg, không cần GPU
   # ──────────────────────────────────────────────

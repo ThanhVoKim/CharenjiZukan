@@ -13,8 +13,6 @@ import tempfile
 import shutil
 import time
 import json
-import yaml
-from typing import Optional
 
 from utils.logger import get_logger, setup_logging
 from utils.srt_parser import parse_srt_file
@@ -24,6 +22,7 @@ from sync_engine.video_processor import query_keyframes, process_video_chunks_pa
 from sync_engine.audio_assembler import assemble_audio_track
 from sync_engine.timestamp_remapper import recalculate_srt, recalculate_ass
 from sync_engine.renderer import render_final_video
+from cli.sync_video_llm_metadata import apply_llm_metadata_override, run_llm_metadata_task
 
 logger = get_logger("sync_video")
 
@@ -57,10 +56,17 @@ def _load_tts_config(config_path: str) -> dict:
     if not config_file.exists():
         logger.warning(f"Không tìm thấy file cấu hình TTS: {config_file}. Sử dụng cấu hình mặc định.")
         return {}
+    try:
+        import yaml as yaml_lib
+    except ImportError:
+        logger.warning("PyYAML chưa cài nên không thể nạp TTS config. Sử dụng cấu hình mặc định.")
+        return {}
+
     with open(config_file, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
+        config = yaml_lib.safe_load(f) or {}
     logger.info(f"Đã nạp cấu hình TTS từ: {config_file}")
     return config
+
 
 def _probe_video_duration(video_path: str) -> float:
     """Đo duration video bằng ffprobe, trả về ms."""
@@ -87,6 +93,7 @@ def run_sync_pipeline(args):
     try:
         # Load render config từ JSON
         render_config = _load_render_config(args.render_config)
+        render_config = apply_llm_metadata_override(render_config, getattr(args, "llm_metadata_override", None))
 
         start_time = time.time()
         logger.info("=== BẮT ĐẦU TTS-VIDEO SYNC ===")
@@ -356,8 +363,16 @@ def run_sync_pipeline(args):
                 use_gpu=not args.no_gpu,
             )
             logger.info(f"Render hoàn tất: {final_video}")
+            run_llm_metadata_task(
+                subtitle_segments=subtitle_segments,
+                render_config=render_config,
+                video_path=args.video,
+                tmp_dir=tmp_dir,
+                output_name=args.output_name,
+            )
         else:
             logger.info("Bỏ qua bước Render do cờ --no-hardsub.")
+            logger.info("Bỏ qua LLM metadata vì bước này chỉ chạy sau final render.")
             
         elapsed = time.time() - start_time
         logger.info(f"\n=== HOÀN TẤT SAU {elapsed:.1f} GIÂY ===")
@@ -394,6 +409,10 @@ def worker_task(task_data: dict, base_args: argparse.Namespace):
             args.mute = task_data["mute"]
         if "note_overlay_ass" in task_data:
             args.note_overlay_ass = task_data["note_overlay_ass"]
+        if "render_config" in task_data:
+            args.render_config = task_data["render_config"]
+        if "llm_metadata" in task_data:
+            args.llm_metadata_override = task_data["llm_metadata"]
             
         out_dir, stem = resolve_output_dir_and_stem(task_data)
         args.output_dir = str(out_dir)
@@ -450,6 +469,7 @@ def main():
     parser.add_argument("--note-max-chars", type=int, default=16)
     
     args = parser.parse_args()
+    args.llm_metadata_override = None
     
     setup_logging()
     

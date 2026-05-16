@@ -2,6 +2,79 @@
 
 ---
 
+## 2026-05-16: Refactor helper LLM metadata sync_video sang module riêng
+
+### Yêu cầu
+
+- Tách các helper LLM metadata khỏi `cli/sync_video.py` để pipeline chính gọn hơn.
+- Xóa toàn bộ key `_comment` khỏi `assets/default_render_config.json` để JSON chỉ chứa dữ liệu runtime.
+- Đưa phần giải thích schema LLM metadata vào docstring của module helper mới.
+
+### Thay đổi đã thực hiện
+
+1. **Module helper riêng**:
+   - Tạo `cli/sync_video_llm_metadata.py` chứa schema notes trong docstring.
+   - Chuyển các helper merge override, resolve path, build raw text, execute generic LLM task và fail policy handling sang module mới.
+   - `cli/sync_video.py` chỉ import `apply_llm_metadata_override` và `run_llm_metadata_task`.
+
+2. **Render config sạch hơn**:
+   - Xóa các key `_comment`, `_debug_input_comment`, `_fail_policy_comment` khỏi `assets/default_render_config.json`.
+   - Giữ nguyên schema runtime `llm_metadata.enabled`, `task_config`, `input`, `output`, `fail_policy`.
+
+3. **Tests**:
+   - Cập nhật `tests/cli/test_sync_video_llm_metadata.py` import và monkeypatch sang `cli.sync_video_llm_metadata`.
+
+### Trạng thái hiện tại
+
+- Logic LLM metadata không còn nằm trực tiếp trong `cli/sync_video.py`.
+- JSON render config gọn hơn, còn giải thích schema nằm trong docstring của `cli/sync_video_llm_metadata.py`.
+
+---
+
+## 2026-05-16: Tích hợp LLM metadata post-render cho sync_video
+
+### Yêu cầu
+
+- Thêm bước tạo SEO metadata bằng generic LLM task vào flow `cli/sync_video.py`.
+- Cấu hình wiring đặt trong `render_config.json`, trước mắt thêm schema vào `assets/default_render_config.json`.
+- Input LLM là raw text phẳng gom từ toàn bộ block `text` của subtitle SRT, không timestamp, không line number, không chia line.
+- Output metadata và debug input mặc định nằm cùng thư mục input video bằng `directory_policy: "/"`.
+- LLM generation chạy sau bước final render; lỗi LLM mặc định chỉ warning theo `fail_policy: "warn"`.
+
+### Thay đổi đã thực hiện
+
+1. **Schema render config**:
+   - Thêm block `llm_metadata` vào `assets/default_render_config.json` với `enabled`, `task_config`, `input.write_debug_input`, `input.debug_input_filename_template`, `output.directory_policy`, `output.filename_template`, `fail_policy`.
+   - Ghi chú: sau refactor kế tiếp, các key `_comment` đã được chuyển khỏi JSON và schema được giải thích trong docstring của `cli/sync_video_llm_metadata.py`.
+
+2. **Helper trong sync_video**:
+   - Thêm helper gom subtitle segments thành raw text phẳng.
+   - Thêm resolver cho `directory_policy: "/"` nghĩa là thư mục chứa input video, ví dụ `content/a/b.mp4` -> `content/a/`.
+   - Thêm debug input writer và output metadata filename template.
+   - Tái dùng logic provider/task từ `cli/llm_task.py` và `llm_ai.tasks.generic_text_task.run_generic_text_task()` thay vì gọi subprocess.
+   - Thêm `fail_policy` để warning hoặc raise lỗi LLM theo cấu hình.
+
+3. **Task-file override**:
+   - `worker_task` hỗ trợ override `render_config` và override sâu `llm_metadata` theo từng task JSON.
+
+4. **Tests**:
+   - Thêm `tests/cli/test_sync_video_llm_metadata.py` cho raw text builder, path policy, deep override và fail policy.
+   - Cập nhật `tests/test_matrix.yaml` với entry Layer 1 cho helper LLM metadata.
+   - Cập nhật pipeline test hiện có để truyền đủ namespace/config tối thiểu và tắt LLM metadata trong integration test.
+
+### Trạng thái hiện tại
+
+- Helper LLM metadata đã được tích hợp ở Phase 6 và chỉ chạy sau final render; nếu dùng `--no-hardsub` thì metadata cũng được bỏ qua để đúng `run_stage` đã chốt.
+- Output metadata mặc định ghi đè file cũ vì `run_generic_text_task()` ghi file trực tiếp.
+- API key vẫn lấy từ environment/provider config theo flow LLM hiện có, không hardcode trong JSON.
+
+### Outstanding / Pending
+
+- Cần chạy real LLM metadata trên môi trường có `OPENAI_API_KEY`, `GEMINI_API_KEY` hoặc Vertex AI credentials để xác nhận chất lượng output thực tế.
+- Nếu muốn output metadata bắt buộc thành công, đổi `fail_policy` từ `warn` sang `raise` trong render config.
+
+---
+
 ## 2026-05-16: Thêm provider_chain fallback và retry wait tuyến tính cho llm_ai
 
 ### Yêu cầu

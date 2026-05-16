@@ -16,13 +16,14 @@ Cách chạy từng layer:
 import sys
 import shutil
 import argparse
+import json
 import subprocess
 from pathlib import Path
 
 import pytest
 
 # ── Project root ─────────────────────────────────────────────────────
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 cv2 = pytest.importorskip("cv2", reason="pip install opencv-python")
@@ -108,13 +109,34 @@ class TestLayer3_SyncVideoPipeline:
                 shutil.copy(synthetic_inputs["tts_path"], q['filename'])
             return {"ok": len(self_obj.queue_tts), "err": 0}
             
-        monkeypatch.setattr("cli.sync_video.EdgeTTSEngine.__init__", mock_engine_init)
-        monkeypatch.setattr("cli.sync_video.EdgeTTSEngine.run", mock_engine_run)
+        monkeypatch.setattr("tts.edgetts.EdgeTTSEngine.__init__", mock_engine_init)
+        monkeypatch.setattr("tts.edgetts.EdgeTTSEngine.run", mock_engine_run)
+
+        render_config_path = output_dir / "render_config.json"
+        render_config_path.write_text(
+            json.dumps(
+                {
+                    "resolution": {"bypass_scale": True},
+                    "watermark_img": {"enabled": False},
+                    "watermark_text": {"enabled": False},
+                    "black_strip": {"enabled": False},
+                    "subtitles": {"enabled": False, "burn_hardsub": False},
+                    "note_overlay": {"enabled": False},
+                    "audio_mix": {"ambient_volume": 0.0, "bgm_volume": 0.0},
+                    "audio_separator": {"extract_bgm": False, "extract_vocals": False},
+                    "video_encoding": {"preset": "fast", "quality": ["-crf", "23"]},
+                    "llm_metadata": {"enabled": False},
+                }
+            ),
+            encoding="utf-8",
+        )
 
         args = argparse.Namespace(
             video=str(synthetic_video),
             subtitle=synthetic_inputs["srt"],
+            tts_provider="edge",
             tts_voice="test-voice",
+            tts_config=str(PROJECT_ROOT / "config" / "tts_config.yaml"),
             tts_rate="+0%",
             tts_volume="+0%",
             tts_pitch="+0Hz",
@@ -123,17 +145,22 @@ class TestLayer3_SyncVideoPipeline:
             note_overlay_ass=None,
             black_bg=None,
             ambient=None,
+            render_config=str(render_config_path),
             slow_cap=0.5,
             output_dir=str(output_dir),
             output_name=output_name,
             no_hardsub=False,
+            keep_tmp=False,
             workers=2,
+            batch_size=100,
             no_gpu=True,  # CPU mode for CI
             subtitle_fontname="Arial",
             subtitle_fontsize=22,
             subtitle_color="&H00FFFFFF",
             subtitle_margin_v=6,
+            subtitle_max_chars=0,
             note_max_chars=15,
+            llm_metadata_override=None,
         )
 
         run_sync_pipeline(args)

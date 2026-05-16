@@ -64,6 +64,19 @@
       "pitch_shift": 0
     }
   },
+  "llm_metadata": {
+    "enabled": true,
+    "task_config": "config/llm_tasks/seo_metadata.yaml",
+    "input": {
+      "write_debug_input": true,
+      "debug_input_filename_template": "{video_stem}_metadata_input.txt"
+    },
+    "output": {
+      "directory_policy": "/",
+      "filename_template": "{video_stem}_metadata.md"
+    },
+    "fail_policy": "warn"
+  },
   "video_encoding": {
     "preset": "p5",
     "quality": [
