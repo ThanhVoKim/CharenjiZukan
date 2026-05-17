@@ -48,7 +48,13 @@ NUMERIC_SEPARATOR_CHARS = set(".,，．")
 # Ký tự hậu tố đơn vị/tiền tệ/phần trăm thường dính trực tiếp sau số
 NUMERIC_UNIT_SUFFIX_CHARS = set("%％‰°℃℉¥$€£₩₫円元")
 
+# Các abbreviation có dấu chấm nhưng không phải ranh giới câu.
+COMMON_NON_SENTENCE_ABBREVIATIONS = {"e.g.", "i.e.", "mr.", "mrs.", "dr.", "vs."}
 
+# Ký tự có thể nằm giữa dấu kết câu và chữ cái mở đầu câu tiếp theo.
+SENTENCE_START_SKIP_CHARS = set(" \t\r\n\"'“”‘’()[]{}（）《》【】")
+ 
+ 
 def _block_text_len(block: List[Dict[str, Any]]) -> int:
     """Tổng số ký tự của một block."""
     return sum(len(t.get("text", "")) for t in block)
@@ -83,16 +89,114 @@ def _is_numeric_separator_at(
     text = tokens[token_idx].get("text", "")
     if char_idx < 0 or char_idx >= len(text):
         return False
-
+ 
     char = text[char_idx]
     if char not in NUMERIC_SEPARATOR_CHARS:
         return False
-
+ 
     prev_char = _get_char_before(tokens, token_idx, char_idx)
     next_char = _get_char_after(tokens, token_idx, char_idx)
     return prev_char.isdigit() and next_char.isdigit()
 
 
+def _joined_text_and_char_offset(
+    tokens: List[Dict[str, Any]],
+    token_idx: int,
+    char_idx: int,
+) -> tuple[str, int]:
+    """Ghép text token và quy đổi vị trí token-local sang vị trí toàn chuỗi."""
+    parts: List[str] = []
+    offset = 0
+    for i, token in enumerate(tokens):
+        text = token.get("text", "")
+        if i < token_idx:
+            offset += len(text)
+        parts.append(text)
+    return "".join(parts), offset + char_idx
+
+
+def _is_common_abbreviation_period_at(
+    tokens: List[Dict[str, Any]],
+    token_idx: int,
+    char_idx: int,
+) -> bool:
+    """True nếu dấu chấm thuộc abbreviation không nên dùng làm điểm cắt câu."""
+    text = tokens[token_idx].get("text", "")
+    if char_idx < 0 or char_idx >= len(text) or text[char_idx] != ".":
+        return False
+
+    joined_text, global_idx = _joined_text_and_char_offset(tokens, token_idx, char_idx)
+    lowered = joined_text.lower()
+
+    for abbreviation in COMMON_NON_SENTENCE_ABBREVIATIONS:
+        min_start = max(0, global_idx - len(abbreviation) + 1)
+        for start in range(min_start, global_idx + 1):
+            end = start + len(abbreviation)
+            if end > len(lowered):
+                continue
+            if not lowered.startswith(abbreviation, start):
+                continue
+            if not (start <= global_idx < end):
+                continue
+
+            before = lowered[start - 1] if start > 0 else ""
+            if before and (before.isalnum() or before == "_"):
+                continue
+            return True
+
+    return False
+
+
+def _get_next_sentence_start_char(
+    tokens: List[Dict[str, Any]],
+    token_idx: int,
+    char_idx: int,
+) -> str:
+    """Lấy ký tự có nghĩa kế tiếp sau dấu câu, bỏ qua space/quote/ngoặc."""
+    for i in range(token_idx, len(tokens)):
+        text = tokens[i].get("text", "")
+        start = char_idx + 1 if i == token_idx else 0
+        for j in range(start, len(text)):
+            char = text[j]
+            if char.isspace() or char in SENTENCE_START_SKIP_CHARS:
+                continue
+            return char
+    return ""
+
+
+def _is_cased_letter(char: str) -> bool:
+    """True nếu ký tự là chữ cái có phân biệt hoa/thường."""
+    return char.isalpha() and char.lower() != char.upper()
+
+
+def _should_split_after_period(
+    tokens: List[Dict[str, Any]],
+    token_idx: int,
+    char_idx: int,
+) -> bool:
+    """True nếu dấu chấm ASCII tại vị trí hiện tại là ranh giới câu."""
+    if _is_common_abbreviation_period_at(tokens, token_idx, char_idx):
+        return False
+
+    next_char = _get_next_sentence_start_char(tokens, token_idx, char_idx)
+    if not next_char:
+        return True
+    if _is_cased_letter(next_char):
+        return next_char.isupper()
+    return True
+
+
+def _is_non_sentence_period_split_boundary(block: List[Dict[str, Any]], idx: int) -> bool:
+    """True nếu boundary sau token idx kết thúc bằng dấu chấm không phải ranh giới câu."""
+    text = block[idx].get("text", "")
+    stripped = text.rstrip()
+    if not stripped.endswith("."):
+        return False
+
+    period_idx = len(stripped) - 1
+    return not _should_split_after_period(block, idx, period_idx)
+ 
+ 
 def _is_numeric_unit_suffix_start(char: str) -> bool:
     """True nếu ký tự có thể là phần đầu của hậu tố đơn vị/tiền tệ dính với số."""
     return bool(char) and (char.isalpha() or char in NUMERIC_UNIT_SUFFIX_CHARS)
@@ -138,6 +242,8 @@ def _has_sentence_split_punct(
         if char not in split_chars:
             continue
         if _is_numeric_separator_at(tokens, token_idx, char_idx):
+            continue
+        if char == "." and not _should_split_after_period(tokens, token_idx, char_idx):
             continue
         return True
     return False
@@ -196,11 +302,13 @@ def _score_split_point(
     text = token.get("text", "")
 
     # 2. Ưu tiên cắt sau khoảng trắng hoặc dấu câu mạnh.
-    #    Nếu boundary đang nằm trong chuỗi số/đơn vị thì phạt nặng để
-    #    tránh chia 1.2, 12.5kg, 3,000円 thành nhiều block.
+    #    Nếu boundary đang nằm trong chuỗi số/đơn vị hoặc sau dấu chấm
+    #    không phải ranh giới câu thì phạt nặng để tránh chia sai nghĩa.
     if _is_numeric_split_boundary(block, idx):
         score -= 1000.0
-
+    if _is_non_sentence_period_split_boundary(block, idx):
+        score -= 1000.0
+ 
     last_char_idx = len(text) - 1
     ends_with_numeric_separator = bool(text) and _is_numeric_separator_at(block, idx, last_char_idx)
 

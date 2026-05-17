@@ -2,6 +2,38 @@
 
 ---
 
+## 2026-05-17: Bảo vệ segmentation subtitle khỏi dấu chấm trong abbreviation
+
+### Yêu cầu
+
+- Tránh để dấu chấm trong các abbreviation tiếng Anh như `e.g.`, `i.e.`, `Mr.`, `Mrs.`, `Dr.`, `vs.` bị coi là ranh giới câu.
+- Với dấu `.` ASCII, chỉ cắt câu khi ký tự chữ cái có nghĩa tiếp theo là chữ in hoa, hoặc khi dấu chấm nằm ở cuối text.
+- Bổ sung unit test khóa hành vi cho các trường hợp `360-degree`, `It's`, `e.g.` và các abbreviation phổ biến.
+
+### Thay đổi đã thực hiện
+
+1. **Text segmentation**:
+   - Thêm danh sách `COMMON_NON_SENTENCE_ABBREVIATIONS` trong `utils/text_segmenter.py`.
+   - Thêm helper nhận diện dấu chấm thuộc abbreviation, lấy ký tự có nghĩa tiếp theo sau dấu `.`, và quyết định có nên cắt sau dấu chấm hay không.
+   - Cập nhật `_has_sentence_split_punct()` để bỏ qua dấu `.` không phải ranh giới câu.
+   - Cập nhật scoring của `_split_long_block()` để phạt nặng boundary sau dấu `.` không phải ranh giới câu, hạn chế split cơ học sai nghĩa.
+
+2. **Tests**:
+   - Bổ sung test `merge_punctuation()` cho `360-degree`, `It's`, `e.g.`.
+   - Bổ sung test `smart_segment()` đảm bảo `e.g.`, `i.e.`, `Mr.`, `Mrs.`, `Dr.`, `vs.` không tự tạo block subtitle mới.
+   - Bổ sung test dấu `.` trước chữ thường không tạo block mới, còn câu tiếp theo bắt đầu chữ hoa vẫn được cắt.
+
+### Trạng thái hiện tại
+
+- ✅ `python -m compileall -q utils tests` pass.
+- ✅ `python -m pytest tests/cli/test_qwen3_asr.py -v` pass: 29 passed.
+
+### Outstanding / Pending
+
+- Chưa mở rộng danh sách abbreviation ngoài bộ hiện tại; nếu gặp thêm pattern thực tế trong transcript tiếng Anh, có thể bổ sung vào `COMMON_NON_SENTENCE_ABBREVIATIONS`.
+
+---
+
 ## 2026-05-16: Refactor helper LLM metadata sync_video sang module riêng
 
 ### Yêu cầu

@@ -37,6 +37,14 @@ def to_mock_words(texts: List[str]) -> List[MockWord]:
     return [MockWord(t, i * 1.0, (i + 1) * 1.0) for i, t in enumerate(texts)]
 
 
+def to_segment_tokens(texts: List[str]) -> List[dict]:
+    """Tạo nhanh danh sách token dict cho smart_segment."""
+    return [
+        {"text": t, "start_time": i * 1.0, "end_time": (i + 1) * 1.0}
+        for i, t in enumerate(texts)
+    ]
+
+
 # ═════════════════════════════════════════════════════════════════════
 # LAYER 1 — UNIT TESTS
 # ═════════════════════════════════════════════════════════════════════
@@ -275,6 +283,88 @@ class TestLayer1_Qwen3ASRPunctuation:
         assert len(subs) == 1
         assert "".join([w["text"] for w in subs[0]]) == "hello-world."
 
+    def test_case_48_ascii_hyphen_between_number_and_word(self):
+        """Case 48: Dấu gạch nối nằm giữa số và chữ được bảo toàn.
+
+        Input: 360-degree camera.
+        Tokens: 360 | degree | camera
+        Expected merged:
+          360-
+          degree
+          camera.
+        """
+        words = to_mock_words(["360", "degree", "camera"])
+        full_text = "360-degree camera."
+        merged = merge_punctuation(words, full_text)
+
+        assert len(merged) == 3
+        assert [w["text"] for w in merged] == ["360-", "degree ", "camera."]
+        assert "".join([w["text"] for w in merged]) == full_text
+
+    def test_case_49_apostrophe_between_letters(self):
+        """Case 49: Dấu apostrophe nằm giữa hai phần của từ được bảo toàn.
+
+        Input: It's fine.
+        Tokens: It | s | fine
+        Expected merged:
+          It'
+          s
+          fine.
+        """
+        words = to_mock_words(["It", "s", "fine"])
+        full_text = "It's fine."
+        merged = merge_punctuation(words, full_text)
+
+        assert len(merged) == 3
+        assert [w["text"] for w in merged] == ["It'", "s ", "fine."]
+        assert "".join([w["text"] for w in merged]) == full_text
+
+    def test_case_50_abbreviation_periods_between_letters(self):
+        """Case 50: Dấu chấm trong abbreviation được bảo toàn.
+
+        Input: e.g. example.
+        Tokens: e | g | example
+        Expected merged:
+          e.
+          g.
+          example.
+        """
+        words = to_mock_words(["e", "g", "example"])
+        full_text = "e.g. example."
+        merged = merge_punctuation(words, full_text)
+
+        assert len(merged) == 3
+        assert [w["text"] for w in merged] == ["e.", "g. ", "example."]
+        assert "".join([w["text"] for w in merged]) == full_text
+
+    @pytest.mark.parametrize(
+        ("token_texts", "expected_first_block"),
+        [
+            (["e.", "g. ", "example ", "continues. ", "Next ", "Starts."], "e.g. example continues. "),
+            (["i.", "e. ", "example ", "continues. ", "Next ", "Starts."], "i.e. example continues. "),
+            (["Mr. ", "Smith ", "arrived. ", "Next ", "Starts."], "Mr. Smith arrived. "),
+            (["Mrs. ", "Jones ", "stayed. ", "Next ", "Starts."], "Mrs. Jones stayed. "),
+            (["Dr. ", "Brown ", "spoke. ", "Next ", "Starts."], "Dr. Brown spoke. "),
+            (["This ", "is ", "vs. ", "that ", "case. ", "Next ", "Starts."], "This is vs. that case. "),
+        ],
+    )
+    def test_case_51_common_abbreviations_do_not_create_blocks(self, token_texts, expected_first_block):
+        """Case 51: Dấu chấm trong abbreviation phổ biến không tạo block mới."""
+        subs = smart_segment(to_segment_tokens(token_texts), min_chars=1, max_chars=0)
+
+        assert len(subs) == 2
+        assert "".join([w["text"] for w in subs[0]]) == expected_first_block
+        assert "".join([w["text"] for w in subs[1]]) == "Next Starts."
+
+    def test_case_52_period_followed_by_lowercase_does_not_create_block(self):
+        """Case 52: Dấu chấm chỉ cắt câu khi chữ cái tiếp theo là chữ hoa."""
+        tokens = to_segment_tokens(["hello. ", "world ", "continues. ", "Next ", "Starts."])
+        subs = smart_segment(tokens, min_chars=1, max_chars=0)
+
+        assert len(subs) == 2
+        assert "".join([w["text"] for w in subs[0]]) == "hello. world continues. "
+        assert "".join([w["text"] for w in subs[1]]) == "Next Starts."
+ 
     def test_case_45_misaligned_token(self):
         """Case 45: Token lặp nhưng token đầu không khớp hoàn toàn.
 
