@@ -22,7 +22,7 @@ from sync_engine.video_processor import query_keyframes, process_video_chunks_pa
 from sync_engine.audio_assembler import assemble_audio_track
 from sync_engine.timestamp_remapper import recalculate_srt, recalculate_ass
 from sync_engine.renderer import render_final_video
-from cli.sync_video_llm_metadata import apply_llm_metadata_override, run_llm_metadata_task
+from sync_engine.llm_metadata import apply_llm_metadata_override, run_llm_metadata_task
 
 logger = get_logger("sync_video")
 
@@ -112,6 +112,12 @@ def run_sync_pipeline(args):
 
         subtitle_segments = parse_srt_file(args.subtitle)
         mute_segments = parse_srt_file(args.mute) if args.mute and Path(args.mute).exists() else []
+
+        # TẠO GENERIC TRANSCRIPT CHO PIPELINE
+        from utils.srt_parser import write_segments_to_flat_text
+        transcript_input_path = Path(tmp_dir) / "flat_transcript.txt"
+        write_segments_to_flat_text(subtitle_segments, str(transcript_input_path))
+        logger.info(f"Đã tạo flat transcript dùng chung: {transcript_input_path}")
         
         # Get video duration
         import wave
@@ -363,13 +369,13 @@ def run_sync_pipeline(args):
                 use_gpu=not args.no_gpu,
             )
             logger.info(f"Render hoàn tất: {final_video}")
-            run_llm_metadata_task(
-                subtitle_segments=subtitle_segments,
-                render_config=render_config,
-                video_path=args.video,
-                tmp_dir=tmp_dir,
-                output_name=args.output_name,
-            )
+            if transcript_input_path:
+                run_llm_metadata_task(
+                    input_text_path=str(transcript_input_path),
+                    render_config=render_config,
+                    video_path=args.video,
+                    output_name=args.output_name,
+                )
         else:
             logger.info("Bỏ qua bước Render do cờ --no-hardsub.")
             logger.info("Bỏ qua LLM metadata vì bước này chỉ chạy sau final render.")

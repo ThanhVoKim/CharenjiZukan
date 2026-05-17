@@ -1,5 +1,43 @@
 # Project Journal
 
+## 2026-05-17: Refactor kiến trúc LLM metadata — tách khỏi `cli/`
+
+### Tóm tắt
+
+- **Mục tiêu**: Đảm bảo `cli/` chỉ chứa entrypoint command (`pyproject.toml` `[project.scripts]`), không chứa helper/library module.
+- **File mới**:
+  - `llm_ai/task_runner.py` — Provider creation logic dùng chung (trích xuất từ `cli/llm_task.py` private helpers → public API)
+  - `sync_engine/llm_metadata.py` — LLM metadata orchestration (di chuyển từ `cli/sync_video_llm_metadata.py`)
+  - `docs/sync-video-guide.md` — Tài liệu đầy đủ flow sync-video + schema `render_config.json`
+- **File sửa**:
+  - `utils/srt_parser.py` — Thêm `write_segments_to_flat_text()` (normalize + ghi raw text phẳng ra `.txt`)
+  - `cli/llm_task.py` — Xóa toàn bộ private helpers, import từ `llm_ai.task_runner`
+  - `cli/sync_video.py` — Import từ `sync_engine.llm_metadata`; flow mới: ghi `.txt` sau `parse_srt_file()`, gọi `run_llm_metadata_task(input_text_path=...)` sau final render
+  - `tests/cli/test_sync_video_llm_metadata.py` — Cập nhật import + monkeypatch path + test `write_segments_to_flat_text`
+- **File xóa**:
+  - `cli/sync_video_llm_metadata.py` — Đã di chuyển toàn bộ logic sang `sync_engine/llm_metadata.py`
+
+### Thay đổi chữ ký
+
+- `run_llm_metadata_task()`: `subtitle_segments` + `tmp_dir` → `input_text_path`
+- `execute_llm_metadata_task()`: `subtitle_segments` + `tmp_dir` → `input_text_path`
+- Thêm `prepare_llm_metadata_input()` trong `sync_engine/llm_metadata.py` để chuẩn bị file `.txt` từ subtitle segments
+
+### Kiến trúc module
+
+```
+cli/sync_video.py          ← Entrypoint CLI
+    ↓ import
+sync_engine/llm_metadata.py ← Orchestration (phụ thuộc llm_ai, không phụ thuộc cli)
+    ↓ import
+llm_ai/task_runner.py       ← Provider creation (dùng chung bởi cli + sync_engine)
+utils/srt_parser.py         ← SRT parsing + write_segments_to_flat_text()
+```
+
+### Pending
+
+- Chạy pipeline test (yêu cầu ffmpeg + cv2 + pydub)
+
 ---
 
 ## 2026-05-17: Bảo vệ segmentation subtitle khỏi dấu chấm trong abbreviation

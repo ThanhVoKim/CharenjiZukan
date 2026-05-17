@@ -1,41 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-cli/sync_video_llm_metadata.py
-==============================
+sync_engine/llm_metadata.py
+===========================
 Post-render LLM metadata helper cho `cli/sync_video.py`.
 
-Schema `render_config.json` hỗ trợ:
+Module này nằm trong `sync_engine/` vì nó phụ thuộc vào `llm_ai` (provider, task runner)
+nhưng không phụ thuộc ngược vào `cli/`. `cli/sync_video.py` import module này như một
+thư viện domain.
 
-```json
-{
-  "llm_metadata": {
-    "enabled": true,
-    "task_config": "config/llm_tasks/seo_metadata.yaml",
-    "input": {
-      "write_debug_input": true,
-      "debug_input_filename_template": "{video_stem}_metadata_input.txt"
-    },
-    "output": {
-      "directory_policy": "/",
-      "filename_template": "{video_stem}_metadata.md"
-    },
-    "fail_policy": "warn"
-  }
-}
-```
-
-Ý nghĩa schema:
-- `enabled`: bật/tắt bước tạo metadata sau khi render final video.
-- `task_config`: YAML config cho generic LLM task, ví dụ `config/llm_tasks/seo_metadata.yaml`.
-- `input.write_debug_input`: nếu true, ghi raw text đã đưa vào LLM ra file `.txt` để kiểm tra prompt input.
-- `input.debug_input_filename_template`: tên file debug input. Template hỗ trợ `{video_stem}`, `{video_name}`, `{video_suffix}`, `{output_name}`.
-- `output.directory_policy`: policy `/` nghĩa là thư mục chứa input video, không phải filesystem root. Ví dụ input `content/a/b.mp4` -> output dir `content/a/`.
-- `output.filename_template`: tên metadata output. Template hỗ trợ `{video_stem}`, `{video_name}`, `{video_suffix}`, `{output_name}`.
-- `fail_policy`: `warn` log warning và không làm fail pipeline; `raise`/`error`/`fail` sẽ raise lỗi LLM.
-
-Input LLM luôn là raw text phẳng được gom từ toàn bộ `segment["text"]` của subtitle SRT đã parse:
-không timestamp, không line number, không giữ line break theo từng block.
+Schema `render_config.json` — xem `docs/sync-video-guide.md`.
 """
 
 import argparse
@@ -43,14 +17,18 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from utils.logger import get_logger
 
 logger = get_logger("sync_video")
 
+
+# ═════════════════════════════════════════════════════════════════════
+# Config helpers
+# ═════════════════════════════════════════════════════════════════════
 
 def deep_merge_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Merge đệ quy 2 dict, dùng cho override cấu hình task-file."""
@@ -74,12 +52,18 @@ def apply_llm_metadata_override(render_config: dict[str, Any], override: Any) ->
     return deep_merge_dict(render_config, {"llm_metadata": override})
 
 
+# ═════════════════════════════════════════════════════════════════════
+# Path resolution
+# ═════════════════════════════════════════════════════════════════════
+
 def resolve_input_video_path(video_path: str) -> Path:
+    """Resolve đường dẫn video input thành absolute path."""
     path = Path(video_path)
-    return path if path.is_absolute() else PROJECT_ROOT / path
+    return path if path.is_absolute() else _PROJECT_ROOT / path
 
 
 def format_llm_metadata_template(template: str, video_path: Path, output_name: Optional[str] = None) -> str:
+    """Format template string với các biến từ video path."""
     values = {
         "video_stem": video_path.stem,
         "video_name": video_path.name,
@@ -101,7 +85,7 @@ def resolve_llm_metadata_output_dir(video_path: str, directory_policy: str) -> P
         return video_file.parent
 
     policy_path = Path(policy)
-    return policy_path if policy_path.is_absolute() else PROJECT_ROOT / policy_path
+    return policy_path if policy_path.is_absolute() else _PROJECT_ROOT / policy_path
 
 
 def resolve_llm_metadata_paths(
@@ -137,20 +121,12 @@ def resolve_llm_metadata_paths(
     return output_path, debug_input_path
 
 
-def build_llm_metadata_input_text(subtitle_segments: list[dict]) -> str:
-    """Gom toàn bộ subtitle text thành raw text phẳng cho LLM.
-
-    Không thêm timestamp, không thêm line number, không giữ line break theo block.
-    """
-    chunks = []
-    for segment in subtitle_segments:
-        text = " ".join(str(segment.get("text", "")).split())
-        if text:
-            chunks.append(text)
-    return " ".join(chunks).strip()
-
+# ═════════════════════════════════════════════════════════════════════
+# Provider args builder
+# ═════════════════════════════════════════════════════════════════════
 
 def build_llm_provider_args(metadata_cfg: dict[str, Any]) -> argparse.Namespace:
+    """Xây dựng argparse.Namespace từ metadata_cfg để truyền vào create_task_provider."""
     overrides = metadata_cfg.get("provider_overrides", {}) or {}
 
     def pick(key: str) -> Any:
@@ -171,31 +147,46 @@ def build_llm_provider_args(metadata_cfg: dict[str, Any]) -> argparse.Namespace:
     )
 
 
+# ═════════════════════════════════════════════════════════════════════
+# Core execution
+# ═════════════════════════════════════════════════════════════════════
+
 def execute_llm_metadata_task(
     *,
     metadata_cfg: dict[str, Any],
-    subtitle_segments: list[dict],
+    input_text_path: str,
     video_path: str,
-    tmp_dir: str,
     output_name: Optional[str] = None,
 ) -> dict[str, Any]:
-    raw_text = build_llm_metadata_input_text(subtitle_segments)
+    """Thực thi LLM metadata task từ file input text đã được chuẩn bị sẵn.
+
+    Args:
+        metadata_cfg: Dict `llm_metadata` từ render_config.
+        input_text_path: Đường dẫn tới file .txt chứa raw subtitle text.
+        video_path: Đường dẫn video gốc (để resolve output path).
+        output_name: Tên output (để format template).
+
+    Returns:
+        Dict stats từ run_generic_text_task.
+    """
+    input_path = Path(input_text_path)
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input text cho LLM metadata không tồn tại: {input_path}")
+
+    raw_text = input_path.read_text(encoding="utf-8").strip()
     if not raw_text:
-        raise ValueError("Không có subtitle text để đưa vào LLM metadata")
+        raise ValueError("Input text cho LLM metadata rỗng")
 
     output_path, debug_input_path = resolve_llm_metadata_paths(metadata_cfg, video_path, output_name)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if debug_input_path:
+    # Nếu debug_input_path khác với input_path, copy nội dung sang debug path
+    if debug_input_path and debug_input_path.resolve() != input_path.resolve():
         debug_input_path.parent.mkdir(parents=True, exist_ok=True)
         debug_input_path.write_text(raw_text, encoding="utf-8")
-        llm_input_path = debug_input_path
         logger.info(f"Đã ghi debug input cho LLM metadata: {debug_input_path}")
-    else:
-        llm_input_path = Path(tmp_dir) / "llm_metadata_input.txt"
-        llm_input_path.write_text(raw_text, encoding="utf-8")
 
-    from cli.llm_task import _create_task_provider, _resolve_project_path
+    from llm_ai.task_runner import create_task_provider, resolve_project_path
     from llm_ai.tasks.generic_text_task import (
         GenericTextTaskConfig,
         load_task_config,
@@ -203,17 +194,17 @@ def execute_llm_metadata_task(
     )
 
     task_config = metadata_cfg.get("task_config", "config/llm_tasks/seo_metadata.yaml")
-    task_config_path = _resolve_project_path(str(task_config))
+    task_config_path = resolve_project_path(str(task_config))
     task_cfg = load_task_config(str(task_config_path))
-    task_cfg["prompt_file"] = str(_resolve_project_path(task_cfg.get("prompt_file")))
+    task_cfg["prompt_file"] = str(resolve_project_path(task_cfg.get("prompt_file")))
 
     generic_cfg = GenericTextTaskConfig.from_dict(task_cfg)
     provider_args = build_llm_provider_args(metadata_cfg)
-    provider = _create_task_provider(provider_args, task_cfg)
+    provider = create_task_provider(provider_args, task_cfg)
 
-    logger.info(f"Đang tạo LLM metadata: input={llm_input_path}, output={output_path}, provider={provider.name}")
+    logger.info(f"Đang tạo LLM metadata: input={input_path}, output={output_path}, provider={provider.name}")
     stats = run_generic_text_task(
-        input_file=str(llm_input_path),
+        input_file=str(input_path),
         output_file=str(output_path),
         provider=provider,
         task_config=generic_cfg,
@@ -224,12 +215,25 @@ def execute_llm_metadata_task(
 
 def run_llm_metadata_task(
     *,
-    subtitle_segments: list[dict],
+    input_text_path: str,
     render_config: dict[str, Any],
     video_path: str,
-    tmp_dir: str,
     output_name: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
+    """Entry point chính cho bước LLM metadata post-render.
+
+    Được gọi từ `cli/sync_video.py` sau khi final render hoàn tất.
+    Tự kiểm tra `enabled` và xử lý `fail_policy`.
+
+    Args:
+        input_text_path: Đường dẫn tới file .txt chứa raw subtitle text.
+        render_config: Toàn bộ render config dict.
+        video_path: Đường dẫn video gốc.
+        output_name: Tên output (để format template).
+
+    Returns:
+        Dict stats nếu thành công, None nếu bị skip hoặc lỗi với fail_policy=warn.
+    """
     metadata_cfg = render_config.get("llm_metadata", {}) or {}
     if not metadata_cfg.get("enabled", False):
         logger.info("LLM metadata không được bật trong render_config. Bỏ qua.")
@@ -240,9 +244,8 @@ def run_llm_metadata_task(
     try:
         return execute_llm_metadata_task(
             metadata_cfg=metadata_cfg,
-            subtitle_segments=subtitle_segments,
+            input_text_path=input_text_path,
             video_path=video_path,
-            tmp_dir=tmp_dir,
             output_name=output_name,
         )
     except Exception as exc:

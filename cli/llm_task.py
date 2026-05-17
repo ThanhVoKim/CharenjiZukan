@@ -14,21 +14,13 @@ Cấu trúc layers khi test:
 
 import argparse
 import logging
-import os
 import sys
 from pathlib import Path
-from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from llm_ai.base import BaseLLMProvider  # noqa: E402
-from llm_ai.factory import create_provider, load_provider_config  # noqa: E402
-from llm_ai.provider_chain import (  # noqa: E402
-    FallbackLLMProvider,
-    apply_provider_chain_entry_overrides,
-    normalize_provider_chain,
-)
+from llm_ai.task_runner import create_task_provider, resolve_project_path  # noqa: E402
 from llm_ai.tasks.generic_text_task import (  # noqa: E402
     GenericTextTaskConfig,
     load_task_config,
@@ -36,19 +28,6 @@ from llm_ai.tasks.generic_text_task import (  # noqa: E402
 )
 from utils.logger import setup_logging, get_logger  # noqa: E402
 from utils.task_utils import resolve_cli_tasks  # noqa: E402
-
-DEFAULT_PROVIDER_CONFIGS = {
-    "gemini": "config/llm/gemini.yaml",
-    "openai": "config/llm/openai_compat.yaml",
-    "vertexai": "config/llm/vertexai.yaml",
-}
-
-
-def _resolve_project_path(path_value: str | None) -> Path | None:
-    if not path_value:
-        return None
-    path = Path(path_value)
-    return path if path.is_absolute() else PROJECT_ROOT / path
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -112,108 +91,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolve_provider_config_path(args: argparse.Namespace, task_cfg: dict[str, Any], provider_type: str) -> Path:
-    raw_path = (
-        args.provider_config
-        or task_cfg.get("provider_config")
-        or DEFAULT_PROVIDER_CONFIGS.get(provider_type)
-    )
-    resolved = _resolve_project_path(str(raw_path) if raw_path else None)
-    if not resolved:
-        raise ValueError(f"Không xác định được provider config cho provider: {provider_type}")
-    return resolved
-
-
-def _resolve_chain_provider_config_path(entry: dict[str, Any], provider_type: str) -> Path:
-    raw_path = entry.get("provider_config") or DEFAULT_PROVIDER_CONFIGS.get(provider_type)
-    resolved = _resolve_project_path(str(raw_path) if raw_path else None)
-    if not resolved:
-        raise ValueError(f"Không xác định được provider config cho provider_chain entry: {entry}")
-    return resolved
-
-
-def _build_secrets(provider_type: str, keys_arg: str | None) -> dict[str, Any]:
-    secrets: dict[str, Any] = {}
-    if provider_type == "gemini":
-        raw_keys = keys_arg or os.getenv("GEMINI_API_KEY", "")
-        api_keys = [key.strip() for key in raw_keys.split(",") if key.strip()]
-        if not api_keys:
-            raise ValueError("--keys hoặc GEMINI_API_KEY là bắt buộc đối với provider gemini")
-        secrets["api_keys"] = api_keys
-    elif provider_type == "openai":
-        api_key = keys_arg or os.getenv("OPENAI_API_KEY", "")
-        if not api_key:
-            raise ValueError("--keys hoặc OPENAI_API_KEY là bắt buộc đối với provider openai")
-        secrets["api_key"] = api_key.strip()
-    return secrets
-
-
-def _apply_provider_overrides(provider_config: dict[str, Any], args: argparse.Namespace, task_cfg: dict[str, Any]) -> dict[str, Any]:
-    cfg = dict(provider_config)
-
-    if task_cfg.get("system_prompt") is not None:
-        cfg["system_prompt"] = task_cfg.get("system_prompt")
-
-    if args.base_url:
-        cfg["base_url"] = args.base_url
-    if args.model:
-        cfg["model"] = args.model
-    if args.system_prompt is not None:
-        cfg["system_prompt"] = args.system_prompt
-    if args.temperature is not None:
-        cfg["temperature"] = args.temperature
-    if args.max_tokens is not None:
-        cfg["max_tokens"] = args.max_tokens
-        cfg["max_output_tokens"] = args.max_tokens
-    if args.request_timeout is not None:
-        cfg["request_timeout"] = args.request_timeout
-
-    return cfg
-
-
-def _create_single_provider(args: argparse.Namespace, task_cfg: dict[str, Any]) -> BaseLLMProvider:
-    provider_type = (args.provider or task_cfg.get("provider") or "openai").lower().strip()
-    provider_config_path = _resolve_provider_config_path(args, task_cfg, provider_type)
-    provider_config = load_provider_config(str(provider_config_path))
-    provider_config = _apply_provider_overrides(provider_config, args, task_cfg)
-    secrets = _build_secrets(provider_type, args.keys)
-    return create_provider(provider_type, provider_config, secrets)
-
-
-def _create_provider_from_chain_entry(
-    entry: dict[str, Any],
-    args: argparse.Namespace,
-    task_cfg: dict[str, Any],
-) -> BaseLLMProvider:
-    provider_type = entry["provider"]
-    provider_config_path = _resolve_chain_provider_config_path(entry, provider_type)
-    provider_config = load_provider_config(str(provider_config_path))
-    provider_config = apply_provider_chain_entry_overrides(
-        provider_config,
-        entry,
-        task_system_prompt=task_cfg.get("system_prompt"),
-    )
-
-    if args.system_prompt is not None:
-        provider_config["system_prompt"] = args.system_prompt
-
-    secrets = _build_secrets(provider_type, args.keys)
-    return create_provider(provider_type, provider_config, secrets)
-
-
-def _create_task_provider(args: argparse.Namespace, task_cfg: dict[str, Any]) -> BaseLLMProvider:
-    raw_chain = normalize_provider_chain(task_cfg.get("provider_chain"))
-    if args.provider or args.provider_config or not raw_chain:
-        return _create_single_provider(args, task_cfg)
-
-    factories = [
-        (lambda entry=entry: _create_provider_from_chain_entry(entry, args, task_cfg))
-        for entry in raw_chain
-    ]
-    names = [str(entry.get("name") or entry["provider"]) for entry in raw_chain]
-    return FallbackLLMProvider(factories, names)
-
-
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -223,13 +100,13 @@ def main() -> None:
     logger = get_logger(__name__)
 
     try:
-        task_config_path = _resolve_project_path(args.task_config)
+        task_config_path = resolve_project_path(args.task_config)
         task_cfg = load_task_config(str(task_config_path))
 
         if args.prompt:
             task_cfg["prompt_file"] = str(_resolve_project_path(args.prompt))
         else:
-            task_cfg["prompt_file"] = str(_resolve_project_path(task_cfg.get("prompt_file")))
+            task_cfg["prompt_file"] = str(resolve_project_path(task_cfg.get("prompt_file")))
 
         if args.placeholder:
             task_cfg["input_placeholder"] = args.placeholder
@@ -237,7 +114,7 @@ def main() -> None:
             task_cfg["output_parser"] = args.parser
 
         generic_cfg = GenericTextTaskConfig.from_dict(task_cfg)
-        provider = _create_task_provider(args, task_cfg)
+        provider = create_task_provider(args, task_cfg)
 
         tasks = resolve_cli_tasks(
             task_file=args.task_file,
@@ -274,7 +151,7 @@ def main() -> None:
                 output_file=output_file,
                 provider=provider,
                 task_config=generic_cfg,
-                prompt_file=str(_resolve_project_path(task_prompt_file)) if task_prompt_file else None,
+                prompt_file=str(resolve_project_path(task_prompt_file)) if task_prompt_file else None,
                 input_placeholder=task_placeholder,
             )
             ok_tasks += 1

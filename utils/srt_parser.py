@@ -267,6 +267,38 @@ def segments_to_txt(segments: List[Dict]) -> str:
     return ' '.join(texts)
 
 
+def write_segments_to_flat_text(segments: list, output_path: str) -> Path:
+    """Ghi toàn bộ subtitle text thành raw text phẳng ra file .txt.
+
+    Normalize whitespace: mỗi segment được collapse whitespace thành single space,
+    sau đó tất cả segment được nối bằng khoảng trắng. Không timestamp, không line number.
+
+    Args:
+        segments: List of segment dicts (từ parse_srt).
+        output_path: Đường dẫn file .txt output.
+
+    Returns:
+        Path tới file đã ghi.
+
+    Example:
+        >>> write_segments_to_flat_text([{'text': 'Hello  world'}, {'text': 'Foo\\nbar'}], '/tmp/out.txt')
+        PosixPath('/tmp/out.txt')
+        >>> Path('/tmp/out.txt').read_text()
+        'Hello world Foo bar'
+    """
+    chunks = []
+    for segment in segments:
+        text = " ".join(str(segment.get("text", "")).split())
+        if text:
+            chunks.append(text)
+    flat_text = " ".join(chunks).strip()
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(flat_text, encoding="utf-8")
+    return path
+
+
 if __name__ == "__main__":
     # Test với sample SRT
     sample = """1
