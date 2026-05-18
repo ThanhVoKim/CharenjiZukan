@@ -3,7 +3,7 @@ from typing import List, Dict, Any
 
 class BaseTTSEngine(ABC):
     """
-    Abstract base class for all TTS engines (EdgeTTS, Voicevox, etc.)
+    Abstract base class for all TTS engines (EdgeTTS, Voicevox, Voicevox Nemo, Qwen3-TTS, etc.)
     """
     def __init__(self, queue_tts: List[Dict[str, Any]], **kwargs):
         self.queue_tts = queue_tts

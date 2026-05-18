@@ -102,8 +102,8 @@ def run_sync_pipeline(args):
         logger.info(f"Subtitle: {args.subtitle}")
         if args.tts_provider == "edge":
             logger.info(f"TTS Voice: {args.tts_voice}")
-        elif args.tts_provider == "voicevox":
-            logger.info(f"Voice ID: {args.tts_voice}")
+        elif args.tts_provider in ("voicevox", "voicevox_nemo"):
+            logger.info(f"Voice ID: {args.tts_voice} (provider={args.tts_provider})")
         else:
             logger.info(f"TTS Provider: {args.tts_provider}")
         
@@ -157,6 +157,7 @@ def run_sync_pipeline(args):
         from sync_engine.analyzer import filter_tts_subtitles
         from tts.edgetts import EdgeTTSEngine
         from tts.voicevox import VoicevoxTTSEngine
+        from tts.voicevox_nemo import VoicevoxNemoTTSEngine
         from tts.qwen import QwenTTSEngine
         
         tts_only = filter_tts_subtitles(subtitle_segments, mute_segments)
@@ -188,13 +189,30 @@ def run_sync_pipeline(args):
                 max_concurrent=edge_cfg.get("concurrent", 10),
                 min_silence_len_ms=edge_cfg.get("min_silence_len_ms", 300),
             )
-        elif args.tts_provider == "voicevox":
-            vv_cfg = tts_cfg_full.get("voicevox", {})
+        elif args.tts_provider == "voicevox_nemo":
+            vv_cfg = tts_cfg_full.get("voicevox_nemo", {})
             raw_voice = args.tts_voice or vv_cfg.get("voice_id", 10008)
             try:
                 voice_id = int(raw_voice)
             except ValueError:
-                raise ValueError(f"Với Voicevox, tham số --tts-voice phải là ID dạng số nguyên (ví dụ: 10008). Giá trị hiện tại: {raw_voice}")
+                raise ValueError(f"Với Voicevox Nemo, tham số --tts-voice phải là ID dạng số nguyên (ví dụ: 10008). Giá trị hiện tại: {raw_voice}")
+            
+            engine = VoicevoxNemoTTSEngine(
+                queue_tts=queue_tts,
+                voice_id=voice_id,
+                concurrent_requests=vv_cfg.get("concurrent_requests", 100),
+                speed_scale=vv_cfg.get("speed_scale", 1.12),
+                pitch_scale=vv_cfg.get("pitch_scale", -0.05),
+                intonation_scale=vv_cfg.get("intonation_scale", 1.0),
+                volume_scale=vv_cfg.get("volume_scale", 2.0),
+            )
+        elif args.tts_provider == "voicevox":
+            vv_cfg = tts_cfg_full.get("voicevox", {})
+            raw_voice = args.tts_voice or vv_cfg.get("voice_id", 100)
+            try:
+                voice_id = int(raw_voice)
+            except ValueError:
+                raise ValueError(f"Với Voicevox, tham số --tts-voice phải là ID dạng số nguyên (ví dụ: 100). Giá trị hiện tại: {raw_voice}")
             
             engine = VoicevoxTTSEngine(
                 queue_tts=queue_tts,
@@ -226,9 +244,9 @@ def run_sync_pipeline(args):
         )
         logger.info(f"Tìm thấy {len(blocks)} blocks (bao gồm tts, mute, gap).")
         
-        is_voicevox = args.tts_provider == "voicevox"
-        if is_voicevox:
-            logger.info("Voicevox mode: no_cap=True, video có thể slow xuống dưới %.1fx", args.slow_cap)
+        is_voicevox_family = args.tts_provider in ("voicevox", "voicevox_nemo")
+        if is_voicevox_family:
+            logger.info("Voicevox family mode: no_cap=True, video có thể slow xuống dưới %.1fx", args.slow_cap)
 
         speeds = []
         for b in blocks:
@@ -237,7 +255,7 @@ def run_sync_pipeline(args):
                 slot_ms       = b.slot_duration,
                 cap           = args.slow_cap,
                 hard_limit_ms = b.hard_limit_ms,
-                no_cap        = is_voicevox,
+                no_cap        = is_voicevox_family,
             )
             speeds.append((vs, as_, new_dur))
             
@@ -462,8 +480,8 @@ def main():
     parser.add_argument("--subtitle", help="File subtitle.srt đầy đủ (kể cả vùng mute)")
     
     # TTS Settings
-    parser.add_argument("--tts-provider", choices=["edge", "voicevox", "qwen"], default="edge", help="Chọn TTS engine (mặc định: edge)")
-    parser.add_argument("--tts-voice", default=None, help="Tên giọng EdgeTTS hoặc ID nhân vật Voicevox (ghi đè YAML)")
+    parser.add_argument("--tts-provider", choices=["edge", "voicevox_nemo", "voicevox", "qwen"], default="edge", help="Chọn TTS engine: edge, voicevox_nemo, voicevox, qwen (mặc định: edge)")
+    parser.add_argument("--tts-voice", default=None, help="Tên giọng EdgeTTS hoặc ID nhân vật Voicevox/Voicevox Nemo (ghi đè YAML)")
     parser.add_argument("--tts-config", default=str(PROJECT_ROOT / "config" / "tts_config.yaml"),
                         help="File YAML cấu hình TTS (mặc định: config/tts_config.yaml)")
     

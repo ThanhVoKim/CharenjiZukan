@@ -3,11 +3,13 @@
 """
 cli/tts.py — CLI: TTS từ .srt hoặc .txt
 
-Hỗ trợ 3 engine: EdgeTTS, Voicevox, Qwen3-TTS.
+Hỗ trợ 4 engine: EdgeTTS, Voicevox Nemo, Voicevox (chính thức), Qwen3-TTS.
 Cấu hình qua YAML (--config), hỗ trợ batch qua JSON (--task-file).
 
 Ví dụ:
     uv run tts --input video.srt --config config/tts_config.yaml
+    uv run tts --input script.txt --provider voicevox_nemo --config config/tts_config.yaml
+    uv run tts --input script.txt --provider voicevox --config config/tts_config.yaml
     uv run tts --input script.txt --provider qwen --config config/tts_config.yaml
     uv run tts --task-file tasks.json --config config/tts_config.yaml
 """
@@ -32,6 +34,7 @@ from utils.task_utils import resolve_cli_tasks
 from speed_rate import SpeedRate
 from tts.edgetts import EdgeTTSEngine
 from tts.voicevox import VoicevoxTTSEngine
+from tts.voicevox_nemo import VoicevoxNemoTTSEngine
 from tts.qwen import QwenTTSEngine
 
 logger = get_logger(__name__)
@@ -87,6 +90,8 @@ def get_engine(provider: str, queue_tts: list, config: dict):
     provider_cfg = config.get(provider, {})
     if provider == "edge":
         return EdgeTTSEngine(queue_tts, **provider_cfg)
+    elif provider == "voicevox_nemo":
+        return VoicevoxNemoTTSEngine(queue_tts, **provider_cfg)
     elif provider == "voicevox":
         return VoicevoxTTSEngine(queue_tts, **provider_cfg)
     elif provider == "qwen":
@@ -277,8 +282,8 @@ Xem danh sách giọng EdgeTTS:
     cfg = parser.add_argument_group("Config")
     cfg.add_argument("--config", "-c", default="config/tts_config.yaml", metavar="YAML",
                      help="File cấu hình YAML (mặc định: config/tts_config.yaml)")
-    cfg.add_argument("--provider", "-p", choices=["edge", "voicevox", "qwen"],
-                     help="TTS engine (ghi đè giá trị trong config)")
+    cfg.add_argument("--provider", "-p", choices=["edge", "voicevox_nemo", "voicevox", "qwen"],
+                     help="TTS engine: edge (EdgeTTS), voicevox_nemo (Voicevox Nemo), voicevox (Voicevox chính thức), qwen (Qwen3-TTS)")
 
     proc = parser.add_argument_group("Processing")
     proc.add_argument("--autorate", action="store_true",

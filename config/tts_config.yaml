@@ -1,7 +1,7 @@
 # Cấu hình mặc định cho TTS CLI
 # Sử dụng: uv run tts --config config/tts_config.yaml --input file.srt
 
-# Provider mặc định: edge | voicevox | qwen
+# Provider mặc định: edge | voicevox_nemo | voicevox | qwen
 provider: "edge"
 
 # ── EdgeTTS ──────────────────────────────────────────────────────────
@@ -14,8 +14,8 @@ edge:
   strip_silence: true
   silence_thresh_dbfs: -50
 
-# ── Voicevox ─────────────────────────────────────────────────────────
-voicevox:
+# ── Voicevox Nemo ────────────────────────────────────────────────────
+voicevox_nemo:
   voice_id: 10008
   host: "127.0.0.1"
   port: 50121
@@ -23,12 +23,27 @@ voicevox:
   pitch_scale: -0.05
   intonation_scale: 1.0
   volume_scale: 2.0
+  output_sampling_rate: 48000
   concurrent_requests: 100
+  max_retries: 3
+
+# ── Voicevox (chính thức) ────────────────────────────────────────────
+voicevox:
+  voice_id: 100
+  host: "127.0.0.1"
+  port: 50021
+  speed_scale: 1.12
+  pitch_scale: -0.05
+  intonation_scale: 1.0
+  volume_scale: 2.0
+  output_sampling_rate: 48000
+  concurrent_requests: 100
+  max_retries: 3
 
 # ── Qwen3-TTS ────────────────────────────────────────────────────────
 qwen:
   model_path: "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
-  ref_audio: "/content/assets/Minimax - Nature Show Host.mp3"
+  ref_audio: "/content/assets/Minimax - English_Magnetic_Male_12.mp3"
   ref_text: "Hello. I'm delighted to assist you with our voice services. Choose a voice that resonates with you, and let's begin our creative audio journey together."
   batch_size: 32
   device: "cuda:0"

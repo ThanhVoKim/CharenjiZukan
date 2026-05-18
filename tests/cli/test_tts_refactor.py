@@ -24,6 +24,7 @@ def test_load_config():
     assert "provider" in cfg
     assert "edge" in cfg
     assert "voicevox" in cfg
+    assert "voicevox_nemo" in cfg
     assert "qwen" in cfg
     print("✅ test_load_config passed")
 

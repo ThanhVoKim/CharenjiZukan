@@ -1,5 +1,43 @@
 # Project Journal
 
+## 2026-05-18: Tách provider Voicevox Nemo và Voicevox chính thức trong TTS
+
+### Tóm tắt
+
+- **Mục tiêu**: Tách flow Voicevox Nemo (hiện tại) khỏi Voicevox chính thức (mới) thành 2 provider riêng biệt trong hệ thống TTS.
+- **Lý do**: Flow hiện tại dùng thư viện Voicevox Nemo nhưng provider lại đặt tên là `voicevox`. Cần tích hợp thêm Voicevox chính thức nên phải tách rõ ràng.
+- **Provider mới**: `voicevox_nemo` (Nemo, port 50121, speaker 10008) và `voicevox` (chính thức, port 50021, speaker 100).
+
+### File mới
+
+- `tts/voicevox_base.py` — `VoicevoxRestTTSEngine`: Base engine dùng chung cho cả 2 provider Voicevox, chứa toàn bộ logic REST API (audio_query, synthesis), retry, semaphore-based concurrency
+- `tts/voicevox_nemo.py` — `VoicevoxNemoTTSEngine`: Wrapper cho Voicevox Nemo, kế thừa `VoicevoxRestTTSEngine`, defaults: port 50121, speaker 10008, speed_scale 1.12, concurrent_requests 100
+- `plans/voicevox-nemo-voicevox-provider-split-plan.md` — Kế hoạch chi tiết toàn bộ quá trình tách provider
+
+### File sửa
+
+- `tts/voicevox.py` — Refactor từ engine Nemo cũ thành `VoicevoxTTSEngine` wrapper cho Voicevox chính thức, kế thừa `VoicevoxRestTTSEngine`, defaults: port 50021, speaker 100, speed_scale 1.12, concurrent_requests 100
+- `tts/base.py` — Cập nhật docstring: `(EdgeTTS, Voicevox, Voicevox Nemo, Qwen3-TTS, etc.)`
+- `cli/tts.py` — Thêm import `VoicevoxNemoTTSEngine`, cập nhật `get_engine()` factory, parser choices: `["edge", "voicevox_nemo", "voicevox", "qwen"]`
+- `cli/sync_video.py` — Thêm import `VoicevoxNemoTTSEngine`, cập nhật parser choices, thêm block khởi tạo `voicevox_nemo` engine, đổi `is_voicevox` → `is_voicevox_family` (bao gồm cả 2 provider), cập nhật logging và help text
+- `sync_engine/audio_assembler.py` — Cập nhật comment: Voicevox family (cả chính thức và Nemo) tự quản lý volumeScale
+- `sync_engine/analyzer.py` — Cập nhật comment: "Voicevox mode" → "Voicevox family mode"
+- `config/tts_config.yaml` — Thêm block `voicevox_nemo` (port 50121, speaker 10008), cập nhật block `voicevox` (port 50021, speaker 100, speed_scale 1.12, concurrent_requests 100)
+- `docs/colab-guide.md` — Cập nhật section 2.6 (TTS) và 2.11 (sync-video): 4 engine, hướng dẫn riêng cho Voicevox Nemo và Voicevox chính thức, cập nhật bảng tham số và YAML config
+- `tests/cli/test_tts_refactor.py` — Thêm assertion `voicevox_nemo` trong `test_load_config()`
+
+### Quyết định kiến trúc
+
+1. **Shared REST base**: `VoicevoxRestTTSEngine` trong `tts/voicevox_base.py` chứa toàn bộ logic async REST, retry, semaphore. Các provider-specific class (`VoicevoxNemoTTSEngine`, `VoicevoxTTSEngine`) chỉ là wrapper mỏng set defaults khác nhau.
+2. **Voicevox family mode**: Cả 2 provider Voicevox đều dùng chung logic no-cap (bỏ qua audio compression) và volume filter bypass (tự quản lý volumeScale). Biến `is_voicevox_family` thay thế `is_voicevox` cũ.
+3. **Default khác biệt**: Voicevox Nemo (port 50121, speaker 10008) vs Voicevox chính thức (port 50021, speaker 100). Cả 2 đều dùng `speed_scale=1.12`, `concurrent_requests=100`.
+4. **Breaking change**: Provider `voicevox` cũ (thực chất là Nemo) giờ trỏ đến Voicevox chính thức. Người dùng Nemo phải chuyển sang `--provider voicevox_nemo`.
+
+### Pending
+
+- Chạy test verification cho TTS-related tests
+- Kiểm tra các file còn sót reference đến `voicevox` chưa được cập nhật
+
 ## 2026-05-17: Forced Alignment Subtitle — tích hợp Qwen3ForcedAligner vào sync-video pipeline
 
 ### Tóm tắt

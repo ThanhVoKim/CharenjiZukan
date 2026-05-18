@@ -15,7 +15,7 @@ _PCM_AUDIO_EXTENSIONS = {'.wav', '.flac', '.aiff', '.aif', '.pcm'}
 logger = logging.getLogger("sync_video")
 
 def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_provider: str = "edge", target_dur_s: Optional[float] = None) -> None:
-    # Voicevox đã tự tăng volumeScale, không cần filter
+    # Voicevox family (Voicevox chính thức và Voicevox Nemo) đã tự tăng volumeScale, không cần filter
     if tts_provider.startswith("voicevox"):
         base_filter = ""
     else:

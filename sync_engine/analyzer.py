@@ -235,7 +235,7 @@ def compute_speeds(
     no_cap: bool = False,       # True → bỏ Case 3, video slow thoải mái
 ) -> Tuple[float, float, float]:
     """
-    no_cap=True (Voicevox mode):
+    no_cap=True (Voicevox family mode):
         Chỉ có Case 1 và Case 2. Không bao giờ compress audio.
         Video slow bao nhiêu cũng được để khớp TTS.
     """
@@ -246,7 +246,7 @@ def compute_speeds(
         return 1.0, 1.0, slot_ms
 
     if no_cap:
-        # Voicevox mode: kéo video chậm thoải mái, không compress audio
+        # Voicevox family mode: kéo video chậm thoải mái, không compress audio
         # video_speed = effective / tts_ms (có thể rất nhỏ, e.g. 0.1x)
         video_speed = effective / tts_ms
         return video_speed, 1.0, tts_ms

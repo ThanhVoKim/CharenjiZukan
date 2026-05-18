@@ -568,7 +568,7 @@ Chuyển file SRT thành file ASS để overlay lên video.
 
 ### 2.6. Text-to-Speech (tts)
 
-Hỗ trợ 3 engine: **EdgeTTS** (mặc định, cloud), **Voicevox** (local server), và **Qwen3-TTS** (HuggingFace, voice-clone).
+Hỗ trợ 4 engine: **EdgeTTS** (mặc định, cloud), **Voicevox Nemo** (local server), **Voicevox** (local server), và **Qwen3-TTS** (HuggingFace, voice-clone).
 
 Cấu hình engine được đặt trong file YAML (`config/tts_config.yaml`). CLI chỉ cần trỏ `--config` và `--provider`.
 
@@ -600,34 +600,29 @@ Cấu hình engine được đặt trong file YAML (`config/tts_config.yaml`). C
     --autorate
 ```
 
-#### Sử dụng Voicevox
+#### Sử dụng Voicevox Nemo
 
-**Bước 1: Khởi động Server Voicevox ngầm**
+**Bước 1: Cài đặt và khởi động Server Voicevox Nemo ngầm**
+
+```colab
+!python setup_voicevox_nemo.py
+```
+
+**Bước 2: Chạy TTS với Voicevox Nemo**
+
+```colab
+!uv run tts \
+    --input /content/video_ja.srt \
+    --provider voicevox_nemo \
+    --config /content/CharenjiZukan/config/tts_config.yaml
+```
+
+#### Sử dụng Voicevox (Chính thức)
+
+**Bước 1: Cài đặt và khởi động Server Voicevox ngầm**
 
 ```colab
 !python setup_voicevox.py
-```
-
-Chạy trong một cell riêng biệt trước khi gọi lệnh TTS:
-
-```colab
-import subprocess
-import time
-
-print("🚀 Đang khởi động Voicevox Server ngầm...")
-process = subprocess.Popen(
-    ["uv", "run", "run.py", "--use_gpu", "--host", "127.0.0.1", "--port", "50121"],
-    cwd="/content/voicevox_nemo_engine",
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True
-)
-
-while True:
-    line = process.stdout.readline()
-    if "Application startup complete" in line or "Uvicorn running on" in line:
-        print("✅ Voicevox Server đã sẵn sàng tại 127.0.0.1:50121")
-        break
 ```
 
 **Bước 2: Chạy TTS với Voicevox**
@@ -706,7 +701,7 @@ Chạy:
 | `--output`, `-o`    | File audio đầu ra (.wav/.mp3)                        | `output/<input_stem>.wav`           |
 | `--task-file`, `-t` | File JSON chứa danh sách task                        | (không dùng)                        |
 | `--config`, `-c`    | File cấu hình YAML                                   | `config/tts_config.yaml`            |
-| `--provider`, `-p`  | TTS engine (edge/voicevox/qwen)                      | `edge`                              |
+| `--provider`, `-p`  | TTS engine (edge/voicevox_nemo/voicevox/qwen)        | `edge`                              |
 | `--autorate`        | Tự động nén audio khớp slot SRT (chỉ .srt)           | (tắt)                               |
 | `--max-speed`       | Giới hạn tốc độ nén tối đa                           | `100.0`                             |
 | `--silence-ms`      | Độ dài silence giữa các dòng khi không dùng autorate | `0`                                 |
@@ -716,34 +711,6 @@ Chạy:
 | `--verbose`         | Bật logging debug                                    | (tắt)                               |
 
 #### File cấu hình `config/tts_config.yaml`
-
-```yaml
-provider: "edge"
-
-edge:
-  voice: "vi-VN-HoaiMyNeural"
-  rate: "+0%"
-  volume: "+0%"
-  pitch: "+0Hz"
-  concurrent: 10
-  strip_silence: true
-  silence_thresh_dbfs: -50
-
-voicevox:
-  voice_id: 10008
-  host: "127.0.0.1"
-  port: 50121
-  speed_scale: 1.12
-  pitch_scale: -0.05
-  concurrent_requests: 100
-
-qwen:
-  model_path: "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
-  ref_audio: ""
-  ref_text: ""
-  batch_size: 32
-  device: "cuda:0"
-```
 
 ---
 
@@ -1071,7 +1038,20 @@ with open("/content/CharenjiZukan/assets/default_render_config.json", "w") as f:
     --output-dir /content/output_sync
 ```
 
-#### Chạy nhanh với Voicevox
+#### Chạy nhanh với Voicevox Nemo
+
+Yêu cầu đã bật server Voicevox Nemo ngầm (xem phần 2.6).
+
+```colab
+!uv run sync-video \
+    --video /content/video.mp4 \
+    --subtitle /content/subtitle_translated.srt \
+    --tts-provider voicevox_nemo \
+    --tts-voice 10008 \
+    --output-dir /content/output_sync
+```
+
+#### Chạy nhanh với Voicevox (Chính thức)
 
 Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
 
@@ -1080,7 +1060,7 @@ Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
     --video /content/video.mp4 \
     --subtitle /content/subtitle_translated.srt \
     --tts-provider voicevox \
-    --tts-voice 10008 \
+    --tts-voice 100 \
     --output-dir /content/output_sync
 ```
 
@@ -1158,28 +1138,28 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 
 #### Tham số
 
-| Tham số                | Mô tả                                                                | Mặc định                                |
-| ---------------------- | -------------------------------------------------------------------- | --------------------------------------- |
-| `--task-file`          | File JSON chứa danh sách tasks cho xử lý hàng loạt                   | (không dùng)                            |
-| `--video`              | File video gốc (`.mp4`, `.mkv`)                                      | (bắt buộc khi không dùng `--task-file`) |
-| `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có)            | (bắt buộc khi không dùng `--task-file`) |
-| `--tts-provider`       | Provider TTS (`edge`, `voicevox`, `qwen`)                            | `edge`                                  |
-| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox (ghi đè YAML)            | (lấy từ `tts_config.yaml`)              |
-| `--tts-config`         | File YAML cấu hình TTS (dùng cho `edge`, `voicevox`, `qwen`)         | `config/tts_config.yaml`                |
-| `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                         | (không dùng)                            |
-| `--note-overlay-ass`   | File ASS text cho note overlay                                       | (không dùng)                            |
-| `--render-config`      | File JSON cấu hình render (style, resolution, dải đen, watermark...) | `assets/default_render_config.json`     |
-| `--ambient`            | Nhạc nền ambient cho toàn bộ video                                   | `assets/ambient.mp3`                    |
-| `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)                    | `0.5`                                   |
-| `--output-dir`         | Thư mục output                                                       | `./sync_output/`                        |
-| `--output-name`        | Tên base cho tất cả file output                                      | `video_synced`                          |
-| `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap                    | (tắt)                                   |
-| `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video                | `4`                                     |
-| `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)             | `100`                                   |
-| `--no-gpu`             | Dùng `libx264` thay `h264_nvenc` (CPU mode)                          | (tắt)                                   |
-| `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                   | (tắt)                                   |
-| `--note-max-chars`     | Số ký tự tối đa mỗi dòng khi wrap text ASS note                      | `15`                                    |
-| `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                      | `0`                                     |
+| Tham số                | Mô tả                                                                         | Mặc định                                |
+| ---------------------- | ----------------------------------------------------------------------------- | --------------------------------------- |
+| `--task-file`          | File JSON chứa danh sách tasks cho xử lý hàng loạt                            | (không dùng)                            |
+| `--video`              | File video gốc (`.mp4`, `.mkv`)                                               | (bắt buộc khi không dùng `--task-file`) |
+| `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có)                     | (bắt buộc khi không dùng `--task-file`) |
+| `--tts-provider`       | Provider TTS (`edge`, `voicevox_nemo`, `voicevox`, `qwen`)                    | `edge`                                  |
+| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox/Voicevox Nemo (ghi đè YAML)       | (lấy từ `tts_config.yaml`)              |
+| `--tts-config`         | File YAML cấu hình TTS (dùng cho `edge`, `voicevox_nemo`, `voicevox`, `qwen`) | `config/tts_config.yaml`                |
+| `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                                  | (không dùng)                            |
+| `--note-overlay-ass`   | File ASS text cho note overlay                                                | (không dùng)                            |
+| `--render-config`      | File JSON cấu hình render (style, resolution, dải đen, watermark...)          | `assets/default_render_config.json`     |
+| `--ambient`            | Nhạc nền ambient cho toàn bộ video                                            | `assets/ambient.mp3`                    |
+| `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)                             | `0.5`                                   |
+| `--output-dir`         | Thư mục output                                                                | `./sync_output/`                        |
+| `--output-name`        | Tên base cho tất cả file output                                               | `video_synced`                          |
+| `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap                             | (tắt)                                   |
+| `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video                         | `4`                                     |
+| `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)                      | `100`                                   |
+| `--no-gpu`             | Dùng `libx264` thay `h264_nvenc` (CPU mode)                                   | (tắt)                                   |
+| `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                            | (tắt)                                   |
+| `--note-max-chars`     | Số ký tự tối đa mỗi dòng khi wrap text ASS note                               | `15`                                    |
+| `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                               | `0`                                     |
 
 > **Lưu ý về âm lượng (Volume):** Khi cấu hình tách BGM trong `render_config`, bạn có thể điều chỉnh âm lượng của BGM đã tách và ambient thông qua block `audio_mix`:
 >

@@ -2,20 +2,20 @@ from typing import List, Dict, Any
 from tts.voicevox_base import VoicevoxRestTTSEngine
 
 
-class VoicevoxTTSEngine(VoicevoxRestTTSEngine):
+class VoicevoxNemoTTSEngine(VoicevoxRestTTSEngine):
     """
-    Async engine tạo audio từng dòng subtitle bằng Voicevox chính thức.
+    Async engine tạo audio từng dòng subtitle bằng Voicevox Nemo.
 
-    Voicevox chính thức là phiên bản gốc từ VOICEVOX project, chạy server tại cổng 50021.
-    Cài đặt trên Google Colab bằng lệnh: !python setup_voicevox.py
+    Voicevox Nemo là phiên bản tối ưu cho GPU NVIDIA, chạy server tại cổng 50121.
+    Cài đặt trên Google Colab bằng lệnh: !python setup_voicevox_nemo.py
     """
 
     def __init__(
         self,
         queue_tts: List[Dict[str, Any]],
-        voice_id: int = 100,
+        voice_id: int = 10008,
         host: str = "127.0.0.1",
-        port: int = 50021,
+        port: int = 50121,
         speed_scale: float = 1.12,
         pitch_scale: float = -0.05,
         intonation_scale: float = 1.0,
@@ -29,7 +29,7 @@ class VoicevoxTTSEngine(VoicevoxRestTTSEngine):
     ):
         super().__init__(
             queue_tts=queue_tts,
-            engine_label="VoicevoxTTS",
+            engine_label="VoicevoxNemoTTS",
             voice_id=voice_id,
             host=host,
             port=port,
