@@ -19,6 +19,7 @@ from sync_engine.video_processor import (
 from sync_engine.audio_assembler import assemble_audio_track
 from sync_engine.timestamp_remapper import recalculate_srt, recalculate_ass
 from sync_engine.renderer import render_final_video
+from sync_engine.forced_alignment_subtitle import run_forced_alignment_subtitle
 
 __all__ = [
     "SubBlock",
@@ -35,4 +36,5 @@ __all__ = [
     "recalculate_srt",
     "recalculate_ass",
     "render_final_video",
+    "run_forced_alignment_subtitle",
 ]

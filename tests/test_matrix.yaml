@@ -93,6 +93,22 @@ tests:
     tags: ["unit", "sync_engine"]
     enabled: true
 
+  - name: "ASR Subtitle Utils — Layer 1: Punctuation, Segmentation & SRT Writing"
+    file: "tests/utils/test_asr_subtitle_utils.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Forced Alignment Subtitle — Layer 1: Config & Entry Point Logic"
+    file: "tests/sync_engine/test_forced_alignment_subtitle.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit", "sync_engine"]
+    enabled: true
+
   # ──────────────────────────────────────────────
   # INTEGRATION TESTS — Cần FFmpeg, không cần GPU
   # ──────────────────────────────────────────────
@@ -129,6 +145,14 @@ tests:
     timeout_sec: 30
     pytest_args: ["-v"]
     tags: ["integration"]
+    enabled: true
+
+  - name: "Forced Alignment Subtitle — Layer 2: Mock Aligner End-to-End"
+    file: "tests/sync_engine/test_forced_alignment_subtitle.py"
+    keyword: "Layer2"
+    timeout_sec: 60
+    pytest_args: ["-v", "-s"]
+    tags: ["integration", "sync_engine"]
     enabled: true
 
   # ──────────────────────────────────────────────

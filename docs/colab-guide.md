@@ -1023,7 +1023,42 @@ Với input `/content/video.mp4`:
 
 ### 2.11. TTS-Video Sync Pipeline (sync-video)
 
-CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS theo timeline subtitle (gồm 5 phase: phân tích timeline, xử lý video chunks, ghép audio, remap timestamps, render final).
+CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS theo timeline subtitle (gồm 7 phase: phân tích timeline, xử lý video chunks, ghép audio, forced alignment subtitle (optional), remap timestamps, render final, LLM metadata (optional)).
+
+#### Forced Alignment Subtitle (Phase 3.5)
+
+Khi bật `forced_alignment_subtitle.enabled = true` trong `render_config.json`, pipeline sẽ chạy Qwen3ForcedAligner trên `mixed_audio.wav` sau khi audio assembly hoàn tất, tạo SRT với timestamp chính xác cho từng từ.
+
+```colab
+# Bật forced alignment trong render_config.json
+import json
+with open("/content/CharenjiZukan/assets/default_render_config.json", "r") as f:
+    config = json.load(f)
+config["forced_alignment_subtitle"]["enabled"] = True
+with open("/content/CharenjiZukan/assets/default_render_config.json", "w") as f:
+    json.dump(config, f, indent=2, ensure_ascii=False)
+```
+
+**Cấu hình forced alignment trong `render_config.json`:**
+
+| Key                     | Default     | Mô tả                                            |
+| ----------------------- | ----------- | ------------------------------------------------ |
+| `enabled`               | `false`     | Bật/tắt forced alignment subtitle                |
+| `model_path`            | `null`      | null → `"Qwen/Qwen3-ForcedAligner-0.6B"`         |
+| `device`                | `null`      | null → `"cuda:0"`                                |
+| `dtype`                 | `null`      | null → `torch.bfloat16`                          |
+| `language`              | `"English"` | Ngôn ngữ alignment                               |
+| `max_chars`             | `42`        | Max ký tự mỗi subtitle block                     |
+| `min_chars`             | `0`         | Min ký tự (0 = không giới hạn)                   |
+| `split_on_comma`        | `true`      | Cho phép ngắt tại dấu phẩy                       |
+| `offset_seconds`        | `0.24`      | Offset timestamp subtitle (giây)                 |
+| `keep_tts_synced_debug` | `false`     | Giữ file remap SRT để debug                      |
+| `fail_policy`           | `"warn"`    | `warn` → fallback remap; `raise` → dừng pipeline |
+
+**Output:**
+
+- `<name>_synced.srt` — Forced alignment SRT (nếu bật) hoặc remap SRT (mặc định)
+- `<name>_tts_synced_debug.srt` — Remap SRT debug (chỉ khi `keep_tts_synced_debug=true`)
 
 #### Chạy nhanh
 

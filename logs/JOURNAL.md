@@ -1,5 +1,63 @@
 # Project Journal
 
+## 2026-05-17: Forced Alignment Subtitle — tích hợp Qwen3ForcedAligner vào sync-video pipeline
+
+### Tóm tắt
+
+- **Mục tiêu**: Thêm bước forced alignment subtitle vào pipeline `sync-video`, sử dụng `Qwen3ForcedAligner` để tạo SRT với timestamp chính xác cho từng từ, thay thế SRT remap (recalculate) thông thường.
+- **Chạy trên**: `mixed_audio.wav` sau Phase 3 (Audio Assembly), dùng text từ `flat_transcript.txt`.
+- **Bật/tắt**: Chỉ qua `render_config.json` → `forced_alignment_subtitle.enabled`, không thêm CLI flag mới.
+
+### File mới
+
+- `utils/asr_subtitle_utils.py` — Shared ASR subtitle logic (trích xuất từ `cli/qwen3_asr.py`):
+  - `format_srt_time()` — Format timestamp SRT
+  - `merge_punctuation()` — Gộp dấu câu vào word items (hỗ trợ cả object attributes và dict keys)
+  - `segment_words_to_subtitles()` — Chia word items thành subtitle blocks (invariant: tổng chars ≤ max_chars → không ngắt)
+  - `write_subtitle_srt()` — Ghi subtitle blocks ra file SRT với offset
+- `sync_engine/forced_alignment_subtitle.py` — Orchestration forced alignment cho sync-video:
+  - `_resolve_aligner_config()` — Map JSON config sang function params (null → dùng default)
+  - `load_forced_aligner()` — Load Qwen3ForcedAligner (default: `Qwen/Qwen3-ForcedAligner-0.6B`, `torch.bfloat16`, `cuda:0`)
+  - `execute_forced_alignment()` — Đọc transcript, load model, align, merge punctuation, segment, write SRT, clear VRAM
+  - `run_forced_alignment_subtitle()` — Entry point, kiểm tra `enabled`, xử lý `fail_policy`
+- `tests/utils/test_asr_subtitle_utils.py` — Unit tests cho shared ASR subtitle utils
+- `tests/sync_engine/test_forced_alignment_subtitle.py` — Mock integration tests cho forced alignment orchestration (Layer 1 + Layer 2)
+- `plans/sync-video-forced-alignment-srt-plan.md` — Architecture plan document
+
+### File sửa
+
+- `assets/default_render_config.json` — Thêm block `forced_alignment_subtitle` với đầy đủ keys (enabled, model_path, device, dtype, attn_implementation, language, max_chars, min_chars, split_on_comma, offset_seconds, keep_tts_synced_debug, fail_policy)
+- `cli/sync_video.py` — Thêm Phase 3.5: gọi `run_forced_alignment_subtitle()` sau `assemble_audio_track()`, fallback sang `recalculate_srt()` nếu fail_policy=warn, chỉ tạo `_tts_synced.srt` khi `keep_tts_synced_debug=true`
+- `cli/qwen3_asr.py` — Refactor: xóa inline `merge_punctuation()`, `format_srt_time()`, CJK constants; import từ `utils/asr_subtitle_utils.py`; dùng `segment_words_to_subtitles()` + `write_subtitle_srt()` thay vì manual loop
+- `sync_engine/__init__.py` — Thêm export `run_forced_alignment_subtitle`
+- `tests/test_matrix.yaml` — Thêm 3 entries: ASR Subtitle Utils Layer 1, Forced Alignment Subtitle Layer 1, Forced Alignment Subtitle Layer 2
+- `docs/sync-video-guide.md` — Thêm Phase 3.5 flow, section 2.10 schema, section 3 cấu hình forced_alignment_subtitle, cập nhật kiến trúc module
+- `docs/colab-guide.md` — Cập nhật sync-video section với forced alignment config và output info
+
+### Quyết định kiến trúc
+
+1. **Ranh giới module**: Shared ASR/subtitle logic đặt trong `utils/` (không phải `sync_engine/`) vì không phải core sync engine — dùng chung bởi cả `cli/qwen3_asr.py` và `sync_engine/forced_alignment_subtitle.py`
+2. **Output policy**: Forced alignment ghi trực tiếp vào `<name>_synced.srt` (file dùng bởi renderer), loại bỏ `_tts_synced.srt` mặc định; chỉ giữ remap SRT khi `keep_tts_synced_debug=true`
+3. **Config defaults**: JSON dùng `null` cho model/device/dtype/attn → function defaults: `Qwen/Qwen3-ForcedAligner-0.6B`, `torch.bfloat16`, `cuda:0`
+4. **Segmentation invariant**: Tổng chars ≤ max_chars → không ngắt thành 2 blocks; `min_chars=0` → không giới hạn tối thiểu
+5. **Fail policy**: `warn` (default) → fallback remap SRT; `raise`/`error`/`fail` → dừng pipeline
+
+### Kiến trúc module
+
+```
+cli/sync_video.py                        ← Entrypoint CLI
+    ↓ import
+sync_engine/forced_alignment_subtitle.py ← Orchestration forced alignment
+    ↓ import
+utils/asr_subtitle_utils.py              ← Shared ASR subtitle logic
+utils/text_segmenter.py                  ← Smart segmentation algorithm
+```
+
+### Pending
+
+- Chạy test verification cho unit tests và mock integration tests
+- GPU integration test (Layer 3) với real model — cần CUDA + VRAM
+
 ## 2026-05-17: Refactor kiến trúc LLM metadata — tách khỏi `cli/`
 
 ### Tóm tắt

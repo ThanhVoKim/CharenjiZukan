@@ -6,16 +6,18 @@ Hướng dẫn đầy đủ về flow `sync-video` và schema `render_config.jso
 
 1. [Tổng quan flow sync-video](#1-tổng-quan-flow-sync-video)
 2. [Schema `render_config.json`](#2-schema-render_configjson)
-3. [Cấu hình `llm_metadata`](#3-cấu-hình-llm_metadata)
-4. [Output paths](#4-output-paths)
-5. [Task-file override](#5-task-file-override)
-6. [Fail policy](#6-fail-policy)
+3. [Cấu hình `forced_alignment_subtitle`](#3-cấu-hình-forced_alignment_subtitle)
+4. [Cấu hình `llm_metadata`](#4-cấu-hình-llm_metadata)
+5. [Output paths](#5-output-paths)
+6. [Task-file override](#6-task-file-override)
+7. [Fail policy](#7-fail-policy)
+8. [Kiến trúc module](#8-kiến-trúc-module)
 
 ---
 
 ## 1. Tổng quan flow sync-video
 
-CLI `sync-video` đồng bộ video với TTS audio và subtitle, gồm 6 phase:
+CLI `sync-video` đồng bộ video với TTS audio và subtitle, gồm 7 phase:
 
 ```
 Phase 0: Auto Generate TTS
@@ -28,11 +30,35 @@ Phase 2.5: BGM Extraction (optional, nếu extract_bgm=true)
     ↓
 Phase 3: Audio Assembly (mix TTS + original audio + ambient + BGM)
     ↓
+Phase 3.5: Forced Alignment Subtitle (optional, nếu forced_alignment_subtitle.enabled=true)
+    ↓
 Phase 4: Recalculate Timestamps (SRT + ASS output)
     ↓
 Phase 5: Final Render (hardsub video với FFmpeg)
     ↓
 Phase 6: LLM Metadata (post-render, nếu llm_metadata.enabled=true)
+```
+
+### Flow Forced Alignment Subtitle chi tiết
+
+```
+assemble_audio_track() hoàn tất → mixed_audio.wav
+    ↓
+if forced_alignment_subtitle.enabled:
+    run_forced_alignment_subtitle()
+        ├── Đọc flat_transcript.txt
+        ├── Load Qwen3ForcedAligner model
+        ├── align(audio=mixed_audio.wav, text=transcript)
+        ├── merge_punctuation() — gộp dấu câu vào word items
+        ├── segment_words_to_subtitles() — chia subtitle blocks
+        ├── write_subtitle_srt() → ghi <output-name>_synced.srt
+        ├── del aligner + clear_vram()
+        └── return stats | None (nếu fail_policy=warn)
+    ↓
+    Nếu alignment thất bại + fail_policy=warn:
+        → Fallback sang recalculate_srt() (remap timestamp)
+    ↓
+Phase 4 tiếp tục bình thường
 ```
 
 ### Flow LLM Metadata chi tiết
@@ -212,9 +238,66 @@ File mặc định: `assets/default_render_config.json`
 }
 ```
 
+### 2.10 `forced_alignment_subtitle`
+
+```json
+{
+  "forced_alignment_subtitle": {
+    "enabled": false,
+    "model_path": null,
+    "device": null,
+    "dtype": null,
+    "attn_implementation": null,
+    "language": "English",
+    "max_chars": 42,
+    "min_chars": 0,
+    "split_on_comma": true,
+    "offset_seconds": 0.24,
+    "keep_tts_synced_debug": false,
+    "fail_policy": "warn"
+  }
+}
+```
+
+| Key                     | Type        | Default     | Mô tả                                                                               |
+| ----------------------- | ----------- | ----------- | ----------------------------------------------------------------------------------- |
+| `enabled`               | bool        | false       | Bật/tắt bước forced alignment subtitle sau Phase 3                                  |
+| `model_path`            | str \| null | null        | Đường dẫn model HuggingFace hoặc local. null → `"Qwen/Qwen3-ForcedAligner-0.6B"`    |
+| `device`                | str \| null | null        | Device map cho model. null → `"cuda:0"`                                             |
+| `dtype`                 | str \| null | null        | Tên dtype (`"bfloat16"`, `"float16"`, `"float32"`). null → `torch.bfloat16`         |
+| `attn_implementation`   | str \| null | null        | Attention implementation (vd `"sdpa"`). null → dùng default của model               |
+| `language`              | str         | `"English"` | Ngôn ngữ cho forced alignment                                                       |
+| `max_chars`             | int         | 42          | Số ký tự tối đa mỗi subtitle block. Nếu tổng chars ≤ max_chars → không ngắt         |
+| `min_chars`             | int         | 0           | Số ký tự tối thiểu mỗi block. 0 = không có giới hạn tối thiểu                       |
+| `split_on_comma`        | bool        | true        | Cho phép ngắt subtitle tại dấu phẩy                                                 |
+| `offset_seconds`        | float       | 0.24        | Offset (giây) dịch chuyển timestamp subtitle so với audio                           |
+| `keep_tts_synced_debug` | bool        | false       | Giữ file `<name>_tts_synced.srt` (remap) để debug, ngay cả khi alignment thành công |
+| `fail_policy`           | str         | `"warn"`    | `warn` → fallback sang remap SRT; `raise`/`error`/`fail` → dừng pipeline            |
+
+**Lưu ý quan trọng về segmentation:**
+
+- Nếu tổng số ký tự của cả câu ≤ `max_chars`, câu đó **không được ngắt** thành 2 block.
+- `min_chars = 0` có nghĩa là không có giới hạn tối thiểu — cho phép block rất ngắn (vd chỉ chứa 1 từ).
+- Khi `enabled = true` và alignment thành công, file `<output-name>_synced.srt` sẽ chứa kết quả forced alignment thay vì remap timestamp.
+- Khi `enabled = true` nhưng alignment thất bại với `fail_policy = "warn"`, hệ thống tự động fallback sang `recalculate_srt()` (remap timestamp) như cũ.
+
 ---
 
-## 3. Cấu hình `llm_metadata`
+## 3. Cấu hình `forced_alignment_subtitle`
+
+### 3.1 Tổng quan
+
+Forced alignment subtitle sử dụng model `Qwen3ForcedAligner` để căn chỉnh chính xác từng từ trong transcript với timestamp audio. Kết quả thay thế SRT remap (recalculate) thông thường, cho phép subtitle đồng bộ chính xác với audio đã mix.
+
+**Điều kiện chạy:**
+
+- `forced_alignment_subtitle.enabled = true` trong `render_config.json`
+- Phase 3 (Audio Assembly) đã hoàn tất → file `mixed_audio.wav` tồn tại
+- File `flat_transcript.txt` đã được ghi ở đầu pipeline
+
+---
+
+## 4. Cấu hình `llm_metadata`
 
 ```json
 {
@@ -243,7 +326,7 @@ File mặc định: `assets/default_render_config.json`
 }
 ```
 
-### 3.1 Các key chính
+### 4.1 Các key chính
 
 | Key           | Type | Default                              | Mô tả                                                                               |
 | ------------- | ---- | ------------------------------------ | ----------------------------------------------------------------------------------- |
@@ -251,7 +334,7 @@ File mặc định: `assets/default_render_config.json`
 | `task_config` | str  | "config/llm_tasks/seo_metadata.yaml" | YAML config cho generic LLM task                                                    |
 | `fail_policy` | str  | "warn"                               | `warn` → log warning, không fail pipeline; `raise`/`error`/`fail` → raise exception |
 
-### 3.2 Provider overrides
+### 4.2 Provider overrides
 
 Các key provider (có thể đặt trực tiếp trong `llm_metadata` hoặc trong `provider_overrides`):
 
@@ -266,21 +349,21 @@ Các key provider (có thể đặt trực tiếp trong `llm_metadata` hoặc tr
 | `max_tokens`      | int   | Max output tokens                      |
 | `request_timeout` | int   | Timeout request (giây)                 |
 
-### 3.3 `input`
+### 4.3 `input`
 
 | Key                             | Type | Default                            | Mô tả                                      |
 | ------------------------------- | ---- | ---------------------------------- | ------------------------------------------ |
 | `write_debug_input`             | bool | false                              | Ghi raw text input ra file `.txt` để debug |
 | `debug_input_filename_template` | str  | "{video_stem}\_metadata_input.txt" | Tên file debug input                       |
 
-### 3.4 `output`
+### 4.4 `output`
 
 | Key                 | Type | Default                     | Mô tả                                                              |
 | ------------------- | ---- | --------------------------- | ------------------------------------------------------------------ |
 | `directory_policy`  | str  | "/"                         | `/` = thư mục chứa video input; hoặc đường dẫn tuyệt đối/tương đối |
 | `filename_template` | str  | "{video_stem}\_metadata.md" | Tên file output metadata                                           |
 
-### 3.5 Template variables
+### 4.5 Template variables
 
 Các biến có thể dùng trong `filename_template` và `debug_input_filename_template`:
 
@@ -293,9 +376,9 @@ Các biến có thể dùng trong `filename_template` và `debug_input_filename_
 
 ---
 
-## 4. Output paths
+## 5. Output paths
 
-### 4.1 `directory_policy: "/"`
+### 5.1 `directory_policy: "/"`
 
 Thư mục output = thư mục chứa video input (KHÔNG phải filesystem root).
 
@@ -305,7 +388,7 @@ Ví dụ:
 - `filename_template`: `{video_stem}_metadata.md`
 - → Output: `content/episodes/ep01_metadata.md`
 
-### 4.2 `directory_policy` là đường dẫn
+### 5.2 `directory_policy` là đường dẫn
 
 Nếu `directory_policy` không phải `"/"`, nó được xử lý như đường dẫn:
 
@@ -314,11 +397,11 @@ Nếu `directory_policy` không phải `"/"`, nó được xử lý như đườ
 
 ---
 
-## 5. Task-file override
+## 6. Task-file override
 
 Khi dùng `--task-file`, mỗi task JSON có thể chứa key `llm_metadata` để override cấu hình từ `render_config.json`.
 
-### 5.1 Boolean override
+### 6.1 Boolean override
 
 ```json
 {
@@ -330,7 +413,7 @@ Khi dùng `--task-file`, mỗi task JSON có thể chứa key `llm_metadata` đ�
 
 → Tắt LLM metadata cho task này (bất kể `render_config.json` bật hay không).
 
-### 5.2 Object override (deep merge)
+### 6.2 Object override (deep merge)
 
 ```json
 {
@@ -349,7 +432,7 @@ Khi dùng `--task-file`, mỗi task JSON có thể chứa key `llm_metadata` đ�
 
 ---
 
-## 6. Fail policy
+## 7. Fail policy
 
 | Policy                     | Hành vi                                                   |
 | -------------------------- | --------------------------------------------------------- |
@@ -369,21 +452,26 @@ Ví dụ:
 
 ---
 
-## 7. Kiến trúc module
+## 8. Kiến trúc module
 
 ```
-cli/sync_video.py          ← Entrypoint CLI (pyproject.toml [project.scripts])
+cli/sync_video.py                        ← Entrypoint CLI (pyproject.toml [project.scripts])
     ↓ import
-sync_engine/llm_metadata.py ← Orchestration LLM metadata
+sync_engine/forced_alignment_subtitle.py ← Orchestration forced alignment subtitle
     ↓ import
-llm_ai/task_runner.py       ← Provider creation logic (dùng chung)
-llm_ai/tasks/generic_text_task.py ← Generic LLM text task runner
-utils/srt_parser.py         ← SRT parsing + write_segments_to_flat_text()
+utils/asr_subtitle_utils.py              ← Shared ASR subtitle logic (merge punctuation, segment, write SRT)
+utils/text_segmenter.py                  ← Smart segmentation algorithm
+    ↓ import
+sync_engine/llm_metadata.py             ← Orchestration LLM metadata
+    ↓ import
+llm_ai/task_runner.py                    ← Provider creation logic (dùng chung)
+llm_ai/tasks/generic_text_task.py        ← Generic LLM text task runner
+utils/srt_parser.py                      ← SRT parsing + write_segments_to_flat_text()
 ```
 
 Nguyên tắc:
 
 - `cli/` chỉ chứa entrypoint command được định nghĩa trong `pyproject.toml` `[project.scripts]`
-- `sync_engine/` phụ thuộc vào `llm_ai/`, không phụ thuộc ngược vào `cli/`
+- `sync_engine/` phụ thuộc vào `llm_ai/` và `utils/`, không phụ thuộc ngược vào `cli/`
+- `utils/` là thư viện tiện ích thuần, không phụ thuộc vào các package khác — chứa logic ASR/subtitle dùng chung bởi `sync_engine/` và `cli/`
 - `llm_ai/` là thư viện LLM độc lập, không phụ thuộc vào `cli/` hay `sync_engine/`
-- `utils/` là thư viện tiện ích thuần, không phụ thuộc vào các package khác

@@ -20,17 +20,17 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.logger import get_logger
 from utils.media_utils import clear_vram
-from utils.text_segmenter import smart_segment
 from utils.task_utils import resolve_cli_tasks, resolve_output_dir_and_stem
 
-logger = get_logger(__name__)
+# Logic dùng chung đã được tách sang utils/asr_subtitle_utils.py
+from utils.asr_subtitle_utils import (
+    merge_punctuation,
+    format_srt_time,
+    segment_words_to_subtitles,
+    write_subtitle_srt,
+)
 
-# Bộ dấu câu (chỉ còn dùng trong merge_punctuation)
-CJK_PUNCT = set("，。！？；：“”‘’（）《》【】、")
-ALL_PUNCT_SET = set(string.punctuation) | CJK_PUNCT
-OPENING_PUNCT = set("“‘（《【")
-CLOSING_PUNCT = set("”’）》】")
-BRACKET_PAIRS = {"（": "）", "《": "》", "【": "】", "“": "”", "‘": "’"}
+logger = get_logger(__name__)
 
 
 def extract_audio(video_path: str) -> str:
@@ -45,89 +45,6 @@ def extract_audio(video_path: str) -> str:
         ]
         subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return audio_path
-
-
-def format_srt_time(seconds: float) -> str:
-    """Định dạng thời gian SRT."""
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    ms = int((seconds - int(seconds)) * 1000)
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-
-
-def merge_punctuation(words, full_text: str) -> List[Dict]:
-    """Gắn dấu câu từ full_text vào mảng words timestamp.
-
-    Thu thập cả prefix (dấu mở ngoặc/quote đứng trước token) và suffix
-    để tránh mất dấu câu ở đầu câu hoặc gắn nhầm dấu mở ngoặc vào token trước đó.
-
-    Edge cases handled:
-      - Token rỗng (Case 36): không gây IndexError.
-      - Token cuối cùng có hậu tố chữ (Case 43): vớt toàn bộ phần còn lại.
-      - Token không khớp hoàn toàn (Case 33, 45): dùng Partial Match để tránh kẹt con trỏ.
-    """
-    merged_words = []
-    text_idx = 0
-    full_len = len(full_text)
-    total_words = len(words)
-
-    for i, word_obj in enumerate(words):
-        clean_word = word_obj.text
-        prefix_chars = ""
-        trailing_chars = ""
-        word_len = len(clean_word)
-
-        # Case 36: Token rỗng → giữ nguyên, không gây IndexError
-        if word_len == 0:
-            merged_words.append({
-                "text": "",
-                "start_time": word_obj.start_time,
-                "end_time": word_obj.end_time
-            })
-            continue
-
-        # Thu thập prefix: các ký tự không phải chữ/số trước khi gặp ký tự đầu tiên của token
-        while text_idx < full_len and full_text[text_idx].lower() != clean_word[0].lower():
-            prefix_chars += full_text[text_idx]
-            text_idx += 1
-
-        # Partial Match: đếm số ký tự khớp liên tiếp giữa token và full_text
-        match_len = 0
-        while (match_len < word_len and
-               text_idx + match_len < full_len and
-               full_text[text_idx + match_len].lower() == clean_word[match_len].lower()):
-            match_len += 1
-        text_idx += match_len
-
-        # Thu thập trailing chars
-        while text_idx < full_len:
-            char = full_text[text_idx]
-            if char.isalnum() and char not in ALL_PUNCT_SET:
-                break
-            # Dấu mở ngoặc thuộc về token tiếp theo
-            if char in OPENING_PUNCT:
-                break
-            trailing_chars += char
-            text_idx += 1
-
-        # Case 43: Nếu là token cuối cùng và còn chữ/số chưa được lấy,
-        # vớt toàn bộ phần còn lại của full_text để tránh mất chữ.
-        if i == total_words - 1 and text_idx < full_len:
-            remaining = full_text[text_idx:]
-            # Chỉ vớt nếu phần còn lại toàn là chữ/số (không có dấu câu mở ngoặc)
-            if remaining and all(c.isalnum() or c in ALL_PUNCT_SET for c in remaining):
-                # Nếu ký tự đầu tiên của remaining là chữ/số thì gom vào trailing
-                if remaining[0].isalnum():
-                    trailing_chars += remaining
-                    text_idx = full_len
-
-        merged_words.append({
-            "text": prefix_chars + clean_word + trailing_chars,
-            "start_time": word_obj.start_time,
-            "end_time": word_obj.end_time
-        })
-    return merged_words
 
 
 def run_batch_transcribe(
@@ -147,11 +64,11 @@ def run_batch_transcribe(
         import torch
         from qwen_asr import Qwen3ASRModel
     except ImportError:
-        logger.error("❌ Lỗi: Thư viện 'qwen-asr' chưa được cài đặt.")
-        logger.error("💡 Vui lòng cài đặt Optional Dependency bằng lệnh: pip install .[qwen-asr]")
+        logger.error("\u274c L\u1ed7i: Th\u01b0 vi\u1ec7n 'qwen-asr' ch\u01b0a \u0111\u01b0\u1ee3c c\u00e0i \u0111\u1eb7t.")
+        logger.error("\ud83d\udca1 Vui l\u00f2ng c\u00e0i \u0111\u1eb7t Optional Dependency b\u1eb1ng l\u1ec7nh: pip install .[qwen-asr]")
         sys.exit(1)
 
-    logger.info(f"🚀 Đang khởi tạo mô hình Qwen3-ASR...")
+    logger.info(f"\ud83d\ude80 \u0110ang kh\u1edfi t\u1ea1o m\u00f4 h\u00ecnh Qwen3-ASR...")
     logger.info(f"   Model: {model_path}")
     logger.info(f"   Aligner: {aligner_path}")
     logger.info(f"   Device: {device}")
@@ -190,7 +107,7 @@ def run_batch_transcribe(
             audio_paths.append(audio_path)
 
         # Transcribe
-        logger.info(f"🎙️ Đang xử lý {len(audio_paths)} file audio...")
+        logger.info(f"\ud83c\udf99\ufe0f \u0110ang x\u1eed l\u00fd {len(audio_paths)} file audio...")
         results = asr.transcribe(
             audio=audio_paths,
             language=language,
@@ -202,7 +119,7 @@ def run_batch_transcribe(
             task = tasks[i]
 
             if not result.time_stamps:
-                logger.warning(f"⏭️ Bỏ qua (không có voice): {task['input']}")
+                logger.warning(f"\u23ed\ufe0f B\u1ecf qua (kh\u00f4ng c\u00f3 voice): {task['input']}")
                 continue
 
             full_text = result.text
@@ -212,7 +129,7 @@ def run_batch_transcribe(
             with open(task["txt_path"], "w", encoding="utf-8") as f:
                 f.write(full_text)
 
-            # Merge dấu câu
+            # Merge dấu câu (dùng helper chung từ utils/asr_subtitle_utils.py)
             merged_words = merge_punctuation(words, full_text)
 
             # Lưu JSON
@@ -224,34 +141,18 @@ def run_batch_transcribe(
             with open(task["json_path"], "w", encoding="utf-8") as f:
                 json.dump(json_data, f, ensure_ascii=False, indent=4)
 
-            # Xử lý cắt câu Subtitle
-            if max_chars == 0 and min_chars == 0:
-                # Tắt hoàn toàn segmentation → 1 block duy nhất
-                subtitles = [merged_words]
-            else:
-                subtitles = smart_segment(
-                    merged_words,
-                    min_chars=min_chars,
-                    max_chars=max_chars,
-                    ideal_chars=max_chars if max_chars > 0 else None,
-                    split_on_comma=split_on_comma,
-                )
+            # Xử lý cắt câu Subtitle (dùng helper chung)
+            subtitles = segment_words_to_subtitles(
+                merged_words,
+                max_chars=max_chars,
+                min_chars=min_chars,
+                split_on_comma=split_on_comma,
+            )
 
-            # Lưu SRT
-            with open(task["srt_path"], "w", encoding="utf-8") as f:
-                for idx, sentence in enumerate(subtitles):
-                    raw_start = max(0.0, sentence[0]["start_time"] + offset_seconds)
-                    raw_end = sentence[-1]["end_time"] + offset_seconds
+            # Lưu SRT (dùng helper chung)
+            write_subtitle_srt(subtitles, task["srt_path"], offset_seconds=offset_seconds)
 
-                    start_time = format_srt_time(raw_start)
-                    end_time = format_srt_time(raw_end)
-                    text = "".join([w["text"] for w in sentence]).strip()
-
-                    f.write(f"{idx + 1}\n")
-                    f.write(f"{start_time} --> {end_time}\n")
-                    f.write(f"{text}\n\n")
-
-            logger.info(f"✅ Đã hoàn thành: {os.path.basename(task['input'])}")
+            logger.info(f"\u2705 \u0110\u00e3 ho\u00e0n th\u00e0nh: {os.path.basename(task['input'])}")
             logger.info(f"   -> SRT: {task['srt_path']}")
             logger.info(f"   -> TXT: {task['txt_path']}")
             logger.info(f"   -> JSON: {task['json_path']}")
@@ -268,42 +169,42 @@ def run_batch_transcribe(
 
     finally:
         if asr is not None:
-            logger.info("🧹 Giải phóng mô hình Qwen3-ASR...")
+            logger.info("\ud83e\uddf9 Gi\u1ea3i ph\u00f3ng m\u00f4 h\u00ecnh Qwen3-ASR...")
             del asr
         clear_vram()
-        logger.info("🧹 VRAM đã được giải phóng.")
+        logger.info("\ud83e\uddf9 VRAM \u0111\u00e3 \u0111\u01b0\u1ee3c gi\u1ea3i ph\u00f3ng.")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="qwen3_asr_srt",
-        description="Transcribe video/audio → .srt dùng Qwen3-ASR (Transformers Backend)",
+        description="Transcribe video/audio \u2192 .srt d\u00f9ng Qwen3-ASR (Transformers Backend)",
     )
 
     io = parser.add_argument_group("Input / Output")
-    io.add_argument("--input", "-i", default=None, metavar="FILE", help="Đường dẫn 1 file video/audio đầu vào")
+    io.add_argument("--input", "-i", default=None, metavar="FILE", help="\u0110\u01b0\u1eddng d\u1eabn 1 file video/audio \u0111\u1ea7u v\u00e0o")
     io.add_argument("--output", "-o", default=None, metavar="FILE_OR_DIR",
-                    help="Đường dẫn file .srt hoặc thư mục đầu ra (dùng cùng --input). "
-                         "Nếu là thư mục, sẽ tạo [tên_video].srt, [tên_video].txt, [tên_video].json")
-    io.add_argument("--task-file", "-t", default=None, metavar="JSON_FILE", help="File JSON chứa danh sách [{'input': '...', 'output': '...'}]")
+                    help="\u0110\u01b0\u1eddng d\u1eabn file .srt ho\u1eb7c th\u01b0 m\u1ee5c \u0111\u1ea7u ra (d\u00f9ng c\u00f9ng --input). "
+                         "N\u1ebfu l\u00e0 th\u01b0 m\u1ee5c, s\u1ebd t\u1ea1o [t\u00ean_video].srt, [t\u00ean_video].txt, [t\u00ean_video].json")
+    io.add_argument("--task-file", "-t", default=None, metavar="JSON_FILE", help="File JSON ch\u1ee9a danh s\u00e1ch [{'input': '...', 'output': '...'}]")
 
     mdl = parser.add_argument_group("Model")
-    mdl.add_argument("--model-path", default="Qwen/Qwen3-ASR-1.7B", help="Đường dẫn model ASR (mặc định: Qwen/Qwen3-ASR-1.7B)")
-    mdl.add_argument("--aligner-path", default="Qwen/Qwen3-ForcedAligner-0.6B", help="Đường dẫn model Forced Aligner (mặc định: Qwen/Qwen3-ForcedAligner-0.6B)")
+    mdl.add_argument("--model-path", default="Qwen/Qwen3-ASR-1.7B", help="\u0110\u01b0\u1eddng d\u1eabn model ASR (m\u1eb7c \u0111\u1ecbnh: Qwen/Qwen3-ASR-1.7B)")
+    mdl.add_argument("--aligner-path", default="Qwen/Qwen3-ForcedAligner-0.6B", help="\u0110\u01b0\u1eddng d\u1eabn model Forced Aligner (m\u1eb7c \u0111\u1ecbnh: Qwen/Qwen3-ForcedAligner-0.6B)")
 
     dev = parser.add_argument_group("Device")
-    dev.add_argument("--device", "-d", default="cuda:0", help="Thiết bị chạy (mặc định: cuda:0)")
+    dev.add_argument("--device", "-d", default="cuda:0", help="Thi\u1ebft b\u1ecb ch\u1ea1y (m\u1eb7c \u0111\u1ecbnh: cuda:0)")
 
     seg = parser.add_argument_group("Segmentation / Language")
-    seg.add_argument("--language", "-l", default="Chinese", help="Ngôn ngữ audio (mặc định: Chinese)")
-    seg.add_argument("--max-chars", type=int, default=15, help="Số ký tự tối đa trên mỗi dòng phụ đề (mặc định: 15, đặt 0 để tắt)")
-    seg.add_argument("--min-chars", type=int, default=8, help="Số ký tự tối thiểu trên mỗi dòng phụ đề (mặc định: 8, đặt 0 để tắt)")
-    seg.add_argument("--split-on-comma", action="store_true", help="Dùng dấu phẩy làm điểm cắt block (mặc định: tắt)")
-    seg.add_argument("--batch-size", type=int, default=32, help="Batch size cho inference (mặc định: 32)")
-    seg.add_argument("--offset-seconds", type=float, default=0.24, help="Độ lệch thời gian bù trừ (giây, mặc định: 0.24)")
+    seg.add_argument("--language", "-l", default="Chinese", help="Ng\u00f4n ng\u1eef audio (m\u1eb7c \u0111\u1ecbnh: Chinese)")
+    seg.add_argument("--max-chars", type=int, default=15, help="S\u1ed1 k\u00fd t\u1ef1 t\u1ed1i \u0111a tr\u00ean m\u1ed7i d\u00f2ng ph\u1ee5 \u0111\u1ec1 (m\u1eb7c \u0111\u1ecbnh: 15, \u0111\u1eb7t 0 \u0111\u1ec3 t\u1eaft)")
+    seg.add_argument("--min-chars", type=int, default=8, help="S\u1ed1 k\u00fd t\u1ef1 t\u1ed1i thi\u1ec3u tr\u00ean m\u1ed7i d\u00f2ng ph\u1ee5 \u0111\u1ec1 (m\u1eb7c \u0111\u1ecbnh: 8, \u0111\u1eb7t 0 \u0111\u1ec3 t\u1eaft)")
+    seg.add_argument("--split-on-comma", action="store_true", help="D\u00f9ng d\u1ea5u ph\u1ea9y l\u00e0m \u0111i\u1ec3m c\u1eaft block (m\u1eb7c \u0111\u1ecbnh: t\u1eaft)")
+    seg.add_argument("--batch-size", type=int, default=32, help="Batch size cho inference (m\u1eb7c \u0111\u1ecbnh: 32)")
+    seg.add_argument("--offset-seconds", type=float, default=0.24, help="\u0110\u1ed9 l\u1ec7ch th\u1eddi gian b\u00f9 tr\u1eeb (gi\u00e2y, m\u1eb7c \u0111\u1ecbnh: 0.24)")
 
     misc = parser.add_argument_group("Misc")
-    misc.add_argument("--verbose", action="store_true", help="Bật logging DEBUG")
+    misc.add_argument("--verbose", action="store_true", help="B\u1eadt logging DEBUG")
 
     return parser
 
@@ -342,7 +243,7 @@ def main():
         )
         sys.exit(0)
     except KeyboardInterrupt:
-        logger.warning("\n⚠️ Dừng bởi người dùng")
+        logger.warning("\n\u26a0\ufe0f D\u1eebng b\u1edfi ng\u01b0\u1eddi d\u00f9ng")
         sys.exit(1)
 
 

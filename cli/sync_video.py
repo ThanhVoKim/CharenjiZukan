@@ -23,6 +23,7 @@ from sync_engine.audio_assembler import assemble_audio_track
 from sync_engine.timestamp_remapper import recalculate_srt, recalculate_ass
 from sync_engine.renderer import render_final_video
 from sync_engine.llm_metadata import apply_llm_metadata_override, run_llm_metadata_task
+from sync_engine.forced_alignment_subtitle import run_forced_alignment_subtitle
 
 logger = get_logger("sync_video")
 
@@ -311,22 +312,41 @@ def run_sync_pipeline(args):
             audio_separator_config=audio_separator_cfg,
         )
         
+        # PHASE 3.5: FORCED ALIGNMENT SUBTITLE (nếu được bật)
+        fa_cfg = render_config.get("forced_alignment_subtitle", {}) or {}
+        fa_enabled = fa_cfg.get("enabled", False)
+
+        subtitle_synced = str(output_dir / f"{args.output_name}_synced.srt")
+        align_success = False
+
+        if fa_enabled:
+            logger.info("\n--- PHASE 3.5: FORCED ALIGNMENT SUBTITLE ---")
+            align_result = run_forced_alignment_subtitle(
+                audio_path=mixed_audio,
+                transcript_path=str(transcript_input_path),
+                output_srt_path=subtitle_synced,
+                render_config=render_config,
+            )
+            align_success = align_result is not None
+
         # PHASE 4: RECALCULATE TIMESTAMPS
         logger.info("\n--- PHASE 4: RECALCULATE TIMESTAMPS ---")
-        
-        # 1. subtitle_tts_synced.srt
-        subtitle_tts_synced = str(output_dir / f"{args.output_name}_tts_synced.srt")
-        # filter mute blocks (tạo subtitle_tts)
-        from sync_engine.analyzer import filter_tts_subtitles
-        tts_only = filter_tts_subtitles(subtitle_segments, mute_segments)
-        
-        recalculate_srt(tts_only, timeline, subtitle_tts_synced, is_tts_track=True, max_chars=0, fps_float=fps_float)
-        logger.info(f"Đã tạo {subtitle_tts_synced}")
-        
-        # 2. subtitle_synced.srt (đầy đủ)
-        subtitle_synced = str(output_dir / f"{args.output_name}_synced.srt")
-        recalculate_srt(subtitle_segments, timeline, subtitle_synced, is_tts_track=False, max_chars=args.subtitle_max_chars, fps_float=fps_float)
-        logger.info(f"Đã tạo {subtitle_synced}")
+
+        # subtitle_synced.srt — nếu forced alignment thất bại hoặc tắt, dùng remap
+        if not align_success:
+            recalculate_srt(subtitle_segments, timeline, subtitle_synced, is_tts_track=False, max_chars=args.subtitle_max_chars, fps_float=fps_float)
+            logger.info(f"Đã tạo {subtitle_synced} (remap timestamp)")
+        else:
+            logger.info(f"Đã tạo {subtitle_synced} (forced alignment)")
+
+        # subtitle_tts_synced.srt — chỉ tạo khi keep_tts_synced_debug=true
+        keep_tts_debug = fa_cfg.get("keep_tts_synced_debug", False)
+        if keep_tts_debug:
+            subtitle_tts_synced = str(output_dir / f"{args.output_name}_tts_synced.srt")
+            from sync_engine.analyzer import filter_tts_subtitles
+            tts_only = filter_tts_subtitles(subtitle_segments, mute_segments)
+            recalculate_srt(tts_only, timeline, subtitle_tts_synced, is_tts_track=True, max_chars=0, fps_float=fps_float)
+            logger.info(f"Đã tạo {subtitle_tts_synced} (debug)")
         
         # 3. mute_synced.srt (nếu có)
         if mute_segments:

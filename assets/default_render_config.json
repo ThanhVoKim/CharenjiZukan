@@ -83,5 +83,19 @@
       "-cq",
       "23"
     ]
+  },
+  "forced_alignment_subtitle": {
+    "enabled": false,
+    "model_path": null,
+    "device": null,
+    "dtype": null,
+    "attn_implementation": null,
+    "language": "English",
+    "max_chars": 42,
+    "min_chars": 0,
+    "split_on_comma": true,
+    "offset_seconds": 0.24,
+    "keep_tts_synced_debug": false,
+    "fail_policy": "warn"
   }
 }
