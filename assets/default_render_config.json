@@ -49,7 +49,7 @@
   "note_overlay": {
     "enabled": true,
     "mode": "dynamic_ass_box",
-    "default_layout": "top_left",
+    "default_layout": "center_panel",
     "font": {
       "fontname": "Noto Sans CJK JP",
       "font_path": "assets/NotoSansCJKsc-VF.ttf",
