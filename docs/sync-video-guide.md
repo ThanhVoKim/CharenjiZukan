@@ -32,7 +32,7 @@ Phase 3: Audio Assembly (mix TTS + original audio + ambient + BGM)
     ↓
 Phase 3.5: Forced Alignment Subtitle (optional, nếu forced_alignment_subtitle.enabled=true)
     ↓
-Phase 4: Recalculate Timestamps (SRT + ASS output)
+Phase 4: Recalculate Timestamps + Dynamic Note Overlay ASS
     ↓
 Phase 5: Final Render (hardsub video với FFmpeg)
     ↓
@@ -190,13 +190,79 @@ File mặc định: `assets/default_render_config.json`
 
 ### 2.6 `note_overlay`
 
+`note_overlay` sử dụng mode `dynamic_ass_box`: pipeline remap timestamp ASS, sau đó sinh một file ASS cuối gồm nền hộp bằng drawing (`NoteBox`) và text (`NoteText`). Không còn dùng PNG nền cố định; key legacy `png_path` chỉ được nhận diện để warning deprecation.
+
 ```json
 {
   "note_overlay": {
-    "enabled": false
+    "enabled": true,
+    "mode": "dynamic_ass_box",
+    "default_layout": "top_left",
+    "font": {
+      "fontname": "Noto Sans CJK JP",
+      "font_path": "assets/NotoSansCJKsc-VF.ttf",
+      "font_size": 42,
+      "line_spacing": 1.25,
+      "primary_color": "&H00FFFFFF"
+    },
+    "layouts": {
+      "top_left": {
+        "anchor": "top_left",
+        "margin_x": 80,
+        "margin_y": 100,
+        "width": 680,
+        "height": 260,
+        "padding_left": 32,
+        "padding_right": 32,
+        "padding_top": 28,
+        "padding_bottom": 36,
+        "height_safety_margin": 10,
+        "background_color": "&HCC000000"
+      },
+      "bottom_right": {
+        "anchor": "bottom_right",
+        "margin_x": 80,
+        "margin_y": 180,
+        "width": 720,
+        "height": 300,
+        "padding_left": 32,
+        "padding_right": 32,
+        "padding_top": 28,
+        "padding_bottom": 40,
+        "height_safety_margin": 10,
+        "background_color": "&HCC000000"
+      }
+    }
   }
 }
 ```
+
+| Key                                  | Type        | Default                       | Mô tả                                                                                      |
+| ------------------------------------ | ----------- | ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `enabled`                            | bool        | false                         | Bật/tắt note overlay. Nếu bật nhưng không truyền `--note-overlay-ass`, pipeline tự bỏ qua. |
+| `mode`                               | str         | `dynamic_ass_box`             | Mode chính thức. `png_legacy`/`png_path` chỉ còn warning deprecation.                      |
+| `default_layout`                     | str         | `top_left`                    | Layout fallback khi ASS `Name` rỗng hoặc không khớp.                                       |
+| `font.font_path`                     | str \| null | `assets/NotoSansCJKsc-VF.ttf` | Font dùng để đo pixel bằng Pillow; nếu load fail sẽ fallback heuristic.                    |
+| `font.font_size`                     | int         | 42                            | Font size mặc định; preset có thể override.                                                |
+| `font.line_spacing`                  | float       | 1.25                          | Line height tính bằng `font_size * line_spacing`.                                          |
+| `layouts.<key>.anchor`               | str         | `top_left`                    | `top_left`, `top_right`, `bottom_left`, `bottom_right`, `center`.                          |
+| `layouts.<key>.x/y`                  | int \| null | null                          | Nếu cả `x` và `y` có giá trị, dùng tọa độ tuyệt đối thay anchor.                           |
+| `layouts.<key>.width`                | int         | 640                           | Chiều rộng box.                                                                            |
+| `layouts.<key>.height`               | int         | 0                             | Chiều cao tối thiểu; box tự mở rộng nếu text dài hơn.                                      |
+| `layouts.<key>.padding_*`            | int         | —                             | Padding text bên trong box.                                                                |
+| `layouts.<key>.height_safety_margin` | int         | 10                            | Cộng thêm vào required height để hạn chế lệch giữa Pillow và libass.                       |
+| `layouts.<key>.background_color`     | str         | `&HCC000000`                  | Màu nền ASS `&HAABBGGRR`.                                                                  |
+
+Quy ước input:
+
+- Với ASS nguồn: field `Name`/Actor trong mỗi `Dialogue` là layout key, ví dụ `Dialogue: ...,NoteStyle,bottom_right,...`.
+- Với SRT nguồn: dùng `srt-to-ass`; dòng text đầu tiên của block nhiều dòng có thể là layout key. Dòng key không render ra video.
+- Block SRT chỉ có một dòng text trùng layout key vẫn được coi là body text để tránh nuốt chữ.
+
+Output khi có `--note-overlay-ass`:
+
+- `<output-name>_note_overlay.ass` — file ASS cuối có `NoteBox` và `NoteText`.
+- `<output-name>_note_synced.ass` — file trung gian chỉ được giữ khi bật `--keep-tmp` hoặc `note_overlay.keep_intermediate_ass=true`.
 
 ### 2.7 `audio_mix`
 
@@ -463,6 +529,7 @@ utils/asr_subtitle_utils.py              ← Shared ASR subtitle logic (merge pu
 utils/text_segmenter.py                  ← Smart segmentation algorithm
     ↓ import
 sync_engine/llm_metadata.py             ← Orchestration LLM metadata
+sync_engine/note_overlay_layout.py      ← Expand dynamic ASS note overlay
     ↓ import
 llm_ai/task_runner.py                    ← Provider creation logic (dùng chung)
 llm_ai/tasks/generic_text_task.py        ← Generic LLM text task runner

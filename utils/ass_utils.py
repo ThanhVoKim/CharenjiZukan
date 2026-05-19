@@ -230,9 +230,126 @@ def create_dialogue_line(
     return f"Dialogue: {layer},{start},{end},{style},{name},{margin_l},{margin_r},{margin_v},{effect},{text}"
 
 
-# ─────────────────────────────────────────────────────────────
-# ASS FILE PARSING AND WRITING
-# ─────────────────────────────────────────────────────────────
+def wrap_text_pixel(
+    text: str,
+    max_width_px: int,
+    font,
+    measure_fn=None
+) -> List[str]:
+    """
+    Wrap text bằng độ rộng pixel.
+
+    - Latin/ASCII words ưu tiên ngắt tại whitespace.
+    - CJK ngắt theo từng ký tự.
+    - Token dài hơn max_width_px sẽ hard-split bằng binary search theo pixel.
+    - Existing ASS line break ``\\N`` được xử lý như paragraph boundary.
+    """
+    if max_width_px <= 0:
+        raise ValueError("max_width_px must be > 0")
+
+    def default_measure(s: str) -> int:
+        if hasattr(font, "getlength"):
+            return int(font.getlength(s))
+        if hasattr(font, "getbbox"):
+            bbox = font.getbbox(s)
+            return int(bbox[2] - bbox[0])
+        return font.getsize(s)[0]
+
+    measure = measure_fn or default_measure
+
+    def is_cjk_char(char: str) -> bool:
+        return (
+            "\u4e00" <= char <= "\u9fff"
+            or "\u3400" <= char <= "\u4dbf"
+            or "\u3040" <= char <= "\u30ff"
+            or "\uac00" <= char <= "\ud7af"
+            or "\uf900" <= char <= "\ufaff"
+        )
+
+    def hard_split(token: str) -> List[str]:
+        pieces = []
+        rest = token
+        while rest:
+            low, high = 1, len(rest)
+            best = 1
+            while low <= high:
+                mid = (low + high) // 2
+                if measure(rest[:mid]) <= max_width_px:
+                    best = mid
+                    low = mid + 1
+                else:
+                    high = mid - 1
+            pieces.append(rest[:best])
+            rest = rest[best:]
+        return pieces
+
+    def tokenize_paragraph(paragraph: str) -> List[str]:
+        tokens: List[str] = []
+        current = ""
+        for char in paragraph:
+            if char.isspace():
+                if current:
+                    tokens.append(current)
+                    current = ""
+                if not tokens or tokens[-1] != " ":
+                    tokens.append(" ")
+            elif is_cjk_char(char):
+                if current:
+                    tokens.append(current)
+                    current = ""
+                tokens.append(char)
+            else:
+                current += char
+        if current:
+            tokens.append(current)
+        return tokens
+
+    output_lines: List[str] = []
+    for paragraph in text.split("\\N"):
+        if paragraph == "":
+            output_lines.append("")
+            continue
+
+        current_line = ""
+        for token in tokenize_paragraph(paragraph):
+            if token == " " and not current_line:
+                continue
+
+            candidate = current_line + token
+            if measure(candidate) <= max_width_px:
+                current_line = candidate
+                continue
+
+            if current_line.strip():
+                output_lines.append(current_line.rstrip())
+                current_line = ""
+
+            token = token.lstrip()
+            if not token:
+                continue
+
+            if measure(token) > max_width_px:
+                pieces = hard_split(token)
+                output_lines.extend(pieces[:-1])
+                current_line = pieces[-1]
+            else:
+                current_line = token
+
+        if current_line or not output_lines:
+            output_lines.append(current_line.rstrip())
+
+    return output_lines
+
+
+def build_ass_drawing_rect(x: int, y: int, w: int, h: int) -> str:
+    """Tạo ASS drawing string cho hình chữ nhật."""
+    return rf"{{\pos({x},{y})\p1}}m 0 0 l {w} 0 l {w} {h} l 0 {h}{{\p0}}"
+
+def ass_color_from_rgba(r: int, g: int, b: int, a: int = 255) -> str:
+    """Chuyển đổi RGBA sang ASS color hex string (&HAABBGGRR)."""
+    alpha_ass = 255 - a
+    return f"&H{alpha_ass:02X}{b:02X}{g:02X}{r:02X}"
+
 
 def parse_ass_file(file_path: str) -> Dict:
     """
@@ -370,10 +487,65 @@ def write_ass_file(
 # HIGH-LEVEL CONVERSION FUNCTIONS
 # ─────────────────────────────────────────────────────────────
 
+def extract_layout_key_from_srt_text(
+    text: str,
+    known_layout_keys: Optional[set],
+    fallback_layout_key: str,
+    mode: str = "warn"
+) -> Tuple[str, str, Optional[str]]:
+    """
+    Extract layout key from the first SRT text line when the block has body text.
+
+    Returns ``(layout_key, body_text, warning_message)``. A single-line block is
+    always treated as body text, even if it equals a known layout key.
+    """
+    if mode not in {"warn", "strict", "off"}:
+        raise ValueError(f"Invalid srt layout key mode: {mode}")
+
+    if not text.strip() or mode == "off":
+        return fallback_layout_key, text, None
+
+    raw_lines = text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    if len(raw_lines) <= 1:
+        body = text.strip()
+        if body.startswith('\\'):
+            body = body[1:]
+        return fallback_layout_key, body, None
+
+    first_line = raw_lines[0].strip()
+
+    if first_line.startswith('\\'):
+        body_lines = [raw_lines[0].replace('\\', '', 1), *raw_lines[1:]]
+        return fallback_layout_key, '\n'.join(body_lines).strip(), None
+
+    is_valid_key = False
+    if known_layout_keys is None:
+        is_valid_key = mode != "strict"
+    elif first_line in known_layout_keys:
+        is_valid_key = True
+    elif fallback_layout_key and first_line == fallback_layout_key:
+        is_valid_key = True
+
+    if is_valid_key:
+        body = '\n'.join(raw_lines[1:]).strip()
+        if not body:
+            warning = f"Block specifies layout key '{first_line}' but has empty body."
+            return first_line, "", warning
+        return first_line, body, None
+
+    if mode == "strict":
+        raise ValueError(f"Unknown layout key '{first_line}'.")
+
+    warning = f"Unknown layout key '{first_line}'. Falling back to '{fallback_layout_key}'."
+    return fallback_layout_key, text.strip(), warning
+
 def convert_srt_segments_to_ass_dialogues(
     segments: List[Dict],
     max_chars: int = 14,
     style: str = "NoteStyle",
+    layout_key: str = "",
+    mode: str = "warn",
+    known_layout_keys: Optional[set] = None,
 ) -> List[str]:
     """
     Convert list of SRT segments thành list of ASS dialogue lines.
@@ -382,6 +554,9 @@ def convert_srt_segments_to_ass_dialogues(
         segments: List of segment dicts từ parse_srt_file()
         max_chars: Số ký tự tối đa mỗi dòng (mặc định: 14)
         style: Tên style cho dialogue (mặc định: "NoteStyle")
+        layout_key: Fallback layout key (mặc định: "")
+        mode: Layout key parsing mode ("warn", "strict", "off")
+        known_layout_keys: Set chứa tên các layout hợp lệ
     
     Returns:
         List of ASS dialogue strings
@@ -393,7 +568,7 @@ def convert_srt_segments_to_ass_dialogues(
     """
     dialogues = []
     
-    for seg in segments:
+    for i, seg in enumerate(segments):
         # Get timestamp from segment (use raw timestamp if available)
         if 'startraw' in seg and 'endraw' in seg:
             start_ass = srt_timestamp_to_ass(seg['startraw'])
@@ -420,11 +595,25 @@ def convert_srt_segments_to_ass_dialogues(
         
         # Process text
         text = seg.get('text', '')
+        extracted_layout_key, text, warning = extract_layout_key_from_srt_text(
+            text=text,
+            known_layout_keys=known_layout_keys,
+            fallback_layout_key=layout_key,
+            mode=mode
+        )
+        if warning:
+            logger.warning(f"Segment {i+1}: {warning}")
+            
+        if not text.strip():
+            logger.warning(f"Segment {i+1} has empty text after layout key extraction. Skipping.")
+            continue
+            
         text = normalize_newlines(text)
-        text = wrap_text(text, max_chars)
+        if max_chars and max_chars > 0:
+            text = wrap_text(text, max_chars)
         
         # Create dialogue line
-        dialogue = create_dialogue_line(start_ass, end_ass, text, style)
+        dialogue = create_dialogue_line(start_ass, end_ass, text, style, name=extracted_layout_key)
         dialogues.append(dialogue)
     
     logger.debug(f"Converted {len(dialogues)} segments to ASS dialogues")

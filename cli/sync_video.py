@@ -372,25 +372,58 @@ def run_sync_pipeline(args):
             recalculate_srt(mute_segments, timeline, mute_synced, is_tts_track=False, max_chars=args.subtitle_max_chars, fps_float=fps_float)
             logger.info(f"Đã tạo {mute_synced}")
             
-        # 4. note_overlay_synced.ass (nếu được bật trong render_config)
+        # 4. note_overlay.ass (nếu được bật trong render_config)
         note_ass_synced = None
+        note_overlay_final_ass = None
         note_overlay_cfg = render_config.get("note_overlay", {})
         if note_overlay_cfg.get("enabled"):
             if not args.note_overlay_ass:
                 logger.info("Cấu hình note_overlay bật nhưng không truyền --note-overlay-ass. Bỏ qua note overlay.")
-                # Override cấu hình để renderer bỏ qua
                 note_overlay_cfg["enabled"] = False
             else:
                 ass_input_path = Path(args.note_overlay_ass)
                 if not ass_input_path.is_absolute():
                     ass_input_path = PROJECT_ROOT / ass_input_path
-                
+
                 if not ass_input_path.exists():
                     raise FileNotFoundError(f"Không tìm thấy file ASS: {ass_input_path}")
-                    
+
                 note_ass_synced = str(output_dir / f"{args.output_name}_note_synced.ass")
-                recalculate_ass(str(ass_input_path), timeline, note_ass_synced, max_chars_per_line=args.note_max_chars, fps_float=fps_float)
-                logger.info(f"Đã tạo {note_ass_synced}")
+                recalculate_ass(
+                    str(ass_input_path),
+                    timeline,
+                    note_ass_synced,
+                    max_chars_per_line=0,
+                    fps_float=fps_float,
+                    apply_text_wrap=False,
+                )
+
+                from sync_engine.note_overlay_layout import expand_note_overlay_ass
+
+                note_overlay_final_ass = str(output_dir / f"{args.output_name}_note_overlay.ass")
+                res_cfg = render_config.get("resolution", {})
+                w = int(res_cfg.get("width", 1920))
+                h = int(res_cfg.get("height", 1080))
+                stats = expand_note_overlay_ass(
+                    input_ass_path=note_ass_synced,
+                    output_ass_path=note_overlay_final_ass,
+                    render_config=render_config,
+                    video_width=w,
+                    video_height=h,
+                    project_root=PROJECT_ROOT,
+                )
+
+                keep_intermediate = bool(args.keep_tmp or note_overlay_cfg.get("keep_intermediate_ass", False))
+                if keep_intermediate:
+                    logger.info(f"Giữ file ASS trung gian để debug: {note_ass_synced}")
+                else:
+                    try:
+                        Path(note_ass_synced).unlink(missing_ok=True)
+                        logger.info(f"Đã xoá file ASS trung gian: {note_ass_synced}")
+                    except Exception as exc:
+                        logger.warning(f"Không thể xoá file ASS trung gian {note_ass_synced}: {exc}")
+
+                logger.info(f"Đã tạo {note_overlay_final_ass} (dynamic layout): {stats}")
             
         # PHASE 5: FINAL RENDER
         logger.info("\n--- PHASE 5: FINAL RENDER ---")
@@ -402,7 +435,7 @@ def run_sync_pipeline(args):
                 mixed_audio=mixed_audio,
                 subtitle_synced_srt=subtitle_synced,
                 output_path=final_video,
-                note_overlay_synced_ass=note_ass_synced,
+                note_overlay_synced_ass=note_overlay_final_ass,
                 render_config=render_config,
                 use_gpu=not args.no_gpu,
             )
@@ -510,7 +543,6 @@ def main():
     
     # Subtitle / Note Processing
     parser.add_argument("--subtitle-max-chars", type=int, default=0, help="Ngắt dòng subtitle nếu dài hơn số ký tự này (0 = không ngắt)")
-    parser.add_argument("--note-max-chars", type=int, default=16)
     
     args = parser.parse_args()
     args.llm_metadata_override = None

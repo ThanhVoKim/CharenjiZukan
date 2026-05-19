@@ -20,6 +20,7 @@ from sync_engine.audio_assembler import assemble_audio_track
 from sync_engine.timestamp_remapper import recalculate_srt, recalculate_ass
 from sync_engine.renderer import render_final_video
 from sync_engine.forced_alignment_subtitle import run_forced_alignment_subtitle
+from sync_engine.note_overlay_layout import expand_note_overlay_ass
 
 __all__ = [
     "SubBlock",
@@ -37,4 +38,5 @@ __all__ = [
     "recalculate_ass",
     "render_final_video",
     "run_forced_alignment_subtitle",
+    "expand_note_overlay_ass",
 ]

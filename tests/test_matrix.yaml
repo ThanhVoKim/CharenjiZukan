@@ -101,6 +101,46 @@ tests:
     tags: ["unit"]
     enabled: true
 
+  - name: "SRT to ASS Note Layout Key — Layer 1: Parser"
+    file: "tests/cli/test_srt_to_ass_layout_key.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Note Overlay Layout — Layer 1: Unit (wrap, geometry, emitter)"
+    file: "tests/sync_engine/test_note_overlay_layout.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Note Overlay Layout — Layer 2: SRT to final ASS contract"
+    file: "tests/sync_engine/test_note_overlay_layout.py"
+    keyword: "TestLayer2_SrtToFinalAssContract"
+    timeout_sec: 60
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Note Overlay Layout — Layer 2: Expand ASS with fixtures"
+    file: "tests/sync_engine/test_note_overlay_layout.py"
+    keyword: "TestLayer2_ExpandNoteOverlayASS"
+    timeout_sec: 60
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Note Overlay Layout — Layer 3: Sync pipeline integration"
+    file: "tests/sync_engine/test_note_overlay_layout.py"
+    keyword: "Layer3"
+    timeout_sec: 300
+    pytest_args: ["-v", "-s"]
+    tags: ["integration", "ffmpeg"]
+    enabled: true
+
   - name: "Forced Alignment Subtitle — Layer 1: Config & Entry Point Logic"
     file: "tests/sync_engine/test_forced_alignment_subtitle.py"
     keyword: "Layer1"

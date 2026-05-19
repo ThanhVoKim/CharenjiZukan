@@ -76,6 +76,9 @@ def convert_srt_to_ass(
     template_path: str = None,
     max_chars: int = DEFAULT_MAX_CHARS,
     style: str = DEFAULT_STYLE,
+    layout_key: str = "",
+    mode: str = "warn",
+    known_layout_keys: set = None,
 ) -> int:
     """
     Chuyển đổi file SRT sang ASS format.
@@ -86,6 +89,9 @@ def convert_srt_to_ass(
         template_path: Đường dẫn file ASS template (mặc định: assets/sample.ass)
         max_chars: Số ký tự tối đa mỗi dòng (mặc định: 14)
         style: Tên style cho dialogue (mặc định: NoteStyle)
+        layout_key: Layout mặc định (fallback)
+        mode: Parsing mode cho layout key ở dòng đầu (warn, strict, off)
+        known_layout_keys: Set chứa tên các layout config
     
     Returns:
         Số dialogue lines đã tạo
@@ -109,6 +115,9 @@ def convert_srt_to_ass(
         segments,
         max_chars=max_chars,
         style=style,
+        layout_key=layout_key,
+        mode=mode,
+        known_layout_keys=known_layout_keys,
     )
     
     # Write ASS file
@@ -185,6 +194,20 @@ With custom max chars:
     )
     
     parser.add_argument(
+        "--layout-key",
+        default="",
+        metavar="NAME",
+        help="Default layout key for dialogues without first-line layout (default: '')",
+    )
+    
+    parser.add_argument(
+        "--srt-layout-key-mode",
+        choices=["warn", "strict", "off"],
+        default="warn",
+        help="Mode for parsing the first line of SRT text as layout key (default: warn)",
+    )
+    
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose logging",
@@ -228,12 +251,28 @@ def main():
     
     # Convert
     try:
+        import json
+        known_layout_keys = None
+        render_config_path = PROJECT_ROOT / "assets/default_render_config.json"
+        if render_config_path.exists():
+            with open(render_config_path, "r", encoding="utf-8") as f:
+                try:
+                    config = json.load(f)
+                    layouts = config.get("note_overlay", {}).get("layouts", {})
+                    if layouts:
+                        known_layout_keys = set(layouts.keys())
+                except Exception as e:
+                    logger.warning(f"Could not load known layout keys from {render_config_path}: {e}")
+                    
         count = convert_srt_to_ass(
             srt_path=str(input_path),
             output_path=str(output_path),
             template_path=str(template_path),
             max_chars=args.max_chars,
             style=args.style,
+            layout_key=args.layout_key,
+            mode=args.srt_layout_key_mode,
+            known_layout_keys=known_layout_keys,
         )
         print(f"[OK] Converted {count} dialogue lines")
         print(f"  Input:  {input_path}")

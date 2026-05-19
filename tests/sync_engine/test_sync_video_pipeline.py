@@ -159,7 +159,6 @@ class TestLayer3_SyncVideoPipeline:
             subtitle_color="&H00FFFFFF",
             subtitle_margin_v=6,
             subtitle_max_chars=0,
-            note_max_chars=15,
             llm_metadata_override=None,
         )
 

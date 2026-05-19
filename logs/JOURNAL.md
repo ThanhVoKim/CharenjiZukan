@@ -1,5 +1,34 @@
 # Project Journal
 
+## 2026-05-19: Refactor note overlay sang Dynamic ASS Box
+
+### Tóm tắt
+
+- **Mục tiêu**: Hoàn thiện refactor note overlay từ PNG cố định sang Dynamic ASS Box per-dialogue.
+- **Kết quả chính**: Note overlay giờ sinh ASS cuối gồm `NoteBox` layer nền và `NoteText` layer chữ; layout được chọn qua field `Name`/Actor trong ASS, hoặc dòng đầu tiên trong SRT sau khi convert bằng `srt-to-ass`.
+- **Backward compatibility**: Config legacy có `png_path`/`png_legacy` được nhận diện để warning deprecation; ASS nguồn cũ có `Name` rỗng fallback về `default_layout`.
+
+### File chính đã sửa
+
+- `sync_engine/note_overlay_layout.py` — module expand dynamic ASS box, validate layout config, wrap pixel, tính geometry và emit ASS drawing/text.
+- `utils/ass_utils.py` — `wrap_text_pixel()` và parser layout key từ SRT.
+- `cli/srt_to_ass.py` — CLI flags `--layout-key`, `--srt-layout-key-mode`.
+- `cli/sync_video.py` — Phase 4 tạo `<output>_note_overlay.ass`, cleanup ASS trung gian theo policy.
+- `sync_engine/renderer.py` — FFmpeg filter chaining subtitle trước, note overlay ASS sau; không dùng PNG note overlay.
+- `tests/sync_engine/test_note_overlay_layout.py` và `tests/cli/test_srt_to_ass_layout_key.py` — Layer 1/2/3 tests cho parser, layout, expand và pipeline mocked.
+
+### Quyết định kiến trúc
+
+1. **Không concat vật lý ASS**: Subtitle và note overlay được burn bằng 2 filter node liên tiếp trong FFmpeg để tránh conflict style/script metadata.
+2. **Per-dialogue layout**: Field `Name`/Actor là single source of truth cho layout key.
+3. **Min-height dynamic box**: `height` là floor; box tự mở rộng theo `text_height + padding + height_safety_margin`.
+4. **Deprecated PNG overlay**: `assets/note_overlay.png` giữ lại tạm thời nhưng không còn nằm trong runtime path chính.
+
+### Trạng thái hiện tại
+
+- Đã cập nhật docs Colab và sync-video guide cho dynamic ASS box.
+- Cần chạy verification test suite mục tiêu sau khi hoàn tất chỉnh sửa.
+
 ## 2026-05-18: Tách provider Voicevox Nemo và Voicevox chính thức trong TTS
 
 ### Tóm tắt

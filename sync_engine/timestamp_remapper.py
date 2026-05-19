@@ -71,10 +71,13 @@ def recalculate_ass(
     output_path: str,
     max_chars_per_line: int = 15,
     fps_float: float = 30.0,
+    apply_text_wrap: bool = True,
 ) -> None:
     """
-    Remap timestamps ASS + wrap text tại max_chars_per_line.
-    wrap_text() từ utils/ass_utils.py (đã có sẵn, chỉ truyền max_chars=15).
+    Remap timestamps ASS và chỉ wrap text khi được bật và max_chars_per_line > 0.
+
+    Dynamic note overlay truyền apply_text_wrap=False để giữ nguyên nội dung;
+    pixel-aware wrapping sẽ được xử lý sau bởi sync_engine.note_overlay_layout.
     """
     with open(input_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -90,8 +93,8 @@ def recalculate_ass(
                 parts[1] = ms_to_ass_timestamp(int(round(remap_timestamp(start_ms, timeline, fps_float))))
                 parts[2] = ms_to_ass_timestamp(int(round(remap_timestamp(end_ms,   timeline, fps_float))))
 
-                # wrap_text có sẵn trong ass_utils, chỉ đổi max_chars=15
-                parts[9] = wrap_text(parts[9].rstrip("\n"), max_chars=max_chars_per_line)
+                if apply_text_wrap and max_chars_per_line > 0:
+                    parts[9] = wrap_text(parts[9].rstrip("\n"), max_chars=max_chars_per_line)
 
                 line = ",".join(parts) + "\n"
         out_lines.append(line)

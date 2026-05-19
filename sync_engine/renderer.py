@@ -15,31 +15,6 @@ def detect_gpu_encoder() -> Tuple[bool, str, str]:
         return True, "h264_nvenc", "p5"
     return False, "libx264", "fast"
 
-def _build_ass_enable_expr(ass_path: str) -> str:
-    """Đọc file ASS và tạo biểu thức enable cho filter overlay của FFmpeg."""
-    from utils.media_utils import parse_ass_timestamp_to_ms
-    
-    with open(ass_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-        
-    intervals = []
-    for line in lines:
-        if line.startswith("Dialogue:"):
-            parts = line.rstrip("\n").split(",", 9)
-            if len(parts) >= 10:
-                start_ms = parse_ass_timestamp_to_ms(parts[1].strip())
-                end_ms = parse_ass_timestamp_to_ms(parts[2].strip())
-                # Chuyển đổi ms thành giây thập phân
-                start_s = start_ms / 1000.0
-                end_s = end_ms / 1000.0
-                intervals.append(f"between(t,{start_s:.3f},{end_s:.3f})")
-                
-    if not intervals:
-        return "0" # Không hiển thị bao giờ
-        
-    # Nối bằng phép cộng (+ là logical OR trong FFmpeg enable expression)
-    return "+".join(intervals)
-
 def _get_video_duration(video_path: str) -> float:
     cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", video_path]
     try:
@@ -141,24 +116,11 @@ def render_final_video(
         filter_cx.append(f"{current_v}drawtext={drawtext_str}[v_wm_txt]")
         current_v = "[v_wm_txt]"
 
-    # 3. Note Overlay PNG
+    # 3. Note Overlay (Dynamic ASS Box)
     note_cfg = render_config.get("note_overlay", {})
     has_note = False
-    if note_cfg.get("enabled", False) and note_cfg.get("png_path") and note_overlay_synced_ass and Path(note_overlay_synced_ass).exists():
-        png_path = Path(note_cfg["png_path"])
-        if not png_path.is_absolute():
-            png_path = PROJECT_ROOT / png_path
-        
-        if png_path.exists():
-            png_path_esc = str(png_path).replace('\\', '/')
-            cmd.extend(["-loop", "1", "-i", png_path_esc])
-            note_idx = input_idx
-            input_idx += 1
-            has_note = True
-            
-            enable_expr = _build_ass_enable_expr(note_overlay_synced_ass)
-            filter_cx.append(f"{current_v}[{note_idx}:v]overlay=shortest=1:enable='{enable_expr}'[v_note]")
-            current_v = "[v_note]"
+    if note_cfg.get("enabled", False) and note_overlay_synced_ass and Path(note_overlay_synced_ass).exists():
+        has_note = True
 
     # 4. Black Strip
     strip_cfg = render_config.get("black_strip", {})
@@ -189,13 +151,7 @@ def render_final_video(
             filter_cx.append(f"{current_v}{strip_layer}overlay=x={x}:y={y}:shortest=1[v_strip]")
             current_v = "[v_strip]"
 
-    # 5. ASS Text (from Note Overlay)
-    if has_note and note_overlay_synced_ass:
-        ass_esc = note_overlay_synced_ass.replace('\\', '/')
-        filter_cx.append(f"{current_v}ass='{ass_esc}'[v_ass]")
-        current_v = "[v_ass]"
-
-    # 6. Subtitles (SRT)
+    # 5. Subtitles (SRT)
     sub_cfg = render_config.get("subtitles", {})
     if sub_cfg.get("enabled", False) and sub_cfg.get("burn_hardsub", True):
         style_dict = sub_cfg.get("style", {})
@@ -204,23 +160,25 @@ def render_final_video(
             custom_style = ",".join([f"\\,{k}={v}" if i > 0 else f"{k}={v}" for i, (k, v) in enumerate(style_dict.items())])
         else:
             custom_style = ""
-            
-        if custom_style:
-            filter_cx.append(f"{current_v}subtitles='{subtitle_synced_srt_esc}':force_style='{custom_style}'[v_out]")
-        else:
-            filter_cx.append(f"{current_v}subtitles='{subtitle_synced_srt_esc}'[v_out]")
-        current_v = "[v_out]"
 
-    if current_v != "[v_out]":
-        if current_v == "[0:v]":
-            filter_cx_str = ""
-            map_v = "0:v"
+        if custom_style:
+            filter_cx.append(f"{current_v}subtitles='{subtitle_synced_srt_esc}':force_style='{custom_style}'[v_sub]")
         else:
-            filter_cx_str = ";".join(filter_cx)
-            map_v = current_v
-    else:
+            filter_cx.append(f"{current_v}subtitles='{subtitle_synced_srt_esc}'[v_sub]")
+        current_v = "[v_sub]"
+
+    # 6. ASS Note Overlay (background + text via ASS drawing)
+    if has_note and note_overlay_synced_ass:
+        ass_esc = note_overlay_synced_ass.replace('\\', '/')
+        filter_cx.append(f"{current_v}ass='{ass_esc}'[v_note]")
+        current_v = "[v_note]"
+
+    if filter_cx:
         filter_cx_str = ";".join(filter_cx)
-        map_v = "[v_out]"
+        map_v = current_v
+    else:
+        filter_cx_str = ""
+        map_v = "0:v"
 
     if filter_cx_str:
         cmd.extend(["-filter_complex", filter_cx_str])
@@ -232,7 +190,7 @@ def render_final_video(
         "-c:a", "aac", "-b:a", "192k",
     ])
     
-    if has_note or has_strip:
+    if has_strip:
         cmd.append("-shortest")
         
     cmd.append(output_path)

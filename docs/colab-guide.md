@@ -533,12 +533,29 @@ Chạy hàng loạt bằng JSON task-file:
 
 ### 2.5. SRT to ASS (srt-to-ass)
 
-Chuyển file SRT thành file ASS để overlay lên video.
+Chuyển file SRT thành ASS trung gian cho note overlay. Với `note_overlay.mode=dynamic_ass_box`, mỗi block SRT nhiều dòng có thể đặt dòng đầu tiên làm layout key (`top_left`, `bottom_right`, `center_panel`, ...). Dòng layout key sẽ được ghi vào field `Name` của ASS và không render ra video.
 
 #### Chuyển đổi nhanh
 
 ```colab
-!uv run srt-to-ass --input /content/note_translated.srt
+!uv run srt-to-ass --input /content/note_translated.srt --layout-key top_left
+```
+
+#### Ví dụ SRT nhiều layout
+
+```srt
+1
+00:00:03,000 --> 00:00:10,000
+top_left
+Quick field note:
+The north gate opens only after the second bell.
+
+2
+00:00:14,000 --> 00:00:22,000
+bottom_right
+Gear checklist:
+1. Small knife
+2. Water pouch
 ```
 
 #### Đầy đủ tham số
@@ -548,21 +565,25 @@ Chuyển file SRT thành file ASS để overlay lên video.
     --input     /content/note_translated.srt \
     --output    /content/note_overlay.ass \
     --template  /content/CharenjiZukan/assets/sample.ass \
-    --max-chars 14 \
+    --max-chars 0 \
     --style     NoteStyle \
+    --layout-key top_left \
+    --srt-layout-key-mode warn \
     --verbose
 ```
 
 #### Tham số
 
-| Tham số            | Mô tả                                   | Mặc định            |
-| ------------------ | --------------------------------------- | ------------------- |
-| `--input`, `-i`    | File SRT đầu vào                        | (bắt buộc)          |
-| `--output`, `-o`   | File ASS đầu ra                         | `<input>.ass`       |
-| `--template`, `-t` | File ASS template                       | `assets/sample.ass` |
-| `--max-chars`      | Số ký tự tối đa mỗi dòng (tự động ngắt) | `14`                |
-| `--style`          | Tên style trong ASS                     | `NoteStyle`         |
-| `--verbose`, `-v`  | Hiển thị log chi tiết                   | (tắt)               |
+| Tham số                 | Mô tả                                                                 | Mặc định            |
+| ----------------------- | --------------------------------------------------------------------- | ------------------- |
+| `--input`, `-i`         | File SRT đầu vào                                                      | (bắt buộc)          |
+| `--output`, `-o`        | File ASS đầu ra                                                       | `<input>.ass`       |
+| `--template`, `-t`      | File ASS template                                                     | `assets/sample.ass` |
+| `--max-chars`           | Wrap ký tự legacy cho ASS trung gian; nên đặt `0` cho dynamic overlay | `14`                |
+| `--style`               | Tên style placeholder trong ASS                                       | `NoteStyle`         |
+| `--layout-key`          | Layout fallback khi block SRT không khai báo dòng layout đầu tiên     | `""`                |
+| `--srt-layout-key-mode` | `warn`, `strict`, `off` cho parser dòng layout đầu tiên               | `warn`              |
+| `--verbose`, `-v`       | Hiển thị log chi tiết                                                 | (tắt)               |
 
 ---
 
@@ -1096,7 +1117,6 @@ Yêu cầu đã cài đặt `qwen-tts` và `transformers` (xem phần 2.6).
     --workers 4 \
     --batch-size 100 \
     --no-gpu \
-    --note-max-chars 15 \
     --subtitle-max-chars 0
 ```
 
@@ -1158,7 +1178,7 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 | `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)                      | `100`                                   |
 | `--no-gpu`             | Dùng `libx264` thay `h264_nvenc` (CPU mode)                                   | (tắt)                                   |
 | `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                            | (tắt)                                   |
-| `--note-max-chars`     | Số ký tự tối đa mỗi dòng khi wrap text ASS note                               | `15`                                    |
+| `--note-max-chars`     | Deprecated cho dynamic note overlay; note overlay dùng pixel wrap theo layout | `15`                                    |
 | `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                               | `0`                                     |
 
 > **Lưu ý về âm lượng (Volume):** Khi cấu hình tách BGM trong `render_config`, bạn có thể điều chỉnh âm lượng của BGM đã tách và ambient thông qua block `audio_mix`:
@@ -1179,7 +1199,15 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
   - `<output-name>_synced.srt`
 - Output tùy chọn nếu có input tương ứng:
   - `<output-name>_mute_synced.srt` (khi có `--mute`)
-  - `<output-name>_note_synced.ass` (khi có `--note-overlay-ass`)
+  - `<output-name>_note_overlay.ass` (ASS cuối có `NoteBox` + `NoteText`, khi có `--note-overlay-ass`)
+  - `<output-name>_note_synced.ass` chỉ được giữ khi bật `--keep-tmp` hoặc `note_overlay.keep_intermediate_ass=true`
+
+#### Note Overlay dynamic ASS box
+
+- Không cần upload `assets/note_overlay.png`; asset này đã deprecated.
+- Cần giữ font CJK, ví dụ `assets/NotoSansCJKsc-VF.ttf`, để Pillow đo pixel khi wrap text.
+- ASS nguồn có thể chọn layout per dialogue bằng field `Name`; SRT nguồn có thể chọn layout bằng dòng text đầu tiên của mỗi block nhiều dòng rồi convert bằng `srt-to-ass`.
+- Trên Colab, libass và Pillow có thể đo glyph lệch nhẹ; nên giữ `padding_bottom` và `height_safety_margin` đủ lớn trong `render_config.json`.
 
 ---
 
