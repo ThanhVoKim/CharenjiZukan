@@ -149,6 +149,22 @@ tests:
     tags: ["unit", "sync_engine"]
     enabled: true
 
+  - name: "Video Cutter — Layer 1: Unit (parse, margin, merge, invert, commands)"
+    file: "tests/utils/test_video_cutter.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Video Cutter — Layer 2: Component (mocked subprocess, fail-fast)"
+    file: "tests/utils/test_video_cutter.py"
+    keyword: "Layer2"
+    timeout_sec: 60
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
   # ──────────────────────────────────────────────
   # INTEGRATION TESTS — Cần FFmpeg, không cần GPU
   # ──────────────────────────────────────────────

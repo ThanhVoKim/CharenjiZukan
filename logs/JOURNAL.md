@@ -1,5 +1,38 @@
 # Project Journal
 
+## 2026-05-21: Pre-cut video — loại bỏ đoạn thừa trước transcript/sync
+
+### Tóm tắt
+
+- **Mục tiêu**: Tạo CLI pre-cut riêng để loại bỏ các đoạn thừa từ video gốc trước khi chạy transcript, translate và flow sync hiện tại.
+- **Kết quả chính**: CLI `pre-cut-video` nhận video gốc + remove SRT, tạo video clean + manifest JSON. Video clean trở thành source timeline mới cho mọi bước tiếp theo.
+- **Hai method**: `hybrid-copy` (default — video stream copy, audio AAC encode, keyframe expansion) và `reencode-smooth` (hevc_nvenc re-encode, CQ 28, frame grid snap).
+
+### File mới
+
+- `utils/video_cutter.py` — Core logic: `probe_video_info()`, `query_keyframes()`, `detect_hevc_nvenc()`, `parse_remove_srt()`, `apply_safe_margin()`, `normalize_and_merge()`, `expand_to_keyframes()`, `snap_to_frame_grid()`, `invert_to_keep_ranges()`, `build_hybrid_copy_part_cmd()`, `build_reencode_part_cmd()`, `concat_parts()`, `run_pre_cut()`, `_build_manifest()`. Data classes: `RemoveRange`, `KeepRange`, `VideoInfo`, `CutResult`.
+- `cli/pre_cut_video.py` — CLI entrypoint với tất cả tham số: `--input`, `--output`, `--remove-srt`, `--manifest`, `--method`, `--hevc-cq`, `--maxrate-ratio`, `--hevc-preset`, `--audio-bitrate`, `--audio-fade-ms`, `--safe-margin-ms`, `--disable-audio-fade`, `--keep-tmp`, `--verbose`.
+
+### File sửa
+
+- `pyproject.toml` — Thêm entrypoint `pre-cut-video = "cli.pre_cut_video:main"`.
+- `docs/sync-video-guide.md` — Thêm section 9: Pre-cut video, cập nhật TOC và kiến trúc module.
+- `docs/colab-guide.md` — Thêm section 2.12: Pre-cut Video với ví dụ workflow đầy đủ.
+
+### Quyết định kiến trúc
+
+1. **Độc lập khỏi sync_engine**: Core logic đặt trong `utils/video_cutter.py`, không phụ thuộc vào `sync_engine/`. Pre-cut là bước tiền xử lý riêng biệt.
+2. **Part-based workflow**: Cả hai method đều tạo từng keep part rồi concat bằng demuxer — nhất quán, dễ debug.
+3. **Keyframe expansion conservative**: Với `hybrid-copy`, remove range được mở rộng về keyframe gần nhất — xóa thừa thay vì để sót nội dung cần xóa.
+4. **Fail-fast**: Không có audio stream → fail. Không có keyframes (hybrid-copy) → fail. Không có hevc_nvenc (reencode-smooth) → fail. Không fallback CPU.
+5. **Manifest**: Ghi đủ source ranges, normalized ranges, expanded ranges, keep ranges, encoder info, drift detection fields.
+6. **Temp cleanup**: Mặc định xóa sau concat thành công; giữ lại khi `--keep-tmp`.
+
+### Pending
+
+✓ Viết test suite theo testing-guide (parse SRT, range processing, keyframe expansion, frame snap, manifest).
+✓ Chạy verification test trên video thật với cả hai method.
+
 ## 2026-05-19: Refactor note overlay sang Dynamic ASS Box
 
 ### Tóm tắt

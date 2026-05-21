@@ -1211,6 +1211,104 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 
 ---
 
+### 2.12. Pre-cut Video (pre-cut-video)
+
+Loại bỏ các đoạn thừa từ video gốc **trước khi** chạy transcript/translate/sync. CLI này tạo video clean và manifest JSON để trace timeline.
+
+#### Pre-cut nhanh (hybrid-copy — mặc định)
+
+```colab
+!uv run pre-cut-video \
+    --input /content/source.mp4 \
+    --output /content/clean.mp4 \
+    --remove-srt /content/remove.srt
+```
+
+#### Re-encode smooth (HEVC NVENC)
+
+```colab
+!uv run pre-cut-video \
+    --input /content/source.mp4 \
+    --output /content/clean.mp4 \
+    --remove-srt /content/remove.srt \
+    --method reencode-smooth
+```
+
+#### Đầy đủ tham số
+
+```colab
+!uv run pre-cut-video \
+    --input /content/source.mp4 \
+    --output /content/clean.mp4 \
+    --remove-srt /content/remove.srt \
+    --manifest /content/clean_manifest.json \
+    --method hybrid-copy \
+    --audio-bitrate 256k \
+    --audio-fade-ms 10 \
+    --safe-margin-ms 100 \
+    --keep-tmp \
+    --verbose
+```
+
+#### File remove.srt format
+
+Mỗi block SRT là một đoạn cần **xóa** khỏi video gốc. Text trong block dùng làm ghi chú:
+
+```srt
+1
+00:00:12,500 --> 00:00:18,000
+CUT intro mistake
+
+2
+00:03:10,000 --> 00:03:25,200
+CUT sponsor
+```
+
+#### Tham số
+
+| Tham số                | Mô tả                                                | Mặc định                     |
+| ---------------------- | ---------------------------------------------------- | ---------------------------- |
+| `--input`, `-i`        | File video gốc cần cắt                               | (bắt buộc)                   |
+| `--output`, `-o`       | File video clean sau khi cắt                         | (bắt buộc)                   |
+| `--remove-srt`, `-r`   | File SRT chứa các đoạn cần xóa (timestamp video gốc) | (bắt buộc)                   |
+| `--manifest`           | Path manifest JSON                                   | `<output>_cut_manifest.json` |
+| `--method`             | Phương pháp: `hybrid-copy` hoặc `reencode-smooth`    | `hybrid-copy`                |
+| `--hevc-cq`            | CQ cho reencode-smooth                               | `28`                         |
+| `--maxrate-ratio`      | Nhân input bitrate để tính maxrate (reencode-smooth) | `1.15`                       |
+| `--hevc-preset`        | Preset cho hevc_nvenc                                | `p4`                         |
+| `--audio-bitrate`      | Bitrate AAC output                                   | `256k`                       |
+| `--audio-fade-ms`      | Fade audio ở rìa mỗi keep part (ms)                  | `10`                         |
+| `--safe-margin-ms`     | Mở rộng remove ranges trên source timeline (ms)      | `100`                        |
+| `--disable-audio-fade` | Tắt audio fade                                       | (tắt)                        |
+| `--keep-tmp`           | Giữ part files tạm sau concat để debug               | (tắt)                        |
+| `--verbose`, `-v`      | Bật log chi tiết (DEBUG level)                       | (tắt)                        |
+
+#### Workflow đầy đủ với pre-cut
+
+```colab
+# Bước 1: Pre-cut — loại bỏ đoạn thừa
+!uv run pre-cut-video \
+    --input /content/source.mp4 \
+    --output /content/clean.mp4 \
+    --remove-srt /content/remove.srt
+
+# Bước 2: Transcript/ASR trên video clean
+!uv run qwen3-asr-srt --input /content/clean.mp4 --output /content/subs/
+
+# Bước 3: Translate
+!uv run translate-srt --input /content/subs/clean.srt --keys "{gemini_key}"
+
+# Bước 4: Sync video với video clean
+!uv run sync-video \
+    --video /content/clean.mp4 \
+    --subtitle /content/subs/clean_ja.srt \
+    --output-dir /content/output_sync
+```
+
+> **Lưu ý:** Sau pre-cut, tất cả timestamp đều thuộc timeline của video clean. Không dùng lại timestamp của video gốc cho các bước sau.
+
+---
+
 ## 3. Chạy test trên Google Colab với `run_colab_tests.py`
 
 File nằm tại: `run_colab_tests.py` (project root)
