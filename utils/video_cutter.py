@@ -310,13 +310,22 @@ def _build_audio_filter(
     part_duration_ms: float,
     fade_ms: float,
     fade_enabled: bool,
+    is_first_part: bool = False,
+    is_last_part: bool = False,
 ) -> Optional[str]:
     if not fade_enabled or fade_ms <= 0:
         return None
     fade_s = fade_ms / 1000.0
     dur_s = part_duration_ms / 1000.0
-    fade_out_start = max(0, dur_s - fade_s)
-    return f"afade=t=in:st=0:d={fade_s:.4f},afade=t=out:st={fade_out_start:.4f}:d={fade_s:.4f}"
+
+    filters = []
+    if not is_first_part:
+        filters.append(f"afade=t=in:st=0:d={fade_s:.4f}")
+    if not is_last_part:
+        fade_out_start = max(0, dur_s - fade_s)
+        filters.append(f"afade=t=out:st={fade_out_start:.4f}:d={fade_s:.4f}")
+
+    return ",".join(filters) if filters else None
 
 
 def build_hybrid_copy_part_cmd(
@@ -328,9 +337,11 @@ def build_hybrid_copy_part_cmd(
     audio_channels: int = 2,
     audio_fade_ms: float = 10,
     audio_fade_enabled: bool = True,
+    is_first_part: bool = False,
+    is_last_part: bool = False,
 ) -> List[str]:
     duration_ms = keep.end_ms - keep.start_ms
-    af = _build_audio_filter(duration_ms, audio_fade_ms, audio_fade_enabled)
+    af = _build_audio_filter(duration_ms, audio_fade_ms, audio_fade_enabled, is_first_part, is_last_part)
 
     cmd = [
         "ffmpeg", "-y",
@@ -364,9 +375,11 @@ def build_reencode_part_cmd(
     audio_channels: int = 2,
     audio_fade_ms: float = 10,
     audio_fade_enabled: bool = True,
+    is_first_part: bool = False,
+    is_last_part: bool = False,
 ) -> List[str]:
     duration_ms = keep.end_ms - keep.start_ms
-    af = _build_audio_filter(duration_ms, audio_fade_ms, audio_fade_enabled)
+    af = _build_audio_filter(duration_ms, audio_fade_ms, audio_fade_enabled, is_first_part, is_last_part)
 
     cmd = [
         "ffmpeg", "-y",
@@ -520,12 +533,17 @@ def run_pre_cut(
         part_file = str(tmp_dir / f"keep_{i:04d}.mp4")
         keep.part_file = part_file
 
+        is_first = (keep.start_ms == 0)
+        is_last = (keep.end_ms >= info.duration_ms)
+
         if method == "hybrid-copy":
             cmd = build_hybrid_copy_part_cmd(
                 input_path, part_file, keep,
                 audio_bitrate=audio_bitrate,
                 audio_fade_ms=audio_fade_ms,
                 audio_fade_enabled=audio_fade_enabled,
+                is_first_part=is_first,
+                is_last_part=is_last,
             )
         else:
             cmd = build_reencode_part_cmd(
@@ -535,6 +553,8 @@ def run_pre_cut(
                 audio_bitrate=audio_bitrate,
                 audio_fade_ms=audio_fade_ms,
                 audio_fade_enabled=audio_fade_enabled,
+                is_first_part=is_first,
+                is_last_part=is_last,
             )
 
         logger.info("Part %d/%d: %s", i + 1, len(keep_ranges), " ".join(cmd))

@@ -418,7 +418,7 @@ class TestLayer1_FFmpegCommands:
         assert cmd[idx_cv + 1] == "hevc_nvenc"
 
     def test_audio_fade_filter_present(self):
-        keep = KeepRange(start_ms=0, end_ms=10000)
+        keep = KeepRange(start_ms=5000, end_ms=15000)
         cmd = build_hybrid_copy_part_cmd(
             "in.mp4", "out.mp4", keep,
             audio_fade_ms=10, audio_fade_enabled=True,
@@ -434,6 +434,67 @@ class TestLayer1_FFmpegCommands:
             audio_fade_enabled=False,
         )
         assert "-af" not in cmd
+
+    def test_no_fade_in_for_first_part(self):
+        keep = KeepRange(start_ms=0, end_ms=10000)
+        cmd = build_hybrid_copy_part_cmd(
+            "in.mp4", "out.mp4", keep,
+            audio_fade_ms=10, audio_fade_enabled=True,
+            is_first_part=True, is_last_part=False,
+        )
+        assert "-af" in cmd
+        af_idx = cmd.index("-af")
+        af_val = cmd[af_idx + 1]
+        assert "afade=t=in" not in af_val
+        assert "afade=t=out" in af_val
+
+    def test_no_fade_out_for_last_part(self):
+        keep = KeepRange(start_ms=50000, end_ms=60000)
+        cmd = build_hybrid_copy_part_cmd(
+            "in.mp4", "out.mp4", keep,
+            audio_fade_ms=10, audio_fade_enabled=True,
+            is_first_part=False, is_last_part=True,
+        )
+        assert "-af" in cmd
+        af_idx = cmd.index("-af")
+        af_val = cmd[af_idx + 1]
+        assert "afade=t=in" in af_val
+        assert "afade=t=out" not in af_val
+
+    def test_no_fade_at_all_for_single_part(self):
+        keep = KeepRange(start_ms=0, end_ms=60000)
+        cmd = build_hybrid_copy_part_cmd(
+            "in.mp4", "out.mp4", keep,
+            audio_fade_ms=10, audio_fade_enabled=True,
+            is_first_part=True, is_last_part=True,
+        )
+        assert "-af" not in cmd
+
+    def test_both_fades_for_middle_part(self):
+        keep = KeepRange(start_ms=20000, end_ms=40000)
+        cmd = build_hybrid_copy_part_cmd(
+            "in.mp4", "out.mp4", keep,
+            audio_fade_ms=10, audio_fade_enabled=True,
+            is_first_part=False, is_last_part=False,
+        )
+        assert "-af" in cmd
+        af_idx = cmd.index("-af")
+        af_val = cmd[af_idx + 1]
+        assert "afade=t=in" in af_val
+        assert "afade=t=out" in af_val
+
+    def test_reencode_no_fade_in_for_first_part(self):
+        keep = KeepRange(start_ms=0, end_ms=10000)
+        cmd = build_reencode_part_cmd(
+            "in.mp4", "out.mp4", keep,
+            audio_fade_ms=10, audio_fade_enabled=True,
+            is_first_part=True, is_last_part=False,
+        )
+        assert "-af" in cmd
+        af_idx = cmd.index("-af")
+        af_val = cmd[af_idx + 1]
+        assert "afade=t=in" not in af_val
+        assert "afade=t=out" in af_val
 
     def test_no_bv_zero_in_reencode(self):
         keep = KeepRange(start_ms=0, end_ms=10000)
