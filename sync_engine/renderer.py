@@ -1,19 +1,22 @@
 import subprocess
 from pathlib import Path
-from typing import Tuple, List, Optional
-import os
+from typing import Optional
 import re
 import logging
 
 logger = logging.getLogger("sync_video")
 
-def detect_gpu_encoder() -> Tuple[bool, str, str]:
-    """Returns (has_gpu, encoder, preset)."""
-    r = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
-                       capture_output=True, text=True)
-    if "h264_nvenc" in r.stdout:
-        return True, "h264_nvenc", "p5"
-    return False, "libx264", "fast"
+_HEVC_NVENC_VIDEO_ARGS = ["-c:v", "hevc_nvenc", "-preset", "p4", "-tune", "hq", "-cq", "28"]
+
+
+def detect_hevc_nvenc() -> bool:
+    """Kiểm tra FFmpeg có encoder hevc_nvenc hay không."""
+    try:
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                           capture_output=True, text=True, check=False)
+        return "hevc_nvenc" in r.stdout
+    except OSError:
+        return False
 
 def _get_video_duration(video_path: str) -> float:
     cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", video_path]
@@ -38,19 +41,17 @@ def render_final_video(
     # Path format for ffmpeg filters on Windows needs escaping or forward slashes
     subtitle_synced_srt_esc = subtitle_synced_srt.replace('\\', '/')
     
-    enc_cfg = render_config.get("video_encoding", {})
-    quality_override = enc_cfg.get("quality")
-    preset_override = enc_cfg.get("preset")
-    
-    has_gpu, auto_encoder, auto_preset = detect_gpu_encoder()
-    if use_gpu and has_gpu:
-        encoder = auto_encoder
-        preset = preset_override if preset_override else auto_preset
-        quality = quality_override if quality_override else ["-cq", "23"]
-    else:
-        encoder = "libx264"
-        preset = preset_override if preset_override else "fast"
-        quality = quality_override if quality_override else ["-crf", "23"]
+    if not detect_hevc_nvenc():
+        raise RuntimeError(
+            "hevc_nvenc không khả dụng. Flow sync_video hiện yêu cầu NVIDIA HEVC NVENC "
+            "với tham số -c:v hevc_nvenc -preset p4 -tune hq -cq 28."
+        )
+
+    if not use_gpu:
+        logger.warning(
+            "use_gpu=False/--no-gpu bị bỏ qua: final render dùng "
+            "hevc_nvenc -preset p4 -tune hq -cq 28."
+        )
 
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -184,9 +185,9 @@ def render_final_video(
         cmd.extend(["-filter_complex", filter_cx_str])
         
     cmd.extend([
-        "-map", map_v, 
+        "-map", map_v,
         "-map", "1:a",
-        "-c:v", encoder, "-preset", preset, *quality,
+        *_HEVC_NVENC_VIDEO_ARGS,
         "-c:a", "aac", "-b:a", "192k",
     ])
     

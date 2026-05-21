@@ -32,6 +32,7 @@ import numpy as np
 from pydub import AudioSegment
 
 from cli.sync_video import run_sync_pipeline
+from sync_engine.video_processor import detect_hevc_nvenc
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -98,6 +99,8 @@ def synthetic_inputs_force_slowdown(tmp_path_factory):
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="FFmpeg không có trong PATH")
 class TestLayer3_SyncVideoPipeline:
     def _run_pipeline(self, synthetic_video, synthetic_inputs, output_dir: Path, output_name: str, monkeypatch) -> Path:
+        if not detect_hevc_nvenc():
+            pytest.skip("hevc_nvenc không khả dụng; sync_video render video bắt buộc dùng HEVC NVENC")
         
         # Mock EdgeTTSEngine để không gọi network
         def mock_engine_init(self_obj, *args, **kwargs):
@@ -124,7 +127,12 @@ class TestLayer3_SyncVideoPipeline:
                     "note_overlay": {"enabled": False},
                     "audio_mix": {"ambient_volume": 0.0, "bgm_volume": 0.0},
                     "audio_separator": {"extract_bgm": False, "extract_vocals": False},
-                    "video_encoding": {"preset": "fast", "quality": ["-crf", "23"]},
+                    "video_encoding": {
+                        "codec": "hevc_nvenc",
+                        "preset": "p4",
+                        "tune": "hq",
+                        "quality": ["-cq", "28"],
+                    },
                     "llm_metadata": {"enabled": False},
                 }
             ),
@@ -153,7 +161,7 @@ class TestLayer3_SyncVideoPipeline:
             keep_tmp=False,
             workers=2,
             batch_size=100,
-            no_gpu=True,  # CPU mode for CI
+            no_gpu=True,  # Tham số tương thích cũ; HEVC NVENC vẫn bắt buộc khi render.
             subtitle_fontname="Arial",
             subtitle_fontsize=22,
             subtitle_color="&H00FFFFFF",

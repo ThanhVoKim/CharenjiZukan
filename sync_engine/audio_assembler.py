@@ -14,7 +14,34 @@ _PCM_AUDIO_EXTENSIONS = {'.wav', '.flac', '.aiff', '.aif', '.pcm'}
 
 logger = logging.getLogger("sync_video")
 
-def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_provider: str = "edge", target_dur_s: Optional[float] = None) -> None:
+
+_DEFAULT_FADE_MS = 10
+_TTS_FADE_MS = 5
+
+
+def _build_audio_fade_filter(
+    part_duration_ms: float,
+    fade_ms: float,
+    is_first_chunk: bool = False,
+    is_last_chunk: bool = False,
+) -> Optional[str]:
+    if fade_ms <= 0 or part_duration_ms <= 0:
+        return None
+    fade_s = fade_ms / 1000.0
+    dur_s = part_duration_ms / 1000.0
+    if dur_s <= fade_s * 2:
+        return None
+    filters = []
+    if not is_first_chunk:
+        filters.append(f"afade=t=in:st=0:d={fade_s:.4f}")
+    if not is_last_chunk:
+        fade_out_start = max(0, dur_s - fade_s)
+        filters.append(f"afade=t=out:st={fade_out_start:.4f}:d={fade_s:.4f}")
+    return ",".join(filters) if filters else None
+
+
+def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_provider: str = "edge", target_dur_s: Optional[float] = None,
+                      fade_ms: float = _TTS_FADE_MS, is_first_chunk: bool = False, is_last_chunk: bool = False) -> None:
     # Voicevox family (Voicevox chính thức và Voicevox Nemo) đã tự tăng volumeScale, không cần filter
     if tts_provider.startswith("voicevox"):
         base_filter = ""
@@ -33,6 +60,12 @@ def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_p
         pad_trim_filter = f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}"
         filter_str = f"{filter_str},{pad_trim_filter}" if filter_str else pad_trim_filter
 
+    # Fade in/out tại biên chunk để triệt tiêu pop/click khi concat
+    fade_dur_ms = (target_dur_s * 1000.0) if target_dur_s else 0
+    af_fade = _build_audio_fade_filter(fade_dur_ms, fade_ms, is_first_chunk, is_last_chunk)
+    if af_fade:
+        filter_str = f"{filter_str},{af_fade}" if filter_str else af_fade
+
     cmd = [
         "ffmpeg", "-y", "-i", wav_path,
         "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
@@ -43,7 +76,8 @@ def compress_tts_clip(wav_path: str, audio_speed: float, output_path: str, tts_p
     
     subprocess.run(cmd, check=True, capture_output=True)
 
-def _prepare_bgm_chunk(index: int, seg: TimelineSegment, bgm_path: str, tmp_dir: str, sample_rate: int) -> Tuple[int, str]:
+def _prepare_bgm_chunk(index: int, seg: TimelineSegment, bgm_path: str, tmp_dir: str, sample_rate: int,
+                        fade_ms: float = _DEFAULT_FADE_MS, is_first_chunk: bool = False, is_last_chunk: bool = False) -> Tuple[int, str]:
     """Tạo 1 chunk BGM đã được time-stretch theo video_speed và pad/trim đúng duration."""
     target_dur_s = seg.new_chunk_dur / 1000.0
     if target_dur_s <= 0:
@@ -65,6 +99,11 @@ def _prepare_bgm_chunk(index: int, seg: TimelineSegment, bgm_path: str, tmp_dir:
     
     # Trim/pad để đảm bảo đúng duration tuyệt đối
     filters.append(f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}")
+    
+    # Fade in/out tại biên chunk để triệt tiêu pop/click khi concat
+    af_fade = _build_audio_fade_filter(seg.new_chunk_dur, fade_ms, is_first_chunk, is_last_chunk)
+    if af_fade:
+        filters.append(af_fade)
     
     filter_str = ",".join(f for f in filters if f)
     
@@ -276,8 +315,12 @@ def assemble_audio_track(
     # 1. Chuẩn bị / Extract / Compress tất cả các chunk (chạy đa luồng)
     logger.info(f"Đang chuẩn bị {len(timeline)} audio chunks...")
     
+    total_chunks = len(timeline)
+
     def _prepare_chunk(index: int, seg: TimelineSegment) -> Tuple[int, str]:
         target_dur_s = seg.new_chunk_dur / 1000.0
+        is_first = (index == 0)
+        is_last = (index == total_chunks - 1)
         
         if target_dur_s <= 0:
             return index, ""
@@ -293,13 +336,16 @@ def assemble_audio_track(
                     )
                     if use_vocal_extraction:
                         duration_s = (seg.orig_end - seg.orig_start) / 1000.0
-                        quoted_pad_info[tmp_q] = (actual_left_pad, duration_s, final_q, target_dur_s)
+                        quoted_pad_info[tmp_q] = (actual_left_pad, duration_s, final_q, target_dur_s, is_first, is_last)
                 
                 # Nếu không dùng demucs, tạo final chunk luôn bằng atrim/apad
                 if not use_vocal_extraction and Path(tmp_q).exists():
+                    base_filter = f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}"
+                    af_fade = _build_audio_fade_filter(seg.new_chunk_dur, _DEFAULT_FADE_MS, is_first, is_last)
+                    filter_str = f"{base_filter},{af_fade}" if af_fade else base_filter
                     cmd = [
                         "ffmpeg", "-y", "-i", tmp_q,
-                        "-filter:a", f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}",
+                        "-filter:a", filter_str,
                         "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le",
                         final_q
                     ]
@@ -309,7 +355,8 @@ def assemble_audio_track(
         elif seg.block_type == "tts" and seg.tts_clip_path:
             final_c = str(Path(tmp_dir) / f"chunk_{index:04d}_tts.wav")
             if not Path(final_c).exists():
-                compress_tts_clip(seg.tts_clip_path, seg.audio_speed, final_c, tts_provider, target_dur_s=target_dur_s)
+                compress_tts_clip(seg.tts_clip_path, seg.audio_speed, final_c, tts_provider,
+                                  target_dur_s=target_dur_s, is_first_chunk=is_first, is_last_chunk=is_last)
             return index, final_c
             
         else: # gap hoặc tail
@@ -355,14 +402,18 @@ def assemble_audio_track(
             
             # Cắt bỏ phần padding (trim) sau khi có kết quả Demucs, và apad/atrim chuẩn hóa
             for raw_p, sep_p in zip(raw_quoted_paths, separator_outputs):
-                actual_left_pad, dur_s, final_q, target_dur_s = quoted_pad_info[raw_p]
+                actual_left_pad, dur_s, final_q, target_dur_s, is_first, is_last = quoted_pad_info[raw_p]
                 
                 src_to_trim = sep_p if Path(sep_p).exists() else raw_p
+                
+                base_filter = f"atrim=start={actual_left_pad:.6f}:duration={dur_s:.6f},asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}"
+                af_fade = _build_audio_fade_filter(target_dur_s * 1000.0, _DEFAULT_FADE_MS, is_first, is_last)
+                filter_str = f"{base_filter},{af_fade}" if af_fade else base_filter
                 
                 trim_cmd = [
                     "ffmpeg", "-y",
                     "-i", src_to_trim,
-                    "-filter:a", f"atrim=start={actual_left_pad:.6f}:duration={dur_s:.6f},asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}",
+                    "-filter:a", filter_str,
                     "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le",
                     final_q
                 ]
@@ -371,11 +422,14 @@ def assemble_audio_track(
         except Exception as e:
             logger.error(f"Lỗi khi chạy audio-separator batch, fallback dùng audio có nhạc nền: {e}")
             for raw_p in raw_quoted_paths:
-                actual_left_pad, dur_s, final_q, target_dur_s = quoted_pad_info[raw_p]
+                actual_left_pad, dur_s, final_q, target_dur_s, is_first, is_last = quoted_pad_info[raw_p]
+                base_filter = f"atrim=start={actual_left_pad:.6f}:duration={dur_s:.6f},asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}"
+                af_fade = _build_audio_fade_filter(target_dur_s * 1000.0, _DEFAULT_FADE_MS, is_first, is_last)
+                filter_str = f"{base_filter},{af_fade}" if af_fade else base_filter
                 trim_cmd = [
                     "ffmpeg", "-y",
                     "-i", raw_p,
-                    "-filter:a", f"atrim=start={actual_left_pad:.6f}:duration={dur_s:.6f},asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}",
+                    "-filter:a", filter_str,
                     "-ar", str(sample_rate), "-ac", "2", "-c:a", "pcm_s16le",
                     final_q
                 ]
@@ -422,7 +476,8 @@ def assemble_audio_track(
         logger.info("Đang xử lý BGM track (synced theo timeline)...")
         bgm_results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(_prepare_bgm_chunk, i, seg, bgm_path, tmp_dir, sample_rate) for i, seg in enumerate(timeline)]
+            futures = [executor.submit(_prepare_bgm_chunk, i, seg, bgm_path, tmp_dir, sample_rate,
+                                       _DEFAULT_FADE_MS, i == 0, i == total_chunks - 1) for i, seg in enumerate(timeline)]
             for future in concurrent.futures.as_completed(futures):
                 bgm_results.append(future.result())
         bgm_results.sort(key=lambda x: x[0])

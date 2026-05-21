@@ -36,13 +36,16 @@ def pytest_addoption(parser):
 
 @pytest.fixture(scope="session")
 def use_gpu() -> bool:
-    """Tự động phát hiện NVIDIA NVENC (h264_nvenc) có sẵn hay không.
+    """Tự động phát hiện NVIDIA HEVC NVENC (hevc_nvenc) có sẵn hay không.
+
+    Fixture giữ tên ``use_gpu`` để tương thích các test cũ, nhưng flow
+    ``sync_video`` hiện yêu cầu encoder ``hevc_nvenc`` với preset/quality cố định.
 
     Phát hiện 2 bước:
       1. ``torch.cuda.is_available()`` — kiểm tra nhanh GPU hardware + driver.
          PyTorch đã có sẵn trong project nên không cần thêm dependency.
-      2. Dummy encode test — thực sự gọi FFmpeg encode 1 frame bằng h264_nvenc
-         để xác nhận encoder hoạt động (tránh trường hợp driver lỗi / libcuda thiếu).
+      2. Dummy encode test — thực sự gọi FFmpeg encode 1 frame bằng hevc_nvenc
+         với ``-preset p4 -tune hq -cq 28`` để xác nhận encoder hoạt động.
 
     Trả về True chỉ khi CẢ HAI bước đều pass.
     """
@@ -59,12 +62,13 @@ def use_gpu() -> bool:
     if not shutil.which("ffmpeg"):
         return False
     try:
-        # Tạo 1 frame đen 64x64, encode bằng h264_nvenc, pipe ra null
+        # Tạo 1 frame đen 64x64, encode bằng hevc_nvenc, pipe ra null
         result = subprocess.run(
             [
                 "ffmpeg", "-y",
                 "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.04",
-                "-c:v", "h264_nvenc",
+                "-c:v", "hevc_nvenc",
+                "-preset", "p4", "-tune", "hq", "-cq", "28",
                 "-f", "null", "-",
             ],
             capture_output=True, text=True, timeout=30,

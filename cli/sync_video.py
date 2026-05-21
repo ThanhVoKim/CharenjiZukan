@@ -539,7 +539,7 @@ def main():
     # Performance
     parser.add_argument("--workers", type=int, default=4, help="FFmpeg workers song song")
     parser.add_argument("--batch-size", type=int, default=100, help="Số segments mỗi batch Filter Complex (mặc định: 100)")
-    parser.add_argument("--no-gpu", action="store_true", help="Dùng libx264 thay vì h264_nvenc")
+    parser.add_argument("--no-gpu", action="store_true", help="Tùy chọn tương thích cũ; sync-video luôn dùng hevc_nvenc -preset p4 -tune hq -cq 28")
     
     # Subtitle / Note Processing
     parser.add_argument("--subtitle-max-chars", type=int, default=0, help="Ngắt dòng subtitle nếu dài hơn số ký tự này (0 = không ngắt)")

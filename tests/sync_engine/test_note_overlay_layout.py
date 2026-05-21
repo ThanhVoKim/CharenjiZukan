@@ -415,7 +415,12 @@ class TestLayer3_SyncPipelineNoteOverlay:
             "subtitles": {"enabled": False, "burn_hardsub": False},
             "audio_mix": {"ambient_volume": 0.0, "bgm_volume": 0.0},
             "audio_separator": {"extract_bgm": False, "extract_vocals": False},
-            "video_encoding": {"preset": "fast", "quality": ["-crf", "23"]},
+            "video_encoding": {
+                "codec": "hevc_nvenc",
+                "preset": "p4",
+                "tune": "hq",
+                "quality": ["-cq", "28"],
+            },
             "forced_alignment_subtitle": {"enabled": False},
             "llm_metadata": {"enabled": False},
         }
@@ -489,7 +494,7 @@ class TestLayer3_SyncPipelineNoteOverlay:
             keep_tmp=False,
             workers=1,
             batch_size=100,
-            no_gpu=True,
+            no_gpu=False,
             subtitle_max_chars=0,
             llm_metadata_override=None,
         )

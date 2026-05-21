@@ -37,11 +37,14 @@
     }
   },
   "video_encoding": {
-    "preset": "p5",
+    "codec": "hevc_nvenc",
+    "preset": "p4",
+    "tune": "hq",
     "quality": [
       "-cq",
-      "23"
-    ]
+      "28"
+    ],
+    "note": "sync_video forces FFmpeg video render with -c:v hevc_nvenc -preset p4 -tune hq -cq 28"
   },
   "llm_metadata": {
     "enabled": true,

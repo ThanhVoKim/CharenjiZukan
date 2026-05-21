@@ -1,5 +1,46 @@
 # Project Journal
 
+## 2026-05-21: Sync video — ép toàn bộ render video sang HEVC NVENC
+
+### Tóm tắt
+
+- **Mục tiêu**: Cập nhật toàn bộ lệnh FFmpeg render video trong flow `cli/sync_video.py` sang cấu hình HEVC NVENC cố định: `-c:v hevc_nvenc -preset p4 -tune hq -cq 28`.
+- **Kết quả chính**: Phase 2 video chunk batching và Phase 5 final render đều encode bằng `hevc_nvenc`; không còn fallback render video sang `h264_nvenc` hoặc `libx264` trong flow sync-video.
+- **Fail-fast**: Pipeline kiểm tra encoder `hevc_nvenc` trước khi render và dừng rõ ràng nếu FFmpeg/máy chạy không hỗ trợ NVIDIA HEVC NVENC.
+
+### File sửa
+
+- `sync_engine/video_processor.py` — Thêm `_HEVC_NVENC_VIDEO_ARGS`, `detect_hevc_nvenc()`, ép `build_ffmpeg_chunk_cmd()` và `build_ffmpeg_batch_cmd()` dùng `-c:v hevc_nvenc -preset p4 -tune hq -cq 28`; `process_video_chunks_parallel()` fail-fast khi thiếu encoder và warning khi `use_gpu=False`/`--no-gpu` được truyền vào. Bước `_concat_chunks()` vẫn dùng `-c:v copy` vì đây là concat demuxer copy stream, không phải render/re-encode.
+- `sync_engine/renderer.py` — Thay logic chọn encoder cũ bằng HEVC NVENC cố định cho final render; bỏ import không còn dùng; fail-fast khi thiếu `hevc_nvenc`; warning khi `use_gpu=False` vì CPU fallback không còn áp dụng.
+- `cli/sync_video.py` — Cập nhật help của `--no-gpu` thành tùy chọn tương thích cũ; flow vẫn bắt buộc render video bằng `hevc_nvenc -preset p4 -tune hq -cq 28`.
+- `assets/default_render_config.json` và `assets/thearmorylog_render_config.json` — Cập nhật block `video_encoding` sang mô tả HEVC NVENC (`codec=hevc_nvenc`, `preset=p4`, `tune=hq`, `quality=["-cq", "28"]`) để tránh cấu hình mẫu còn ghi `p5`/`cq 23`.
+- `docs/sync-video-guide.md` — Cập nhật section `video_encoding`: runtime hiện ép HEVC NVENC cố định, block config chỉ còn vai trò mô tả/tương thích cũ.
+- `docs/colab-guide.md` — Cập nhật mô tả `--no-gpu` cho sync-video, không còn ghi CPU mode `libx264` thay `h264_nvenc`.
+- `tests/conftest.py` — Cập nhật fixture `use_gpu` để dummy encode kiểm tra `hevc_nvenc` với `-preset p4 -tune hq -cq 28`.
+- `tests/sync_engine/test_video_processor.py` — Cập nhật Layer 1 assertions sang HEVC NVENC; Layer 2 skip khi thiếu `hevc_nvenc`; sửa unpack return `(output_video, actual_durations)`; chỉnh `PROJECT_ROOT` về workspace root để import đúng package runtime `sync_engine`.
+- `tests/sync_engine/test_concat_demuxer.py` — Cập nhật assertions từ `libx264`/`h264_nvenc`/`p5` sang `hevc_nvenc`/`p4`/`hq`/`cq 28`; integration/real-video tests skip khi thiếu encoder; chỉnh `PROJECT_ROOT` về workspace root để import đúng package runtime `sync_engine`.
+- `tests/sync_engine/test_sync_video_pipeline.py` — Cập nhật render config test sang HEVC NVENC và skip pipeline integration khi thiếu `hevc_nvenc`.
+- `tests/sync_engine/test_note_overlay_layout.py` — Cập nhật render config mocked pipeline sang HEVC NVENC để thống nhất tài liệu/cấu hình.
+
+### Quyết định kiến trúc
+
+1. **Không CPU fallback cho sync-video render**: Theo yêu cầu vận hành, render video trong flow `cli/sync_video.py` bắt buộc dùng HEVC NVENC cố định thay vì tự chọn theo `use_gpu`.
+2. **Giữ tương thích chữ ký/CLI**: Các tham số `use_gpu` và `--no-gpu` vẫn tồn tại để không phá API/CLI cũ, nhưng nếu tắt GPU thì chỉ warning và vẫn dùng HEVC NVENC.
+3. **Concat demuxer không đổi**: `_concat_chunks()` giữ `-c:v copy` vì bước này nối các batch đã encode cùng chuẩn, không phải bước render video.
+4. **Config không còn quyết định codec**: `video_encoding` trong JSON chỉ còn là mô tả cấu hình hiện hành/tương thích cũ; runtime không đọc block này để đổi codec/quality.
+
+### Trạng thái hiện tại
+
+- ✓ Phase 2 chunk render ép `hevc_nvenc -preset p4 -tune hq -cq 28`.
+- ✓ Phase 5 final render ép `hevc_nvenc -preset p4 -tune hq -cq 28`.
+- ✓ CLI help, JSON config mẫu, docs và test liên quan đã được cập nhật khỏi thông tin encoder cũ.
+- ✓ Verification cú pháp/config/command assertions đã chạy:
+  - `python -m compileall -q sync_engine cli tests` → pass.
+  - JSON load cho `assets/default_render_config.json` và `assets/thearmorylog_render_config.json` → pass.
+  - Direct assertions cho `build_ffmpeg_chunk_cmd()` và `build_ffmpeg_batch_cmd()` xác nhận `hevc_nvenc`, `p4`, `hq`, `cq 28` → pass.
+  - `detect_hevc_nvenc()` trên máy hiện tại trả về `True`.
+  - Pytest Layer 1 cho `tests/sync_engine/test_video_processor.py` và `tests/sync_engine/test_concat_demuxer.py` không chạy case vì module bị skip tại collection do dependency optional `cv2` (`pytest.importorskip`).
+
 ## 2026-05-21: Pre-cut video — loại bỏ đoạn thừa trước transcript/sync
 
 ### Tóm tắt

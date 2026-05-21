@@ -9,6 +9,23 @@ from sync_engine.models import TimelineSegment
 
 logger = logging.getLogger(__name__)
 
+_HEVC_NVENC_VIDEO_ARGS = ["-c:v", "hevc_nvenc", "-preset", "p4", "-tune", "hq", "-cq", "28"]
+
+
+def detect_hevc_nvenc() -> bool:
+    """Kiểm tra FFmpeg có encoder hevc_nvenc hay không."""
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return "hevc_nvenc" in r.stdout
+    except OSError:
+        return False
+
+
 def query_keyframes(video_path: str) -> List[float]:
     """Lấy PTS (ms) của tất cả keyframe."""
     cmd = [
@@ -82,10 +99,7 @@ def build_ffmpeg_chunk_cmd(
     safe_start_s = max(0.0, exact_offset_s - (0.5 / fps_float))
     safe_duration_s = (duration_frames - 0.5) / fps_float
 
-    encoder = "h264_nvenc" if use_gpu else "libx264"
-    preset  = "p5"         if use_gpu else "fast"
-    quality = ["-cq", "23"] if use_gpu else ["-crf", "23"]
-
+    # use_gpu được giữ để tương thích chữ ký cũ; sync_video hiện ép toàn bộ render video qua HEVC NVENC.
     filter_chain = ",".join([
         f"trim=start={safe_start_s:.6f}:duration={safe_duration_s:.6f}",
         "setpts=PTS-STARTPTS", # Đặt lại PTS về 0 ngay sau khi cắt
@@ -102,9 +116,7 @@ def build_ffmpeg_chunk_cmd(
         # Bước 2 (Accurate Trimming & Stretching) thông qua filter thay vì Output Seek
         "-filter:v", filter_chain,
         "-an",
-        "-c:v", encoder,
-        "-preset", preset,
-        *quality,
+        *_HEVC_NVENC_VIDEO_ARGS,
         "-video_track_timescale", "90000",
         output_path,
     ]
@@ -205,10 +217,7 @@ def build_ffmpeg_batch_cmd(
 
     filter_complex = ";".join(filter_parts)
 
-    encoder = "h264_nvenc" if use_gpu else "libx264"
-    preset  = "p5"         if use_gpu else "fast"
-    quality = ["-cq", "23"] if use_gpu else ["-crf", "23"]
-
+    # use_gpu được giữ để tương thích chữ ký cũ; sync_video hiện ép toàn bộ render video qua HEVC NVENC.
     cmd = [
         "ffmpeg", "-y",
         # Hybrid Seek: nhảy thẳng đến vị trí của batch (Fast Seek)
@@ -217,9 +226,7 @@ def build_ffmpeg_batch_cmd(
         "-filter_complex", filter_complex,
         "-map", "[outv]",
         "-an",
-        "-c:v", encoder,
-        "-preset", preset,
-        *quality,
+        *_HEVC_NVENC_VIDEO_ARGS,
         "-video_track_timescale", "90000",
         output_path,
     ]
@@ -247,6 +254,18 @@ def process_video_chunks_parallel(
 
     if not timeline:
         raise RuntimeError("Timeline rỗng: không có segment nào để tạo chunk video.")
+
+    if not detect_hevc_nvenc():
+        raise RuntimeError(
+            "hevc_nvenc không khả dụng. Flow sync_video hiện yêu cầu NVIDIA HEVC NVENC "
+            "với tham số -c:v hevc_nvenc -preset p4 -tune hq -cq 28."
+        )
+
+    if not use_gpu:
+        logger.warning(
+            "use_gpu=False/--no-gpu bị bỏ qua: sync_video render video bằng "
+            "hevc_nvenc -preset p4 -tune hq -cq 28."
+        )
 
     # 1. Gom nhóm timeline thành các Batch
     batches = [timeline[i:i + batch_size] for i in range(0, len(timeline), batch_size)]

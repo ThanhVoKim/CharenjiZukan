@@ -34,7 +34,7 @@ from datetime import datetime
 import pytest
 
 # ── Project root ─────────────────────────────────────────────────────
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # Thêm logger theo chuẩn
@@ -49,6 +49,7 @@ from sync_engine.video_processor import (
     build_ffmpeg_batch_cmd,
     process_video_chunks_parallel,
     _concat_chunks,
+    detect_hevc_nvenc,
 )
 
 
@@ -243,7 +244,12 @@ class TestLayer1_FilterComplexBatchUnit:
         assert "concat=n=1:v=1:a=0[outv]" in filter_val
         assert "-map" in cmd
         assert "[outv]" in cmd
-        assert "libx264" in cmd
+        assert cmd[cmd.index("-c:v") + 1] == "hevc_nvenc"
+        assert cmd[cmd.index("-preset") + 1] == "p4"
+        assert cmd[cmd.index("-tune") + 1] == "hq"
+        assert cmd[cmd.index("-cq") + 1] == "28"
+        assert "libx264" not in cmd
+        assert "h264_nvenc" not in cmd
 
     def test_single_segment_slow_speed(self):
         """1 segment, speed=0.5, orig_start=1s → rough_start=0, exact_start=1."""
@@ -348,7 +354,7 @@ class TestLayer1_FilterComplexBatchUnit:
         assert "trim=end_frame=30[v0]" in filter_val
 
     def test_gpu_encoder_selection(self):
-        """use_gpu=True → h264_nvenc, preset=p5."""
+        """use_gpu giữ tương thích chữ ký; encoder luôn là hevc_nvenc, preset=p4, tune=hq, cq=28."""
         seg = TimelineSegment(
             orig_start=0.0, orig_end=1000.0,
             new_start=0.0, new_end=1000.0,
@@ -363,9 +369,12 @@ class TestLayer1_FilterComplexBatchUnit:
             fps_float=30.0,
             use_gpu=True,
         )
-        assert "h264_nvenc" in cmd
-        assert "p5" in cmd
-        assert "-cq" in cmd
+        assert cmd[cmd.index("-c:v") + 1] == "hevc_nvenc"
+        assert cmd[cmd.index("-preset") + 1] == "p4"
+        assert cmd[cmd.index("-tune") + 1] == "hq"
+        assert cmd[cmd.index("-cq") + 1] == "28"
+        assert "h264_nvenc" not in cmd
+        assert "libx264" not in cmd
 
     def test_expected_duration_formula(self):
         """Kiểm tra công thức tính expected duration khớp với code trong video_processor."""
@@ -405,6 +414,8 @@ class TestLayer2_FilterComplexBatchSynthetic:
     @pytest.fixture(scope="class")
     def setup_batch_concat(self, synthetic_video_path, tmp_path_factory, concat_workers, use_gpu):
         """Fixture chạy chung 1 lần xử lý batch cho tất cả test L2."""
+        if not detect_hevc_nvenc():
+            pytest.skip("hevc_nvenc không khả dụng; sync_video render video bắt buộc dùng HEVC NVENC")
         tmp_dir = tmp_path_factory.mktemp("l2_batch")
         fps = 30.0
         fps_str = "30/1"
@@ -623,6 +634,8 @@ class TestLayer3_FilterComplexBatchRealVideo:
 
     def test_full_desync_analysis(self, real_video_path, concat_workers, report_dir, tmp_path, use_gpu):
         """Test 7: Full analysis với video thật, tổng hợp TẤT CẢ kiểm tra và ghi report."""
+        if not detect_hevc_nvenc():
+            pytest.skip("hevc_nvenc không khả dụng; sync_video render video bắt buộc dùng HEVC NVENC")
 
         video_path_str = str(real_video_path)
         fps = 30.0

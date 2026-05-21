@@ -294,12 +294,21 @@ Output khi có `--note-overlay-ass`:
 
 ### 2.9 `video_encoding`
 
+`sync-video` hiện ép toàn bộ lệnh FFmpeg render video trong Phase 2 và Phase 5 dùng HEVC NVENC cố định:
+
+```bash
+-c:v hevc_nvenc -preset p4 -tune hq -cq 28
+```
+
+Block `video_encoding` trong render config chỉ còn vai trò mô tả/tương thích cấu hình cũ; runtime không dùng block này để chọn codec hoặc fallback CPU.
+
 ```json
 {
   "video_encoding": {
-    "codec": "h264",
-    "quality": ["-crf", "18"],
-    "preset": "medium"
+    "codec": "hevc_nvenc",
+    "preset": "p4",
+    "tune": "hq",
+    "quality": ["-cq", "28"]
   }
 }
 ```
