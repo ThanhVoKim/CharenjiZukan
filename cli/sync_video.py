@@ -24,6 +24,11 @@ from sync_engine.timestamp_remapper import recalculate_srt, recalculate_ass
 from sync_engine.renderer import render_final_video
 from sync_engine.llm_metadata import apply_llm_metadata_override, run_llm_metadata_task
 from sync_engine.forced_alignment_subtitle import run_forced_alignment_subtitle
+from sync_engine.image_overlay import (
+    load_image_overlay_events,
+    remap_image_overlay_events,
+    write_image_overlay_debug_srt,
+)
 
 logger = get_logger("sync_video")
 
@@ -100,6 +105,9 @@ def run_sync_pipeline(args):
         logger.info("=== BẮT ĐẦU TTS-VIDEO SYNC ===")
         logger.info(f"Video: {args.video}")
         logger.info(f"Subtitle: {args.subtitle}")
+        if getattr(args, "image_overlay_srt", None) and getattr(args, "image_overlay_dir", None):
+            logger.info(f"Image Overlay SRT: {args.image_overlay_srt}")
+            logger.info(f"Image Overlay Dir: {args.image_overlay_dir}")
         if args.tts_provider == "edge":
             logger.info(f"TTS Voice: {args.tts_voice}")
         elif args.tts_provider in ("voicevox", "voicevox_nemo"):
@@ -372,7 +380,76 @@ def run_sync_pipeline(args):
             recalculate_srt(mute_segments, timeline, mute_synced, is_tts_track=False, max_chars=args.subtitle_max_chars, fps_float=fps_float)
             logger.info(f"Đã tạo {mute_synced}")
             
-        # 4. note_overlay.ass (nếu được bật trong render_config)
+        # 4. image_overlay.srt (nếu được bật trong render_config)
+        image_overlay_events = None
+        image_overlay_cfg = render_config.get("image_overlay", {}) or {}
+        if image_overlay_cfg.get("enabled", False):
+            image_overlay_srt_arg = getattr(args, "image_overlay_srt", None)
+            image_overlay_dir_arg = getattr(args, "image_overlay_dir", None)
+            image_overlay_missing_policy = (image_overlay_cfg.get("missing_policy") or "warn").strip().lower()
+            if image_overlay_missing_policy not in {"warn", "raise"}:
+                logger.warning(
+                    "image_overlay.missing_policy không hợp lệ: %s. Fallback warn.",
+                    image_overlay_cfg.get("missing_policy"),
+                )
+                image_overlay_missing_policy = "warn"
+
+            if not image_overlay_srt_arg or not image_overlay_dir_arg:
+                msg = "Cấu hình image_overlay bật nhưng thiếu --image-overlay-srt hoặc --image-overlay-dir."
+                if image_overlay_missing_policy == "raise":
+                    raise ValueError(msg)
+                logger.info(f"{msg} Bỏ qua image overlay.")
+                image_overlay_cfg["enabled"] = False
+            else:
+                image_overlay_srt_path = Path(image_overlay_srt_arg)
+                if not image_overlay_srt_path.is_absolute():
+                    image_overlay_srt_path = PROJECT_ROOT / image_overlay_srt_path
+
+                image_overlay_dir_path = Path(image_overlay_dir_arg)
+                if not image_overlay_dir_path.is_absolute():
+                    image_overlay_dir_path = PROJECT_ROOT / image_overlay_dir_path
+
+                if not image_overlay_srt_path.exists():
+                    msg = f"Không tìm thấy image overlay SRT: {image_overlay_srt_path}"
+                    if image_overlay_missing_policy == "raise":
+                        raise FileNotFoundError(msg)
+                    logger.warning(f"{msg}. Bỏ qua image overlay.")
+                    image_overlay_cfg["enabled"] = False
+                elif not image_overlay_dir_path.exists() or not image_overlay_dir_path.is_dir():
+                    msg = f"Không tìm thấy image overlay dir: {image_overlay_dir_path}"
+                    if image_overlay_missing_policy == "raise":
+                        raise FileNotFoundError(msg)
+                    logger.warning(f"{msg}. Bỏ qua image overlay.")
+                    image_overlay_cfg["enabled"] = False
+                else:
+                    raw_image_overlay_events = load_image_overlay_events(
+                        srt_path=image_overlay_srt_path,
+                        overlay_dir=image_overlay_dir_path,
+                        file_ext=image_overlay_cfg.get("file_ext", ".png"),
+                        missing_policy=image_overlay_missing_policy,
+                    )
+                    image_overlay_events = remap_image_overlay_events(
+                        raw_image_overlay_events,
+                        timeline,
+                        fps_float=fps_float,
+                    )
+                    logger.info(
+                        "Đã nạp image overlay: %s events sau remap từ %s",
+                        len(image_overlay_events),
+                        image_overlay_srt_path,
+                    )
+
+                    keep_image_overlay_debug = bool(
+                        args.keep_tmp or image_overlay_cfg.get("keep_intermediate_srt", False)
+                    )
+                    if keep_image_overlay_debug:
+                        image_overlay_debug_srt = output_dir / f"{args.output_name}_image_overlay_synced.srt"
+                        write_image_overlay_debug_srt(image_overlay_events, image_overlay_debug_srt)
+                        logger.info(f"Đã tạo image overlay debug SRT: {image_overlay_debug_srt}")
+        elif getattr(args, "image_overlay_srt", None) or getattr(args, "image_overlay_dir", None):
+            logger.info("Có truyền image overlay args nhưng image_overlay.enabled=false trong render_config. Bỏ qua image overlay.")
+
+        # 5. note_overlay.ass (nếu được bật trong render_config)
         note_ass_synced = None
         note_overlay_final_ass = None
         note_overlay_cfg = render_config.get("note_overlay", {})
@@ -438,6 +515,9 @@ def run_sync_pipeline(args):
                 note_overlay_synced_ass=note_overlay_final_ass,
                 render_config=render_config,
                 use_gpu=not args.no_gpu,
+                image_overlay_events=image_overlay_events,
+                filter_complex_script_dir=tmp_dir,
+                keep_filter_complex_script=args.keep_tmp,
             )
             logger.info(f"Render hoàn tất: {final_video}")
             if transcript_input_path:
@@ -486,6 +566,10 @@ def worker_task(task_data: dict, base_args: argparse.Namespace):
             args.mute = task_data["mute"]
         if "note_overlay_ass" in task_data:
             args.note_overlay_ass = task_data["note_overlay_ass"]
+        if "image_overlay_srt" in task_data:
+            args.image_overlay_srt = task_data["image_overlay_srt"]
+        if "image_overlay_dir" in task_data:
+            args.image_overlay_dir = task_data["image_overlay_dir"]
         if "render_config" in task_data:
             args.render_config = task_data["render_config"]
         if "llm_metadata" in task_data:
@@ -521,6 +605,8 @@ def main():
     # Tùy chọn - Input
     parser.add_argument("--mute", help="File mute.srt")
     parser.add_argument("--note-overlay-ass", help="ASS text cho note")
+    parser.add_argument("--image-overlay-srt", help="File SRT điều khiển thời gian hiển thị PNG overlay")
+    parser.add_argument("--image-overlay-dir", help="Thư mục chứa PNG overlay, text SRT là basename không có extension")
     parser.add_argument("--ambient", default=str(PROJECT_ROOT / "assets" / "ambient.mp3"), help="Nhạc nền")
 
     # Render Config

@@ -1,5 +1,53 @@
 # Project Journal
 
+## 2026-05-23: Sync video — Image Overlay PNG theo SRT
+
+### Tóm tắt
+
+- **Mục tiêu**: Thêm chức năng overlay PNG transparent full-screen vào flow sync-video, dùng SRT riêng làm timeline điều khiển; text mỗi block là basename ảnh không có extension.
+- **Kết quả chính**: Pipeline đã parse/resolve/remap image overlay SRT theo timeline video stretch, renderer burn layer đúng thứ tự `Base video → Image overlay → Note overlay → Black strip → Watermark → Subtitle`, và hỗ trợ cả `-filter_complex` direct lẫn `-filter_complex_script` fallback.
+- **Phạm vi tối ưu**: Intermediate overlay video chưa triển khai theo đúng plan; hiện chỉ có stub `render_intermediate_overlay_track()` để ghi rõ ý định phase tương lai.
+
+### File mới
+
+- `sync_engine/image_overlay.py` — Thêm dataclass `ImageOverlayEvent`, `ImageOverlayAsset`; helper normalize key, resolve PNG, load SRT events, deduplicate assets, remap timestamp bằng `remap_timestamp()`, ghi debug SRT, và stub intermediate overlay track.
+- `tests/sync_engine/test_image_overlay.py` — Thêm Layer 1 domain tests và Layer 2 renderer command/filter graph tests cho image overlay.
+
+### File sửa
+
+- `sync_engine/renderer.py` — Refactor final render layer order; thêm input PNG dedup theo absolute path, scale PNG về output resolution, `format=rgba`, opacity bằng `colorchannelmixer`, reuse asset bằng `split=N`, overlay event theo `enable='between(t,start,end)'`, chọn strategy `direct`/`script`/`auto`, ghi/xóa filter complex script tạm theo policy.
+- `cli/sync_video.py` — Thêm CLI args `--image-overlay-srt`, `--image-overlay-dir`; thêm task-file keys `image_overlay_srt`, `image_overlay_dir`; Phase 4 load và remap image overlay SRT; truyền events vào renderer; optional ghi `<output-name>_image_overlay_synced.srt`.
+- `assets/default_render_config.json` — Thêm block `image_overlay` với `enabled`, `mode`, `file_ext`, `fit`, `opacity`, `missing_policy`, `direct_overlay_max_events`, `command_line_max_chars`, `render_strategy`.
+- `docs/sync-video-guide.md` — Thêm mô tả flow image overlay, schema config, CLI usage, timestamp remap, layer order, direct/script strategy và task-file fields.
+- `docs/colab-guide.md` — Thêm hướng dẫn bật image overlay trên Colab, ví dụ SRT/PNG, CLI args, batch JSON fields, output debug SRT và lưu ý vận hành.
+- `tests/test_matrix.yaml` — Thêm entries Layer 1/Layer 2 cho image overlay.
+
+### Quyết định kiến trúc
+
+1. **SRT overlay bám timeline video gốc**: Image overlay SRT được remap sau khi Phase 2 đã cập nhật timeline stretch thực tế, tương tự subtitle remap; forced alignment subtitle không ảnh hưởng overlay.
+2. **Renderer sở hữu FFmpeg input index**: Module image overlay chỉ trả event/path; renderer quyết định input indexes để tránh lệch khi có note, strip, watermark hoặc audio inputs.
+3. **Deduplicate PNG input**: Một PNG dùng nhiều lần chỉ được load một input FFmpeg; renderer dùng `split=N` để cấp stream cho từng overlay event.
+4. **Direct trước, script khi lớn**: `render_strategy=auto` dùng `-filter_complex` cho case nhỏ và chuyển sang `-filter_complex_script` khi event count hoặc command-line length vượt ngưỡng an toàn.
+5. **Intermediate chỉ là future stub**: Chưa generate video overlay trung gian trong phase này để tránh mở rộng scope; strategy `intermediate` raise rõ ràng khi được gọi.
+6. **Fit mode phase đầu là stretch**: `fit=stretch_to_output` đảm bảo phủ full-screen; docs khuyến nghị export PNG đúng resolution output để tránh méo aspect ratio.
+
+### Trạng thái hiện tại
+
+- ✓ Image overlay SRT/PNG domain module đã có parse, resolve, remap, debug SRT và intermediate stub.
+- ✓ Renderer final video đã hỗ trợ layer order mới và direct/script strategy.
+- ✓ CLI/task-file/config/docs/test matrix đã cập nhật.
+- ✓ Verification đã chạy:
+  - `python -m compileall -q sync_engine cli tests` → pass.
+  - JSON load `assets/default_render_config.json` → pass.
+  - `python -m pytest tests/sync_engine/test_image_overlay.py -v -s` → 11 passed.
+  - `python -m pytest tests/sync_engine/test_note_overlay_layout.py -k Layer3 -v -s` → pass.
+  - Kiểm tra entries image overlay trong `tests/test_matrix.yaml` bằng string assertion → pass.
+- ⚠ YAML parse bằng `uv run ...` không chạy trên máy hiện tại vì `uv` không có trong PATH; test matrix vẫn được kiểm tra sự hiện diện entry mới bằng Python string assertion.
+
+### Pending
+
+- Chưa chạy render video thật với PNG overlay trên input media thực tế; cần thực hiện khi có bộ asset/video mẫu và môi trường FFmpeg/NVENC phù hợp.
+
 ## 2026-05-21: Sync video — ép toàn bộ render video sang HEVC NVENC
 
 ### Tóm tắt

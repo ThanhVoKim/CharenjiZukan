@@ -6,12 +6,13 @@ Hướng dẫn đầy đủ về flow `sync-video` và schema `render_config.jso
 
 1. [Tổng quan flow sync-video](#1-tổng-quan-flow-sync-video)
 2. [Schema `render_config.json`](#2-schema-render_configjson)
-3. [Cấu hình `forced_alignment_subtitle`](#3-cấu-hình-forced_alignment_subtitle)
-4. [Cấu hình `llm_metadata`](#4-cấu-hình-llm_metadata)
-5. [Output paths](#5-output-paths)
-6. [Task-file override](#6-task-file-override)
-7. [Fail policy](#7-fail-policy)
-8. [Kiến trúc module](#8-kiến-trúc-module)
+3. [Cấu hình `image_overlay`](#3-cấu-hình-image_overlay)
+4. [Cấu hình `forced_alignment_subtitle`](#4-cấu-hình-forced_alignment_subtitle)
+5. [Cấu hình `llm_metadata`](#5-cấu-hình-llm_metadata)
+6. [Output paths](#6-output-paths)
+7. [Task-file override](#7-task-file-override)
+8. [Fail policy](#8-fail-policy)
+9. [Kiến trúc module](#9-kiến-trúc-module)
 
 ---
 
@@ -32,7 +33,7 @@ Phase 3: Audio Assembly (mix TTS + original audio + ambient + BGM)
     ↓
 Phase 3.5: Forced Alignment Subtitle (optional, nếu forced_alignment_subtitle.enabled=true)
     ↓
-Phase 4: Recalculate Timestamps + Dynamic Note Overlay ASS
+Phase 4: Recalculate Timestamps + Image Overlay PNG + Dynamic Note Overlay ASS
     ↓
 Phase 5: Final Render (hardsub video với FFmpeg)
     ↓
@@ -85,6 +86,23 @@ if metadata_input_path:
         │   ├── Tạo provider qua llm_ai.task_runner
         │   └── Gọi run_generic_text_task()
         └── Xử lý fail_policy
+```
+
+### Flow Image Overlay PNG chi tiết
+
+```text
+Phase 2 cập nhật timeline stretch thực tế
+    ↓
+Phase 4 nếu image_overlay.enabled=true
+    ├── Đọc --image-overlay-srt theo timeline video gốc
+    ├── Text mỗi block SRT = basename PNG, không có extension
+    ├── Resolve asset trong --image-overlay-dir
+    ├── Remap start/end bằng cùng mapping với subtitle remap
+    ├── Optional ghi <output-name>_image_overlay_synced.srt để debug
+    └── Truyền ImageOverlayEvent vào renderer
+        ↓
+Phase 5 render theo layer order:
+Base video → Image overlay PNG → Note overlay → Black strip → Watermark → Subtitle
 ```
 
 ---
@@ -188,7 +206,44 @@ File mặc định: `assets/default_render_config.json`
 | `style.margin_r`      | int  | 30           | Lề phải                  |
 | `style.margin_v`      | int  | 50           | Lề dọc                   |
 
-### 2.6 `note_overlay`
+### 2.6 `image_overlay`
+
+`image_overlay` dùng một SRT riêng để điều khiển PNG transparent full-screen. Timestamp trong SRT này thuộc timeline video gốc và được remap theo timeline stretch ở Phase 4 trước khi render.
+
+```json
+{
+  "image_overlay": {
+    "enabled": false,
+    "mode": "srt_fullscreen_png",
+    "file_ext": ".png",
+    "fit": "stretch_to_output",
+    "x": "0",
+    "y": "0",
+    "opacity": 1.0,
+    "missing_policy": "warn",
+    "keep_intermediate_srt": false,
+    "direct_overlay_max_events": 200,
+    "command_line_max_chars": 25000,
+    "render_strategy": "auto"
+  }
+}
+```
+
+| Key                         | Type  | Default              | Mô tả                                                                            |
+| --------------------------- | ----- | -------------------- | -------------------------------------------------------------------------------- |
+| `enabled`                   | bool  | false                | Bật/tắt image overlay                                                            |
+| `mode`                      | str   | `srt_fullscreen_png` | Phase hiện tại chỉ hỗ trợ SRT → PNG full-screen                                  |
+| `file_ext`                  | str   | `.png`               | Extension dùng để resolve asset từ text SRT                                      |
+| `fit`                       | str   | `stretch_to_output`  | Scale PNG về đúng width/height output; có thể méo nếu PNG sai aspect ratio       |
+| `x`, `y`                    | str   | `0`, `0`             | Tọa độ overlay trong FFmpeg                                                      |
+| `opacity`                   | float | 1.0                  | Opacity toàn bộ PNG overlay                                                      |
+| `missing_policy`            | str   | `warn`               | `warn` bỏ qua asset thiếu; `raise` dừng pipeline                                 |
+| `keep_intermediate_srt`     | bool  | false                | Giữ `<output-name>_image_overlay_synced.srt` để debug timestamp đã remap         |
+| `direct_overlay_max_events` | int   | 200                  | Ngưỡng event để `auto` chuyển từ direct filter graph sang script                 |
+| `command_line_max_chars`    | int   | 25000                | Ngưỡng an toàn command-line, hữu ích trên Windows                                |
+| `render_strategy`           | str   | `auto`               | `auto`, `direct`, `script`; `intermediate` mới là stub và chưa được nối pipeline |
+
+### 2.7 `note_overlay`
 
 `note_overlay` sử dụng mode `dynamic_ass_box`: pipeline remap timestamp ASS, sau đó sinh một file ASS cuối gồm nền hộp bằng drawing (`NoteBox`) và text (`NoteText`). Không còn dùng PNG nền cố định; key legacy `png_path` chỉ được nhận diện để warning deprecation.
 
@@ -264,7 +319,7 @@ Output khi có `--note-overlay-ass`:
 - `<output-name>_note_overlay.ass` — file ASS cuối có `NoteBox` và `NoteText`.
 - `<output-name>_note_synced.ass` — file trung gian chỉ được giữ khi bật `--keep-tmp` hoặc `note_overlay.keep_intermediate_ass=true`.
 
-### 2.7 `audio_mix`
+### 2.8 `audio_mix`
 
 ```json
 {
@@ -277,7 +332,7 @@ Output khi có `--note-overlay-ass`:
 }
 ```
 
-### 2.8 `audio_separator`
+### 2.9 `audio_separator`
 
 ```json
 {
@@ -292,7 +347,7 @@ Output khi có `--note-overlay-ass`:
 }
 ```
 
-### 2.9 `video_encoding`
+### 2.10 `video_encoding`
 
 `sync-video` hiện ép toàn bộ lệnh FFmpeg render video trong Phase 2 và Phase 5 dùng HEVC NVENC cố định:
 
@@ -313,7 +368,7 @@ Block `video_encoding` trong render config chỉ còn vai trò mô tả/tương 
 }
 ```
 
-### 2.10 `forced_alignment_subtitle`
+### 2.11 `forced_alignment_subtitle`
 
 ```json
 {
@@ -358,7 +413,76 @@ Block `video_encoding` trong render config chỉ còn vai trò mô tả/tương 
 
 ---
 
-## 3. Cấu hình `forced_alignment_subtitle`
+## 3. Cấu hình `image_overlay`
+
+### 3.1 Input SRT và thư mục PNG
+
+Bật `image_overlay.enabled=true` trong render config, sau đó truyền thêm hai CLI args:
+
+```bash
+uv run sync-video \
+  --video content/video.mp4 \
+  --subtitle content/subtitle.srt \
+  --image-overlay-srt content/image_overlay.srt \
+  --image-overlay-dir content/image_overlays \
+  --render-config assets/default_render_config.json
+```
+
+Quy ước SRT:
+
+```srt
+1
+00:00:01,000 --> 00:00:03,500
+frame_intro
+
+2
+00:00:05,000 --> 00:00:08,000
+callout_01
+```
+
+Với ví dụ trên, pipeline sẽ resolve:
+
+- `content/image_overlays/frame_intro.png`
+- `content/image_overlays/callout_01.png`
+
+Text SRT chỉ được dùng làm basename; không truyền extension, slash, backslash hoặc path traversal. Nếu nhiều dòng text, pipeline chỉ dùng dòng đầu tiên làm key và log warning.
+
+### 3.2 Timestamp remap
+
+Image overlay SRT luôn bám theo timeline video gốc. Sau Phase 2, pipeline dùng cùng mapping stretch với subtitle để remap từng event. Vì vậy forced alignment subtitle không làm lệch overlay: forced alignment chỉ thay nội dung/timestamp subtitle hardsub, còn image overlay vẫn theo video stretch timeline.
+
+Nếu bật `keep_intermediate_srt=true` hoặc truyền `--keep-tmp`, pipeline ghi thêm:
+
+```text
+<output-name>_image_overlay_synced.srt
+```
+
+File này giúp kiểm tra timestamp overlay sau remap.
+
+### 3.3 Layer order và kích thước PNG
+
+Renderer burn layer theo thứ tự cố định:
+
+```text
+Base video → Image overlay PNG full-screen → Note overlay → Black strip → Watermark → Subtitle
+```
+
+Phase đầu chỉ hỗ trợ `fit=stretch_to_output`. Nên export PNG đúng kích thước output, ví dụ 1920x1080 hoặc 1080x1920, và giữ alpha channel để video bên dưới vẫn thấy được. Nếu PNG sai aspect ratio, FFmpeg vẫn scale về output resolution nên ảnh có thể bị kéo méo.
+
+### 3.4 Strategy render
+
+| Strategy       | Khi dùng                                                                                             |
+| -------------- | ---------------------------------------------------------------------------------------------------- |
+| `direct`       | Số event ít, filter graph ngắn; renderer truyền trực tiếp qua `-filter_complex`                      |
+| `script`       | Số event lớn hoặc command-line quá dài; renderer ghi graph ra file và dùng `-filter_complex_script`  |
+| `auto`         | Mặc định; tự chuyển sang `script` khi vượt `direct_overlay_max_events` hoặc `command_line_max_chars` |
+| `intermediate` | Chưa triển khai; hiện chỉ có stub để dành cho phase tối ưu sau này                                   |
+
+Renderer deduplicate PNG theo absolute path. Nếu cùng một PNG xuất hiện nhiều lần trong SRT, FFmpeg chỉ load asset đó một lần và dùng `split=N` để tái sử dụng cho nhiều event.
+
+---
+
+## 4. Cấu hình `forced_alignment_subtitle`
 
 ### 3.1 Tổng quan
 
@@ -372,7 +496,7 @@ Forced alignment subtitle sử dụng model `Qwen3ForcedAligner` để căn ch�
 
 ---
 
-## 4. Cấu hình `llm_metadata`
+## 5. Cấu hình `llm_metadata`
 
 ```json
 {
@@ -401,7 +525,7 @@ Forced alignment subtitle sử dụng model `Qwen3ForcedAligner` để căn ch�
 }
 ```
 
-### 4.1 Các key chính
+### 5.1 Các key chính
 
 | Key           | Type | Default                              | Mô tả                                                                               |
 | ------------- | ---- | ------------------------------------ | ----------------------------------------------------------------------------------- |
@@ -409,7 +533,7 @@ Forced alignment subtitle sử dụng model `Qwen3ForcedAligner` để căn ch�
 | `task_config` | str  | "config/llm_tasks/seo_metadata.yaml" | YAML config cho generic LLM task                                                    |
 | `fail_policy` | str  | "warn"                               | `warn` → log warning, không fail pipeline; `raise`/`error`/`fail` → raise exception |
 
-### 4.2 Provider overrides
+### 5.2 Provider overrides
 
 Các key provider (có thể đặt trực tiếp trong `llm_metadata` hoặc trong `provider_overrides`):
 
@@ -424,21 +548,21 @@ Các key provider (có thể đặt trực tiếp trong `llm_metadata` hoặc tr
 | `max_tokens`      | int   | Max output tokens                      |
 | `request_timeout` | int   | Timeout request (giây)                 |
 
-### 4.3 `input`
+### 5.3 `input`
 
 | Key                             | Type | Default                            | Mô tả                                      |
 | ------------------------------- | ---- | ---------------------------------- | ------------------------------------------ |
 | `write_debug_input`             | bool | false                              | Ghi raw text input ra file `.txt` để debug |
 | `debug_input_filename_template` | str  | "{video_stem}\_metadata_input.txt" | Tên file debug input                       |
 
-### 4.4 `output`
+### 5.4 `output`
 
 | Key                 | Type | Default                     | Mô tả                                                              |
 | ------------------- | ---- | --------------------------- | ------------------------------------------------------------------ |
 | `directory_policy`  | str  | "/"                         | `/` = thư mục chứa video input; hoặc đường dẫn tuyệt đối/tương đối |
 | `filename_template` | str  | "{video_stem}\_metadata.md" | Tên file output metadata                                           |
 
-### 4.5 Template variables
+### 5.5 Template variables
 
 Các biến có thể dùng trong `filename_template` và `debug_input_filename_template`:
 
@@ -451,9 +575,9 @@ Các biến có thể dùng trong `filename_template` và `debug_input_filename_
 
 ---
 
-## 5. Output paths
+## 6. Output paths
 
-### 5.1 `directory_policy: "/"`
+### 6.1 `directory_policy: "/"`
 
 Thư mục output = thư mục chứa video input (KHÔNG phải filesystem root).
 
@@ -463,7 +587,7 @@ Ví dụ:
 - `filename_template`: `{video_stem}_metadata.md`
 - → Output: `content/episodes/ep01_metadata.md`
 
-### 5.2 `directory_policy` là đường dẫn
+### 6.2 `directory_policy` là đường dẫn
 
 Nếu `directory_policy` không phải `"/"`, nó được xử lý như đường dẫn:
 
@@ -472,11 +596,11 @@ Nếu `directory_policy` không phải `"/"`, nó được xử lý như đườ
 
 ---
 
-## 6. Task-file override
+## 7. Task-file override
 
 Khi dùng `--task-file`, mỗi task JSON có thể chứa key `llm_metadata` để override cấu hình từ `render_config.json`.
 
-### 6.1 Boolean override
+### 7.1 Boolean override
 
 ```json
 {
@@ -488,7 +612,7 @@ Khi dùng `--task-file`, mỗi task JSON có thể chứa key `llm_metadata` đ�
 
 → Tắt LLM metadata cho task này (bất kể `render_config.json` bật hay không).
 
-### 6.2 Object override (deep merge)
+### 7.2 Object override (deep merge)
 
 ```json
 {
@@ -505,9 +629,25 @@ Khi dùng `--task-file`, mỗi task JSON có thể chứa key `llm_metadata` đ�
 
 → Merge sâu vào `render_config.llm_metadata`. Các key không được override giữ nguyên giá trị từ `render_config.json`.
 
+### 7.3 Image overlay task fields
+
+Mỗi task batch có thể truyền overlay riêng:
+
+```json
+{
+  "input": "video.mp4",
+  "subtitle": "video.srt",
+  "image_overlay_srt": "overlays/video_overlay.srt",
+  "image_overlay_dir": "overlays/png",
+  "output": "out/video_synced.mp4"
+}
+```
+
+Hai field này chỉ có hiệu lực khi `image_overlay.enabled=true` trong render config. Nếu config tắt, CLI sẽ log info và bỏ qua overlay dù task có truyền đường dẫn.
+
 ---
 
-## 7. Fail policy
+## 8. Fail policy
 
 | Policy                     | Hành vi                                                   |
 | -------------------------- | --------------------------------------------------------- |
@@ -527,11 +667,12 @@ Ví dụ:
 
 ---
 
-## 8. Kiến trúc module
+## 9. Kiến trúc module
 
 ```
 cli/sync_video.py                        ← Entrypoint CLI (pyproject.toml [project.scripts])
     ↓ import
+sync_engine/image_overlay.py             ← Parse/resolve/remap image overlay SRT + PNG events
 sync_engine/forced_alignment_subtitle.py ← Orchestration forced alignment subtitle
     ↓ import
 utils/asr_subtitle_utils.py              ← Shared ASR subtitle logic (merge punctuation, segment, write SRT)

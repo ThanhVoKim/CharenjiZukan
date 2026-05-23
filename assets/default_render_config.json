@@ -46,6 +46,20 @@
       "MarginV": "7"
     }
   },
+  "image_overlay": {
+    "enabled": false,
+    "mode": "srt_fullscreen_png",
+    "file_ext": ".png",
+    "fit": "stretch_to_output",
+    "x": "0",
+    "y": "0",
+    "opacity": 1.0,
+    "missing_policy": "warn",
+    "keep_intermediate_srt": false,
+    "direct_overlay_max_events": 200,
+    "command_line_max_chars": 25000,
+    "render_strategy": "auto"
+  },
   "note_overlay": {
     "enabled": true,
     "mode": "dynamic_ass_box",
