@@ -126,10 +126,53 @@ class TestLayer1_SegmentWordsToSubtitles:
     def test_empty_input(self):
         assert segment_words_to_subtitles([]) == []
 
-    def test_max_chars_zero_returns_single_block(self):
+    def test_max_chars_zero_returns_grammar_blocks(self):
+        """max_chars=0 chỉ tắt giới hạn độ dài, vẫn chia theo dấu câu."""
+        words = self._make_words(["Hello.", "World?", "Again"])
+        result = segment_words_to_subtitles(words, max_chars=0)
+        texts = ["".join(w["text"] for w in block) for block in result]
+        assert texts == ["Hello.", "World?", "Again"]
+
+    def test_max_chars_zero_without_punctuation_returns_single_grammar_block(self):
+        """Không có dấu câu thì grammar-only không cắt cơ học theo độ dài."""
         words = self._make_words(["a"] * 100)
         result = segment_words_to_subtitles(words, max_chars=0)
         assert len(result) == 1
+
+    def test_max_chars_zero_forwards_segmentation_params(self, monkeypatch):
+        """Wrapper không hardcode min_chars/split_on_comma khi max_chars=0."""
+        calls = {}
+
+        def fake_smart_segment(tokens, min_chars, max_chars, ideal_chars, split_on_comma):
+            calls["tokens"] = tokens
+            calls["min_chars"] = min_chars
+            calls["max_chars"] = max_chars
+            calls["ideal_chars"] = ideal_chars
+            calls["split_on_comma"] = split_on_comma
+            return [tokens]
+
+        monkeypatch.setattr("utils.text_segmenter.smart_segment", fake_smart_segment)
+        words = self._make_words(["Hello.", "World?"])
+        result = segment_words_to_subtitles(
+            words,
+            max_chars=0,
+            min_chars=7,
+            split_on_comma=False,
+        )
+
+        assert result == [words]
+        assert calls["tokens"] is words
+        assert calls["min_chars"] == 7
+        assert calls["max_chars"] == 0
+        assert calls["ideal_chars"] == 0
+        assert calls["split_on_comma"] is False
+
+    def test_max_chars_negative_returns_single_block_for_legacy_disable(self):
+        """max_chars âm giữ đường tắt single-block để không phá caller cũ."""
+        words = self._make_words(["Hello.", "World?", "Again!"])
+        result = segment_words_to_subtitles(words, max_chars=-1)
+        assert len(result) == 1
+        assert result[0] == words
 
     def test_total_under_max_chars_no_split(self):
         """Invariant: nếu tổng ký tự <= max_chars, không split."""

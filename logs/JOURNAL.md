@@ -1,5 +1,30 @@
 # Project Journal
 
+## 2026-05-24: ASR subtitle segmentation — `max_chars=0` grammar-only
+
+### Tóm tắt
+
+- **Mục tiêu**: Làm rõ và kiểm thử lại semantic `max_chars=0` trong helper ASR subtitle, tránh việc Qwen3-ASR gom toàn bộ transcript thành một block SRT khi người dùng kỳ vọng vẫn chia theo dấu câu.
+- **Kết quả chính**: `segment_words_to_subtitles()` hiện dùng `smart_segment()` cho cả chế độ min/max và grammar-only; `max_chars=0` nghĩa là chỉ chia theo dấu câu, không ép độ dài; `max_chars<0` giữ chế độ legacy single-block cho caller muốn tắt segmentation hoàn toàn.
+- **Tác động tới forced alignment**: `forced_alignment_subtitle` dùng chung helper nên cũng nhận semantic mới khi cấu hình `max_chars=0`; config mặc định vẫn là `42`, vì vậy default workflow không đổi.
+
+### File sửa
+
+- `utils/asr_subtitle_utils.py` — Bỏ early return single-block cho `max_chars=0`, thêm nhánh legacy `max_chars<0`, cập nhật docstring invariant.
+- `tests/utils/test_asr_subtitle_utils.py` — Thay expectation cũ bằng các test grammar-only, forwarding `min_chars`/`split_on_comma`, và legacy negative single-block.
+- `cli/qwen3_asr.py` — Cập nhật help text `--max-chars` để mô tả `0` là grammar-only thay vì “tắt”.
+
+### Verification
+
+- `python -m pytest tests/utils/test_asr_subtitle_utils.py tests/sync_engine/test_forced_alignment_subtitle.py -v` → 49 passed, 4 warnings marker cũ.
+- `python -m pytest tests/utils/test_asr_subtitle_utils.py tests/utils/test_text_segmenter.py tests/cli/test_qwen3_asr.py tests/sync_engine/test_forced_alignment_subtitle.py -v` → 104 passed, 4 warnings marker cũ.
+- `python -m compileall -q utils tests cli` → pass.
+
+### Pending
+
+- Cân nhắc đăng ký các marker `Layer1`/`Layer2` trong pytest config hoặc đổi sang naming/filter convention hiện hành để hết warning.
+- Nếu cần chế độ single-block từ CLI, nên thêm option rõ ràng thay vì dùng `--max-chars 0`.
+
 ## 2026-05-24: Sync video — Image Overlay static image auto extension
 
 ### Tóm tắt

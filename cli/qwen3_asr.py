@@ -197,7 +197,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     seg = parser.add_argument_group("Segmentation / Language")
     seg.add_argument("--language", "-l", default="Chinese", help="Ng\u00f4n ng\u1eef audio (m\u1eb7c \u0111\u1ecbnh: Chinese)")
-    seg.add_argument("--max-chars", type=int, default=15, help="S\u1ed1 k\u00fd t\u1ef1 t\u1ed1i \u0111a tr\u00ean m\u1ed7i d\u00f2ng ph\u1ee5 \u0111\u1ec1 (m\u1eb7c \u0111\u1ecbnh: 15, \u0111\u1eb7t 0 \u0111\u1ec3 t\u1eaft)")
+    seg.add_argument("--max-chars", type=int, default=15, help="S\u1ed1 k\u00fd t\u1ef1 t\u1ed1i \u0111a tr\u00ean m\u1ed7i d\u00f2ng ph\u1ee5 \u0111\u1ec1 (m\u1eb7c \u0111\u1ecbnh: 15, \u0111\u1eb7t 0 \u0111\u1ec3 ch\u1ec9 chia theo d\u1ea5u c\u00e2u, kh\u00f4ng \u00e9p \u0111\u1ed9 d\u00e0i)")
     seg.add_argument("--min-chars", type=int, default=8, help="S\u1ed1 k\u00fd t\u1ef1 t\u1ed1i thi\u1ec3u tr\u00ean m\u1ed7i d\u00f2ng ph\u1ee5 \u0111\u1ec1 (m\u1eb7c \u0111\u1ecbnh: 8, \u0111\u1eb7t 0 \u0111\u1ec3 t\u1eaft)")
     seg.add_argument("--split-on-comma", action="store_true", help="D\u00f9ng d\u1ea5u ph\u1ea9y l\u00e0m \u0111i\u1ec3m c\u1eaft block (m\u1eb7c \u0111\u1ecbnh: t\u1eaft)")
     seg.add_argument("--batch-size", type=int, default=32, help="Batch size cho inference (m\u1eb7c \u0111\u1ecbnh: 32)")

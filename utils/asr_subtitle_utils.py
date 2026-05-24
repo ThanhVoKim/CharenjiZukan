@@ -141,15 +141,20 @@ def segment_words_to_subtitles(
     """Segment word timestamps thành subtitle blocks.
 
     Invariant bắt buộc:
-    1. Nếu tổng số ký tự của cả câu/candidate <= max_chars, không được ngắt
-       thành hai subtitle blocks.
-    2. min_chars == 0 nghĩa là không có giới hạn tối thiểu; subtitle ngắn vẫn hợp lệ.
-    3. Chỉ dùng split_on_comma khi nội dung vượt max_chars.
-    4. max_chars <= 0: tắt segmentation, ghi một block duy nhất.
+    1. Nếu max_chars > 0 và tổng số ký tự của cả câu/candidate <= max_chars,
+       không được ngắt thành hai subtitle blocks.
+    2. max_chars == 0 nghĩa là grammar-only: chia theo dấu câu nhưng không ép
+       giới hạn độ dài.
+    3. max_chars < 0 giữ chế độ legacy single-block cho caller muốn tắt
+       segmentation hoàn toàn.
+    4. min_chars == 0 nghĩa là không có giới hạn tối thiểu; subtitle ngắn vẫn hợp lệ.
+    5. split_on_comma chỉ mở rộng điểm cắt sang dấu phẩy/yếu; mặc định vẫn ưu tiên
+       dấu câu mạnh.
 
     Args:
         merged_words: Danh sách dict word (có key "text", "start_time", "end_time").
-        max_chars: Số ký tự tối đa mỗi subtitle block.
+        max_chars: Số ký tự tối đa mỗi subtitle block; 0 = chỉ chia theo dấu câu,
+            số âm = ghi một block duy nhất.
         min_chars: Số ký tự tối thiểu (0 = không giới hạn).
         split_on_comma: Cho phép dùng dấu phẩy làm điểm cắt khi segment.
 
@@ -159,28 +164,30 @@ def segment_words_to_subtitles(
     if not merged_words:
         return []
 
-    # max_chars <= 0: tắt segmentation, một block duy nhất
-    if max_chars <= 0:
+    # max_chars < 0: giữ chế độ legacy single-block cho caller muốn tắt segmentation hoàn toàn.
+    if max_chars < 0:
         return [merged_words]
 
-    # Tính tổng số ký tự
-    total_len = sum(len(w.get("text", "")) for w in merged_words)
-
-    # Nếu tổng <= max_chars: không split, một block duy nhất
-    if total_len <= max_chars:
-        return [merged_words]
-
-    # Gọi smart_segment cho trường hợp bình thường
+    # Gọi smart_segment thống nhất cho cả grammar-only (max_chars == 0) và min/max.
     from utils.text_segmenter import smart_segment
 
-    ideal_chars = max_chars
+    if max_chars > 0:
+        # Tính tổng số ký tự
+        total_len = sum(len(w.get("text", "")) for w in merged_words)
+        # Nếu tổng <= max_chars: không split, một block duy nhất
+        if total_len <= max_chars:
+            return [merged_words]
+
     blocks = smart_segment(
         merged_words,
         min_chars=min_chars,
         max_chars=max_chars,
-        ideal_chars=ideal_chars,
+        ideal_chars=max_chars,
         split_on_comma=split_on_comma,
     )
+
+    if max_chars <= 0:
+        return blocks
 
     # Post-processing: merge adjacent blocks where combined length <= max_chars
     # CHỈ merge khi block trước KHÔNG kết thúc bằng dấu kết câu mạnh
