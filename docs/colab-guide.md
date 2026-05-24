@@ -1098,9 +1098,9 @@ Yêu cầu đã cài đặt `qwen-tts` và `transformers` (xem phần 2.6).
     --output-dir /content/output_sync
 ```
 
-#### Chạy với Image Overlay PNG theo SRT
+#### Chạy với Image Overlay static image theo SRT
 
-Image overlay dùng một SRT riêng để điều khiển thời gian hiển thị PNG transparent full-screen. Text mỗi block SRT là basename ảnh, không có đuôi `.png`.
+Image overlay dùng một SRT riêng để điều khiển thời gian hiển thị static image full-screen. Text mỗi block SRT là basename ảnh, không có đuôi tệp. Khi `file_ext="auto"`, pipeline chấp nhận nhiều định dạng ảnh tĩnh; PNG vẫn là định dạng khuyến nghị nếu cần alpha channel để video bên dưới còn hiển thị.
 
 Ví dụ `/content/image_overlay.srt`:
 
@@ -1114,17 +1114,19 @@ frame_intro
 callout_01
 ```
 
-Cấu trúc thư mục PNG:
+Cấu trúc thư mục ảnh tĩnh:
 
 ```text
-/content/overlay_png/frame_intro.png
-/content/overlay_png/callout_01.png
+/content/overlay_images/frame_intro.png
+/content/overlay_images/callout_01.webp
+/content/overlay_images/diagram.jpg
 ```
 
 Lưu ý vận hành trên Colab:
 
-- Nên export PNG đúng kích thước output trong `render_config.json` (ví dụ 1920x1080 hoặc 1080x1920) để tránh ảnh bị kéo méo do `fit=stretch_to_output`.
-- PNG cần có alpha channel nếu muốn video bên dưới vẫn hiển thị.
+- Nên export ảnh đúng kích thước output trong `render_config.json` (ví dụ 1920x1080 hoặc 1080x1920) để tránh ảnh bị kéo méo do `fit=stretch_to_output`.
+- Nếu cần alpha channel để giữ video nền hiển thị, ưu tiên PNG hoặc WebP hỗ trợ trong suốt.
+- `file_ext="auto"` cho phép resolver nhận diện nhiều định dạng ảnh tĩnh; text SRT vẫn chỉ dùng basename không có extension.
 - Timestamp overlay được remap theo video stretch timeline, không phụ thuộc forced alignment subtitle.
 - Nếu SRT có nhiều event, `render_strategy=auto` sẽ tự chuyển từ `-filter_complex` sang `-filter_complex_script` khi vượt ngưỡng `direct_overlay_max_events` hoặc `command_line_max_chars`.
 - `intermediate` overlay video hiện chỉ là stub cho phase tối ưu sau, chưa được thực thi.
@@ -1140,7 +1142,7 @@ Lưu ý vận hành trên Colab:
     --mute /content/mute.srt \
     --note-overlay-ass /content/note_overlay.ass \
     --image-overlay-srt /content/image_overlay.srt \
-    --image-overlay-dir /content/overlay_png \
+    --image-overlay-dir /content/overlay_images \
     --render-config /content/CharenjiZukan/assets/default_render_config.json \
     --ambient /content/ambient.mp3 \
     --slow-cap 0.5 \
@@ -1167,7 +1169,7 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
     "mute": "/content/video1_mute.srt",
     "note_overlay_ass": "/content/video1_note.ass",
     "image_overlay_srt": "/content/video1_image_overlay.srt",
-    "image_overlay_dir": "/content/video1_overlay_png",
+    "image_overlay_dir": "/content/video1_overlay_images",
     "output": "/content/output/video1_synced.mp4"
   }
 ]
@@ -1204,8 +1206,8 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 | `--tts-config`         | File YAML cấu hình TTS (dùng cho `edge`, `voicevox_nemo`, `voicevox`, `qwen`)                   | `config/tts_config.yaml`                |
 | `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                                                    | (không dùng)                            |
 | `--note-overlay-ass`   | File ASS text cho note overlay                                                                  | (không dùng)                            |
-| `--image-overlay-srt`  | File SRT điều khiển PNG overlay; text block là basename không có extension                      | (không dùng)                            |
-| `--image-overlay-dir`  | Thư mục chứa PNG overlay                                                                        | (không dùng)                            |
+| `--image-overlay-srt`  | File SRT điều khiển static image overlay; text block là basename không có extension             | (không dùng)                            |
+| `--image-overlay-dir`  | Thư mục chứa static image overlay                                                               | (không dùng)                            |
 | `--render-config`      | File JSON cấu hình render (style, resolution, dải đen, watermark...)                            | `assets/default_render_config.json`     |
 | `--ambient`            | Nhạc nền ambient cho toàn bộ video                                                              | `assets/ambient.mp3`                    |
 | `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)                                               | `0.5`                                   |
@@ -1241,12 +1243,12 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
   - `<output-name>_note_overlay.ass` (ASS cuối có `NoteBox` + `NoteText`, khi có `--note-overlay-ass`)
   - `<output-name>_note_synced.ass` chỉ được giữ khi bật `--keep-tmp` hoặc `note_overlay.keep_intermediate_ass=true`
 
-#### Image Overlay PNG theo SRT
+#### Image Overlay static image theo SRT
 
-- Layer render: Base video → Image overlay PNG → Note overlay → Black strip → Watermark → Subtitle.
+- Layer render: Base video → Image overlay static image → Note overlay → Black strip → Watermark → Subtitle.
 - SRT overlay dùng timestamp video gốc; pipeline remap timestamp sau khi video stretch.
-- Text block là tên ảnh không có `.png`, ví dụ `frame_intro` → `/content/overlay_png/frame_intro.png`.
-- Renderer deduplicate PNG inputs: nhiều event dùng cùng file thì FFmpeg chỉ load một input và dùng `split=N`.
+- Text block là tên ảnh không có extension, ví dụ `frame_intro` → một file trong `/content/overlay_images/` có basename khớp như `frame_intro.png`, `frame_intro.webp` hoặc `frame_intro.jpg`.
+- Renderer deduplicate static image inputs: nhiều event dùng cùng file thì FFmpeg chỉ load một input và dùng `split=N`.
 - `render_strategy=auto` là khuyến nghị; `direct` ép `-filter_complex`, `script` ép `-filter_complex_script`.
 
 #### Note Overlay dynamic ASS box

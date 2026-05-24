@@ -48,8 +48,8 @@
   },
   "image_overlay": {
     "enabled": false,
-    "mode": "srt_fullscreen_png",
-    "file_ext": ".png",
+    "mode": "srt_fullscreen_static_image",
+    "file_ext": "auto",
     "fit": "stretch_to_output",
     "x": "0",
     "y": "0",

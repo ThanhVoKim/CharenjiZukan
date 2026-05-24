@@ -1,5 +1,43 @@
 # Project Journal
 
+## 2026-05-24: Sync video — Image Overlay static image auto extension
+
+### Tóm tắt
+
+- **Mục tiêu**: Thay cấu hình image overlay từ extension cố định `.png` sang chế độ mặc định `file_ext="auto"`, cho phép SRT basename resolve nhiều định dạng ảnh tĩnh.
+- **Kết quả chính**: Resolver image overlay hiện hỗ trợ allowlist static image (`.png`, `.jpg`, `.jpeg`, `.jfif`, `.gif`, `.webp`, `.bmp`, `.tif`, `.tiff`, `.avif`, `.heic`, `.heif`, `.jp2`, `.j2k`, `.jxl`, `.tga`, `.svg`, `.ico`), so khớp basename/extension không phân biệt hoa thường, vẫn giữ khả năng ép extension cụ thể để tương thích cấu hình cũ.
+- **Xử lý xung đột**: Nếu nhiều asset cùng basename tồn tại, `missing_policy="warn"` chọn theo thứ tự ưu tiên extension và log warning; `missing_policy="raise"` dừng pipeline để tránh chọn nhầm.
+
+### File sửa
+
+- `sync_engine/image_overlay.py` — Thêm `SUPPORTED_STATIC_IMAGE_EXTENSIONS`, chế độ auto extension, resolver candidate theo basename không phân biệt hoa thường, validate SRT key không chứa bất kỳ extension ảnh tĩnh hỗ trợ/configured nào.
+- `cli/sync_video.py` — Fallback cấu hình `image_overlay.file_ext` chuyển sang `auto`; help text CLI chuyển từ PNG-only sang static image.
+- `assets/default_render_config.json` — Đổi `image_overlay.mode` thành `srt_fullscreen_static_image` và `file_ext` thành `auto`.
+- `sync_engine/renderer.py` — Cập nhật log/comment từ PNG sang static image; filter graph runtime vẫn dùng path đã resolve.
+- `tests/sync_engine/test_image_overlay.py` — Cập nhật Layer 1 resolver tests cho `.png`, `.webp`, `.JPG`, case-insensitive matching, duplicate basename và explicit extension compatibility.
+- `docs/sync-video-guide.md` và `docs/colab-guide.md` — Cập nhật hướng dẫn static image, ví dụ thư mục ảnh đa định dạng và khuyến nghị PNG/WebP khi cần alpha.
+- `tests/test_matrix.yaml` — Đổi tên entry Layer 1 từ SRT/PNG sang SRT/Static Image Domain Logic.
+
+### Quyết định kiến trúc
+
+1. **Mặc định auto nhưng vẫn backward-compatible**: `file_ext="auto"` là default mới; config cũ đặt `.png` vẫn ép đúng một extension.
+2. **SRT vẫn là basename-only**: Text block không được chứa extension để tránh phụ thuộc định dạng file và để resolver tự chọn asset phù hợp.
+3. **Ưu tiên deterministic**: Khi trùng basename, resolver chọn theo thứ tự allowlist để kết quả ổn định giữa các lần chạy.
+4. **Alpha vẫn là khuyến nghị định dạng, không còn ràng buộc runtime**: PNG/WebP phù hợp overlay trong suốt, nhưng JPEG/BMP/TIFF/AVIF/... vẫn được chấp nhận nếu FFmpeg đọc được trên môi trường chạy.
+
+### Trạng thái hiện tại
+
+- ✓ Runtime/config/docs/test matrix đã chuyển sang static image auto extension.
+- ✓ Tests mục tiêu đã được cập nhật để cover multi-extension và explicit-extension compatibility.
+- ✓ Verification đã chạy:
+  - `python -m compileall -q sync_engine cli tests` → pass.
+  - JSON load `assets/default_render_config.json` → pass.
+  - `python -m pytest tests/sync_engine/test_image_overlay.py -v -s` → 11 passed.
+
+### Pending
+
+- Cần chạy thử render video thật với bộ static image overlay đa định dạng trên môi trường FFmpeg/NVENC thực tế.
+
 ## 2026-05-23: Sync video — Image Overlay PNG theo SRT
 
 ### Tóm tắt

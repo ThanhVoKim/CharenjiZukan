@@ -4,10 +4,10 @@
 tests/sync_engine/test_image_overlay.py
 ======================================
 
-Layer 1: Unit tests cho domain logic image overlay SRT/PNG.
+Layer 1: Unit tests cho domain logic image overlay SRT/static image.
 Layer 2: Component tests mock renderer FFmpeg command/filter graph.
 
-Không commit media thật; mọi asset PNG/SRT/ASS/audio/video path đều tạo runtime
+Không commit media thật; mọi asset static image/SRT/ASS/audio/video path đều tạo runtime
 trong tmp_path theo docs/testing-guide.md.
 """
 
@@ -30,6 +30,7 @@ from sync_engine.image_overlay import (  # noqa: E402
     remap_image_overlay_events,
     render_intermediate_overlay_track,
     resolve_image_overlay_path,
+    SUPPORTED_STATIC_IMAGE_EXTENSIONS,
     write_image_overlay_debug_srt,
 )
 from sync_engine.models import TimelineSegment  # noqa: E402
@@ -44,6 +45,8 @@ class TestLayer1_ImageOverlayDomain:
     def test_normalize_key_uses_first_line_and_rejects_unsafe_values(self):
         assert normalize_image_overlay_key(" frame_001 \nignored note") == "frame_001"
         assert normalize_image_overlay_key("FRAME_A", file_ext="png") == "FRAME_A"
+        assert ".png" in SUPPORTED_STATIC_IMAGE_EXTENSIONS
+        assert ".webp" in SUPPORTED_STATIC_IMAGE_EXTENSIONS
 
         invalid_cases = [
             "",
@@ -53,28 +56,44 @@ class TestLayer1_ImageOverlayDomain:
             "folder\\frame",
             "frame.png",
             "FRAME.PNG",
+            "frame.jpg",
+            "FRAME.WebP",
+            "icon.svg",
+            "clip.gif",
         ]
         for text in invalid_cases:
             with pytest.raises(ValueError):
                 normalize_image_overlay_key(text)
 
-    def test_resolve_image_overlay_path_warn_skips_missing_and_raise_stops(self, tmp_path: Path):
+        with pytest.raises(ValueError):
+            normalize_image_overlay_key("frame.custom", file_ext=".custom")
+
+    def test_resolve_image_overlay_path_auto_warns_missing_and_explicit_ext_still_works(self, tmp_path: Path):
         overlay_dir = tmp_path / "overlays"
         overlay_dir.mkdir()
-        asset = overlay_dir / "frame_001.png"
-        asset.write_bytes(b"fake png bytes")
+        png_asset = overlay_dir / "frame_001.png"
+        webp_asset = overlay_dir / "frame_001.webp"
+        jpg_asset = overlay_dir / "Case_Key.JPG"
+        png_asset.write_bytes(b"fake png bytes")
+        webp_asset.write_bytes(b"fake webp bytes")
+        jpg_asset.write_bytes(b"fake jpg bytes")
 
-        assert resolve_image_overlay_path("frame_001", overlay_dir) == asset
+        assert resolve_image_overlay_path("frame_001", overlay_dir) == png_asset
+        assert resolve_image_overlay_path("frame_001", overlay_dir, file_ext=".webp") == webp_asset
+        assert resolve_image_overlay_path("case_key", overlay_dir, file_ext="jpg") == jpg_asset
         assert resolve_image_overlay_path("missing", overlay_dir, missing_policy="warn") is None
 
         with pytest.raises(FileNotFoundError, match="Không tìm thấy image overlay asset"):
             resolve_image_overlay_path("missing", overlay_dir, missing_policy="raise")
 
-    def test_load_events_resolves_assets_skips_missing_and_preserves_order(self, tmp_path: Path):
-        overlay_dir = tmp_path / "png"
+        with pytest.raises(ValueError, match="Có nhiều image overlay asset"):
+            resolve_image_overlay_path("frame_001", overlay_dir, missing_policy="raise")
+
+    def test_load_events_resolves_static_image_assets_skips_missing_and_preserves_order(self, tmp_path: Path):
+        overlay_dir = tmp_path / "images"
         overlay_dir.mkdir()
-        (overlay_dir / "alpha.png").write_bytes(b"alpha")
-        (overlay_dir / "beta.png").write_bytes(b"beta")
+        (overlay_dir / "alpha.webp").write_bytes(b"alpha")
+        (overlay_dir / "Beta.JPG").write_bytes(b"beta")
 
         srt_path = tmp_path / "image_overlay.srt"
         srt_path.write_text(
@@ -99,8 +118,8 @@ extra line ignored
         assert [event.key for event in events] == ["alpha", "beta"]
         assert [event.start_time for event in events] == [0.0, 2000.0]
         assert [event.end_time for event in events] == [1200.0, 3000.0]
-        assert Path(events[0].image_path).name == "alpha.png"
-        assert Path(events[1].image_path).name == "beta.png"
+        assert Path(events[0].image_path).name == "alpha.webp"
+        assert Path(events[1].image_path).name == "Beta.JPG"
 
     def test_get_unique_assets_deduplicates_by_resolved_path(self, tmp_path: Path):
         image_a = tmp_path / "a.png"
@@ -203,7 +222,7 @@ def _touch(path: Path, data: bytes = b"x") -> str:
 
 
 class TestLayer2_ImageOverlayRenderer:
-    def test_direct_filter_complex_deduplicates_png_splits_reuse_and_keeps_layer_order(self, tmp_path: Path, monkeypatch):
+    def test_direct_filter_complex_deduplicates_static_image_splits_reuse_and_keeps_layer_order(self, tmp_path: Path, monkeypatch):
         renderer = _patch_renderer_process(monkeypatch, captured := {})
 
         video = _touch(tmp_path / "video.mp4")

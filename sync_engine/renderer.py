@@ -143,7 +143,7 @@ def _append_image_overlay_filters(
         image_input_map[image_path] = input_idx
         input_idx += 1
 
-    logger.info("Image overlay unique PNG inputs: %s", len(image_input_map))
+    logger.info("Image overlay unique static image inputs: %s", len(image_input_map))
 
     event_label_queue: dict[str, list[str]] = {}
     for asset_id, (image_path, use_count) in enumerate(path_counts.items()):
@@ -253,7 +253,7 @@ def render_final_video(
         filter_cx.append(f"{current_v}scale={output_width}:{output_height}[v_base]")
         current_v = "[v_base]"
 
-    # 1. Image Overlay PNG full-screen
+    # 1. Image Overlay static image full-screen
     image_cfg = render_config.get("image_overlay", {}) or {}
     if image_overlay_events:
         current_v, input_idx = _append_image_overlay_filters(

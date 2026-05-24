@@ -11,6 +11,28 @@ from utils.srt_parser import parse_srt_file, segments_to_srt
 
 logger = logging.getLogger("sync_video")
 
+AUTO_IMAGE_FILE_EXT_VALUES = {"", "auto", "all", "*", "static", "image", "images"}
+SUPPORTED_STATIC_IMAGE_EXTENSIONS = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".jfif",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".tif",
+    ".tiff",
+    ".avif",
+    ".heic",
+    ".heif",
+    ".jp2",
+    ".j2k",
+    ".jxl",
+    ".tga",
+    ".svg",
+    ".ico",
+)
+
 
 @dataclass(frozen=True)
 class ImageOverlayRawEvent:
@@ -24,7 +46,7 @@ class ImageOverlayRawEvent:
 
 @dataclass(frozen=True)
 class ImageOverlayEvent:
-    """Image overlay event đã resolve PNG và sẵn sàng remap/render."""
+    """Image overlay event đã resolve ảnh tĩnh và sẵn sàng remap/render."""
 
     key: str
     image_path: str
@@ -35,7 +57,7 @@ class ImageOverlayEvent:
 
 @dataclass(frozen=True)
 class ImageOverlayAsset:
-    """Unique PNG asset dùng để renderer deduplicate FFmpeg image inputs."""
+    """Unique static image asset dùng để renderer deduplicate FFmpeg image inputs."""
 
     key: str
     image_path: str
@@ -49,17 +71,58 @@ def _normalize_missing_policy(missing_policy: str) -> str:
     return policy
 
 
-def _normalize_file_ext(file_ext: str) -> str:
-    ext = (file_ext or ".png").strip()
+def _normalize_single_file_ext(file_ext: str) -> str:
+    ext = (file_ext or "").strip().lower()
     if not ext:
-        ext = ".png"
+        return ""
     if not ext.startswith("."):
         ext = f".{ext}"
     return ext
 
 
-def normalize_image_overlay_key(text: str, file_ext: str = ".png") -> str:
-    """Normalize text block SRT thành basename PNG không có extension."""
+def _is_auto_file_ext(file_ext: object) -> bool:
+    if file_ext is None:
+        return True
+    if isinstance(file_ext, str):
+        return file_ext.strip().lower() in AUTO_IMAGE_FILE_EXT_VALUES
+    return False
+
+
+def _normalize_file_extensions(file_ext: str | Iterable[str] | None = "auto") -> tuple[str, ...]:
+    if _is_auto_file_ext(file_ext):
+        return SUPPORTED_STATIC_IMAGE_EXTENSIONS
+
+    if isinstance(file_ext, str):
+        ext = _normalize_single_file_ext(file_ext)
+        return (ext,) if ext else SUPPORTED_STATIC_IMAGE_EXTENSIONS
+
+    extensions: list[str] = []
+    try:
+        raw_extensions = list(file_ext or [])
+    except TypeError:
+        raw_extensions = [str(file_ext)]
+
+    for raw_ext in raw_extensions:
+        text = str(raw_ext or "").strip()
+        if text.lower() in AUTO_IMAGE_FILE_EXT_VALUES:
+            return SUPPORTED_STATIC_IMAGE_EXTENSIONS
+        ext = _normalize_single_file_ext(text)
+        if ext and ext not in extensions:
+            extensions.append(ext)
+
+    return tuple(extensions) or SUPPORTED_STATIC_IMAGE_EXTENSIONS
+
+
+def _extensions_for_key_validation(file_ext: str | Iterable[str] | None = "auto") -> tuple[str, ...]:
+    extensions = list(SUPPORTED_STATIC_IMAGE_EXTENSIONS)
+    for ext in _normalize_file_extensions(file_ext):
+        if ext not in extensions:
+            extensions.append(ext)
+    return tuple(sorted(extensions, key=len, reverse=True))
+
+
+def normalize_image_overlay_key(text: str, file_ext: str | Iterable[str] | None = "auto") -> str:
+    """Normalize text block SRT thành basename ảnh tĩnh không có extension."""
     stripped = (text or "").strip()
     if not stripped:
         raise ValueError("Image overlay SRT block có text rỗng.")
@@ -73,59 +136,89 @@ def normalize_image_overlay_key(text: str, file_ext: str = ".png") -> str:
     if ".." in key:
         raise ValueError(f"Image overlay key không được chứa path traversal '..': {key!r}")
 
-    ext = _normalize_file_ext(file_ext)
-    if key.lower().endswith(ext.lower()):
-        raise ValueError(
-            f"Image overlay key không được chứa extension {ext!r}; "
-            f"hãy dùng basename không có đuôi tệp: {key!r}"
-        )
+    lower_key = key.lower()
+    for ext in _extensions_for_key_validation(file_ext):
+        if lower_key.endswith(ext):
+            raise ValueError(
+                f"Image overlay key không được chứa extension ảnh {ext!r}; "
+                f"hãy dùng basename không có đuôi tệp: {key!r}"
+            )
 
     return key
+
+
+def _find_image_overlay_candidates(
+    key: str,
+    overlay_dir: Path,
+    extensions: tuple[str, ...],
+) -> list[Path]:
+    extension_priority = {ext.lower(): idx for idx, ext in enumerate(extensions)}
+    candidates: list[Path] = []
+
+    key_folded = key.casefold()
+    for entry in overlay_dir.iterdir():
+        suffix = entry.suffix.lower()
+        if entry.stem.casefold() == key_folded and suffix in extension_priority:
+            candidates.append(entry)
+
+    candidates.sort(key=lambda path: (extension_priority[path.suffix.lower()], path.name.lower()))
+    return candidates
 
 
 def resolve_image_overlay_path(
     key: str,
     overlay_dir: str | Path,
-    file_ext: str = ".png",
+    file_ext: str | Iterable[str] | None = "auto",
     missing_policy: str = "warn",
 ) -> Optional[Path]:
-    """Resolve image key thành PNG path trong overlay_dir."""
+    """Resolve image key thành static image path trong overlay_dir."""
     policy = _normalize_missing_policy(missing_policy)
-    ext = _normalize_file_ext(file_ext)
+    extensions = _normalize_file_extensions(file_ext)
     base_dir = Path(overlay_dir)
-    image_path = base_dir / f"{key}{ext}"
 
-    if not image_path.exists():
-        message = f"Không tìm thấy image overlay asset: {image_path}"
+    if not base_dir.exists() or not base_dir.is_dir():
+        message = f"Không tìm thấy image overlay dir: {base_dir}"
         if policy == "raise":
             raise FileNotFoundError(message)
         logger.warning(message)
         return None
 
-    if not image_path.is_file():
-        message = f"Image overlay asset không phải file: {image_path}"
+    candidates = _find_image_overlay_candidates(key, base_dir, extensions)
+    valid_candidates = [path for path in candidates if path.is_file()]
+
+    if not valid_candidates:
+        extensions_label = ", ".join(extensions)
+        message = (
+            f"Không tìm thấy image overlay asset cho key={key!r} trong {base_dir} "
+            f"với extension: {extensions_label}"
+        )
         if policy == "raise":
             raise FileNotFoundError(message)
         logger.warning(message)
         return None
 
-    if image_path.suffix.lower() != ext.lower():
-        message = f"Image overlay asset không đúng extension {ext}: {image_path}"
+    if len(valid_candidates) > 1:
+        chosen = valid_candidates[0]
+        message = (
+            f"Có nhiều image overlay asset cùng basename key={key!r}: "
+            f"{[str(path) for path in valid_candidates]}. "
+            f"Dùng file ưu tiên theo thứ tự extension: {chosen}"
+        )
         if policy == "raise":
             raise ValueError(message)
         logger.warning(message)
-        return None
+        return chosen
 
-    return image_path
+    return valid_candidates[0]
 
 
 def load_image_overlay_events(
     srt_path: str | Path,
     overlay_dir: str | Path,
-    file_ext: str = ".png",
+    file_ext: str | Iterable[str] | None = "auto",
     missing_policy: str = "warn",
 ) -> List[ImageOverlayEvent]:
-    """Đọc SRT overlay, normalize key, resolve PNG và trả về events timestamp gốc."""
+    """Đọc SRT overlay, normalize key, resolve ảnh tĩnh và trả về events timestamp gốc."""
     policy = _normalize_missing_policy(missing_policy)
     segments = parse_srt_file(str(srt_path))
     events: List[ImageOverlayEvent] = []
@@ -200,7 +293,7 @@ def remap_image_overlay_events(
 
 
 def get_unique_image_overlay_assets(events: Iterable[ImageOverlayEvent]) -> List[ImageOverlayAsset]:
-    """Trả về danh sách unique PNG assets theo thứ tự xuất hiện đầu tiên."""
+    """Trả về danh sách unique static image assets theo thứ tự xuất hiện đầu tiên."""
     seen: set[str] = set()
     assets: List[ImageOverlayAsset] = []
 
@@ -240,7 +333,7 @@ def render_intermediate_overlay_track(*args, **kwargs):
     Mục đích dự kiến: render toàn bộ image overlay events thành một video overlay
     trong suốt có cùng duration và resolution với stretched video, giữ alpha để
     final render chỉ cần overlay một input video phụ thay vì chain hàng trăm hoặc
-    hàng nghìn PNG events trong filter graph.
+    hàng nghìn static image events trong filter graph.
 
     Phase hiện tại không triển khai logic này, không gọi hàm này trong pipeline,
     và không tạo file video trung gian.

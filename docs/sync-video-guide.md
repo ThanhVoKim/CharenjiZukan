@@ -33,7 +33,7 @@ Phase 3: Audio Assembly (mix TTS + original audio + ambient + BGM)
     ↓
 Phase 3.5: Forced Alignment Subtitle (optional, nếu forced_alignment_subtitle.enabled=true)
     ↓
-Phase 4: Recalculate Timestamps + Image Overlay PNG + Dynamic Note Overlay ASS
+Phase 4: Recalculate Timestamps + Image Overlay static image + Dynamic Note Overlay ASS
     ↓
 Phase 5: Final Render (hardsub video với FFmpeg)
     ↓
@@ -88,21 +88,21 @@ if metadata_input_path:
         └── Xử lý fail_policy
 ```
 
-### Flow Image Overlay PNG chi tiết
+### Flow Image Overlay static image chi tiết
 
 ```text
 Phase 2 cập nhật timeline stretch thực tế
     ↓
 Phase 4 nếu image_overlay.enabled=true
     ├── Đọc --image-overlay-srt theo timeline video gốc
-    ├── Text mỗi block SRT = basename PNG, không có extension
-    ├── Resolve asset trong --image-overlay-dir
+    ├── Text mỗi block SRT = basename ảnh, không có extension
+    ├── Resolve static image asset trong --image-overlay-dir
     ├── Remap start/end bằng cùng mapping với subtitle remap
     ├── Optional ghi <output-name>_image_overlay_synced.srt để debug
     └── Truyền ImageOverlayEvent vào renderer
         ↓
 Phase 5 render theo layer order:
-Base video → Image overlay PNG → Note overlay → Black strip → Watermark → Subtitle
+Base video → Image overlay static image → Note overlay → Black strip → Watermark → Subtitle
 ```
 
 ---
@@ -208,14 +208,14 @@ File mặc định: `assets/default_render_config.json`
 
 ### 2.6 `image_overlay`
 
-`image_overlay` dùng một SRT riêng để điều khiển PNG transparent full-screen. Timestamp trong SRT này thuộc timeline video gốc và được remap theo timeline stretch ở Phase 4 trước khi render.
+`image_overlay` dùng một SRT riêng để điều khiển static image full-screen. Timestamp trong SRT này thuộc timeline video gốc và được remap theo timeline stretch ở Phase 4 trước khi render. PNG vẫn là định dạng khuyến nghị khi cần alpha/transparent, nhưng resolver mặc định chấp nhận nhiều định dạng ảnh tĩnh.
 
 ```json
 {
   "image_overlay": {
     "enabled": false,
-    "mode": "srt_fullscreen_png",
-    "file_ext": ".png",
+    "mode": "srt_fullscreen_static_image",
+    "file_ext": "auto",
     "fit": "stretch_to_output",
     "x": "0",
     "y": "0",
@@ -229,19 +229,21 @@ File mặc định: `assets/default_render_config.json`
 }
 ```
 
-| Key                         | Type  | Default              | Mô tả                                                                            |
-| --------------------------- | ----- | -------------------- | -------------------------------------------------------------------------------- |
-| `enabled`                   | bool  | false                | Bật/tắt image overlay                                                            |
-| `mode`                      | str   | `srt_fullscreen_png` | Phase hiện tại chỉ hỗ trợ SRT → PNG full-screen                                  |
-| `file_ext`                  | str   | `.png`               | Extension dùng để resolve asset từ text SRT                                      |
-| `fit`                       | str   | `stretch_to_output`  | Scale PNG về đúng width/height output; có thể méo nếu PNG sai aspect ratio       |
-| `x`, `y`                    | str   | `0`, `0`             | Tọa độ overlay trong FFmpeg                                                      |
-| `opacity`                   | float | 1.0                  | Opacity toàn bộ PNG overlay                                                      |
-| `missing_policy`            | str   | `warn`               | `warn` bỏ qua asset thiếu; `raise` dừng pipeline                                 |
-| `keep_intermediate_srt`     | bool  | false                | Giữ `<output-name>_image_overlay_synced.srt` để debug timestamp đã remap         |
-| `direct_overlay_max_events` | int   | 200                  | Ngưỡng event để `auto` chuyển từ direct filter graph sang script                 |
-| `command_line_max_chars`    | int   | 25000                | Ngưỡng an toàn command-line, hữu ích trên Windows                                |
-| `render_strategy`           | str   | `auto`               | `auto`, `direct`, `script`; `intermediate` mới là stub và chưa được nối pipeline |
+| Key                         | Type  | Default                       | Mô tả                                                                                                     |
+| --------------------------- | ----- | ----------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `enabled`                   | bool  | false                         | Bật/tắt image overlay                                                                                     |
+| `mode`                      | str   | `srt_fullscreen_static_image` | Phase hiện tại hỗ trợ SRT → static image full-screen                                                      |
+| `file_ext`                  | str   | `auto`                        | `auto` resolve các định dạng ảnh tĩnh hỗ trợ; vẫn có thể đặt `.png`, `.jpg`... để ép một extension cụ thể |
+| `fit`                       | str   | `stretch_to_output`           | Scale ảnh về đúng width/height output; có thể méo nếu asset sai aspect ratio                              |
+| `x`, `y`                    | str   | `0`, `0`                      | Tọa độ overlay trong FFmpeg                                                                               |
+| `opacity`                   | float | 1.0                           | Opacity toàn bộ image overlay                                                                             |
+| `missing_policy`            | str   | `warn`                        | `warn` bỏ qua asset thiếu; `raise` dừng pipeline                                                          |
+| `keep_intermediate_srt`     | bool  | false                         | Giữ `<output-name>_image_overlay_synced.srt` để debug timestamp đã remap                                  |
+| `direct_overlay_max_events` | int   | 200                           | Ngưỡng event để `auto` chuyển từ direct filter graph sang script                                          |
+| `command_line_max_chars`    | int   | 25000                         | Ngưỡng an toàn command-line, hữu ích trên Windows                                                         |
+| `render_strategy`           | str   | `auto`                        | `auto`, `direct`, `script`; `intermediate` mới là stub và chưa được nối pipeline                          |
+
+Khi `file_ext="auto"`, resolver tìm theo thứ tự ưu tiên: `.png`, `.jpg`, `.jpeg`, `.jfif`, `.gif`, `.webp`, `.bmp`, `.tif`, `.tiff`, `.avif`, `.heic`, `.heif`, `.jp2`, `.j2k`, `.jxl`, `.tga`, `.svg`, `.ico`. Text SRT vẫn luôn là basename không có extension. Nếu nhiều file cùng basename tồn tại, `missing_policy="warn"` chọn file theo thứ tự ưu tiên và log warning; `missing_policy="raise"` dừng pipeline để tránh chọn nhầm asset.
 
 ### 2.7 `note_overlay`
 
@@ -415,7 +417,7 @@ Block `video_encoding` trong render config chỉ còn vai trò mô tả/tương 
 
 ## 3. Cấu hình `image_overlay`
 
-### 3.1 Input SRT và thư mục PNG
+### 3.1 Input SRT và thư mục ảnh tĩnh
 
 Bật `image_overlay.enabled=true` trong render config, sau đó truyền thêm hai CLI args:
 
@@ -440,12 +442,13 @@ frame_intro
 callout_01
 ```
 
-Với ví dụ trên, pipeline sẽ resolve:
+Với `file_ext="auto"`, pipeline sẽ resolve basename sang file ảnh tĩnh đầu tiên tìm được theo thứ tự ưu tiên. Ví dụ hợp lệ:
 
 - `content/image_overlays/frame_intro.png`
-- `content/image_overlays/callout_01.png`
+- `content/image_overlays/callout_01.webp`
+- `content/image_overlays/diagram.JPG`
 
-Text SRT chỉ được dùng làm basename; không truyền extension, slash, backslash hoặc path traversal. Nếu nhiều dòng text, pipeline chỉ dùng dòng đầu tiên làm key và log warning.
+Text SRT chỉ được dùng làm basename; không truyền extension, slash, backslash hoặc path traversal. Nếu nhiều dòng text, pipeline chỉ dùng dòng đầu tiên làm key và log warning. PNG vẫn là định dạng khuyến nghị khi cần transparent/alpha channel.
 
 ### 3.2 Timestamp remap
 
@@ -459,15 +462,15 @@ Nếu bật `keep_intermediate_srt=true` hoặc truyền `--keep-tmp`, pipeline 
 
 File này giúp kiểm tra timestamp overlay sau remap.
 
-### 3.3 Layer order và kích thước PNG
+### 3.3 Layer order và kích thước ảnh
 
 Renderer burn layer theo thứ tự cố định:
 
 ```text
-Base video → Image overlay PNG full-screen → Note overlay → Black strip → Watermark → Subtitle
+Base video → Image overlay static image full-screen → Note overlay → Black strip → Watermark → Subtitle
 ```
 
-Phase đầu chỉ hỗ trợ `fit=stretch_to_output`. Nên export PNG đúng kích thước output, ví dụ 1920x1080 hoặc 1080x1920, và giữ alpha channel để video bên dưới vẫn thấy được. Nếu PNG sai aspect ratio, FFmpeg vẫn scale về output resolution nên ảnh có thể bị kéo méo.
+Phase đầu chỉ hỗ trợ `fit=stretch_to_output`. Nên export ảnh đúng kích thước output, ví dụ 1920x1080 hoặc 1080x1920. Nếu cần video bên dưới vẫn thấy được, nên dùng PNG/WebP có alpha channel. Nếu asset sai aspect ratio, FFmpeg vẫn scale về output resolution nên ảnh có thể bị kéo méo.
 
 ### 3.4 Strategy render
 
@@ -478,7 +481,7 @@ Phase đầu chỉ hỗ trợ `fit=stretch_to_output`. Nên export PNG đúng k�
 | `auto`         | Mặc định; tự chuyển sang `script` khi vượt `direct_overlay_max_events` hoặc `command_line_max_chars` |
 | `intermediate` | Chưa triển khai; hiện chỉ có stub để dành cho phase tối ưu sau này                                   |
 
-Renderer deduplicate PNG theo absolute path. Nếu cùng một PNG xuất hiện nhiều lần trong SRT, FFmpeg chỉ load asset đó một lần và dùng `split=N` để tái sử dụng cho nhiều event.
+Renderer deduplicate static image theo absolute path. Nếu cùng một ảnh xuất hiện nhiều lần trong SRT, FFmpeg chỉ load asset đó một lần và dùng `split=N` để tái sử dụng cho nhiều event.
 
 ---
 
@@ -638,7 +641,7 @@ Mỗi task batch có thể truyền overlay riêng:
   "input": "video.mp4",
   "subtitle": "video.srt",
   "image_overlay_srt": "overlays/video_overlay.srt",
-  "image_overlay_dir": "overlays/png",
+  "image_overlay_dir": "overlays/images",
   "output": "out/video_synced.mp4"
 }
 ```
@@ -672,7 +675,7 @@ Ví dụ:
 ```
 cli/sync_video.py                        ← Entrypoint CLI (pyproject.toml [project.scripts])
     ↓ import
-sync_engine/image_overlay.py             ← Parse/resolve/remap image overlay SRT + PNG events
+sync_engine/image_overlay.py             ← Parse/resolve/remap image overlay SRT + static image events
 sync_engine/forced_alignment_subtitle.py ← Orchestration forced alignment subtitle
     ↓ import
 utils/asr_subtitle_utils.py              ← Shared ASR subtitle logic (merge punctuation, segment, write SRT)

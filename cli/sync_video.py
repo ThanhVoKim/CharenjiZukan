@@ -425,7 +425,7 @@ def run_sync_pipeline(args):
                     raw_image_overlay_events = load_image_overlay_events(
                         srt_path=image_overlay_srt_path,
                         overlay_dir=image_overlay_dir_path,
-                        file_ext=image_overlay_cfg.get("file_ext", ".png"),
+                        file_ext=image_overlay_cfg.get("file_ext", "auto"),
                         missing_policy=image_overlay_missing_policy,
                     )
                     image_overlay_events = remap_image_overlay_events(
@@ -605,8 +605,8 @@ def main():
     # Tùy chọn - Input
     parser.add_argument("--mute", help="File mute.srt")
     parser.add_argument("--note-overlay-ass", help="ASS text cho note")
-    parser.add_argument("--image-overlay-srt", help="File SRT điều khiển thời gian hiển thị PNG overlay")
-    parser.add_argument("--image-overlay-dir", help="Thư mục chứa PNG overlay, text SRT là basename không có extension")
+    parser.add_argument("--image-overlay-srt", help="File SRT điều khiển thời gian hiển thị image overlay")
+    parser.add_argument("--image-overlay-dir", help="Thư mục chứa static image overlay, text SRT là basename không có extension")
     parser.add_argument("--ambient", default=str(PROJECT_ROOT / "assets" / "ambient.mp3"), help="Nhạc nền")
 
     # Render Config

@@ -149,7 +149,7 @@ tests:
     tags: ["unit", "sync_engine"]
     enabled: true
 
-  - name: "Image Overlay — Layer 1: SRT/PNG Domain Logic"
+  - name: "Image Overlay — Layer 1: SRT/Static Image Domain Logic"
     file: "tests/sync_engine/test_image_overlay.py"
     keyword: "Layer1"
     timeout_sec: 30
