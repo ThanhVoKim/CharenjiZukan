@@ -8,10 +8,10 @@ provider_chain:
     provider: "vertexai"
     provider_config: "config/llm/vertexai.yaml"
 prompt_file: "prompts/translation/srt_translate.txt"
-target_language: "Vietnamese"
+target_language: "English"
 batch_size: 30
 use_full_context: true
-wait_sec: 0
+wait_sec: 0.5
 response_parser:
   type: "tag"
   tag: "TRANSLATE_TEXT"

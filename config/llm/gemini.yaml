@@ -1,6 +1,6 @@
 # Provider config chung cho Gemini API key mode
 provider: "gemini"
-model: "gemini-3-flash-preview"
+model: "gemini-3.5-flash"
 temperature: 1
 max_output_tokens: 65530
 thinking_budget: 24576

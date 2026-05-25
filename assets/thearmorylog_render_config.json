@@ -55,8 +55,18 @@
     },
     "output": {
       "directory_policy": "/",
-      "filename_template": "{video_stem}_metadata.md"
+      "filename_template": "metadata.md"
     },
+    "fail_policy": "warn"
+  },
+  "forced_alignment_subtitle": {
+    "enabled": true,
+    "language": "English",
+    "max_chars": 42,
+    "min_chars": 0,
+    "split_on_comma": true,
+    "offset_seconds": 0.24,
+    "keep_tts_synced_debug": false,
     "fail_policy": "warn"
   }
 }
