@@ -1017,31 +1017,7 @@ CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS the
 
 Khi bật `forced_alignment_subtitle.enabled = true` trong `render_config.json`, pipeline sẽ chạy Qwen3ForcedAligner trên `mixed_audio.wav` sau khi audio assembly hoàn tất, tạo SRT với timestamp chính xác cho từng từ.
 
-```colab
-# Bật forced alignment trong render_config.json
-import json
-with open("/content/CharenjiZukan/assets/default_render_config.json", "r") as f:
-    config = json.load(f)
-config["forced_alignment_subtitle"]["enabled"] = True
-with open("/content/CharenjiZukan/assets/default_render_config.json", "w") as f:
-    json.dump(config, f, indent=2, ensure_ascii=False)
-```
-
 **Cấu hình forced alignment trong `render_config.json`:**
-
-| Key                     | Default     | Mô tả                                            |
-| ----------------------- | ----------- | ------------------------------------------------ |
-| `enabled`               | `false`     | Bật/tắt forced alignment subtitle                |
-| `model_path`            | `null`      | null → `"Qwen/Qwen3-ForcedAligner-0.6B"`         |
-| `device`                | `null`      | null → `"cuda:0"`                                |
-| `dtype`                 | `null`      | null → `torch.bfloat16`                          |
-| `language`              | `"English"` | Ngôn ngữ alignment                               |
-| `max_chars`             | `42`        | Max ký tự mỗi subtitle block                     |
-| `min_chars`             | `0`         | Min ký tự (0 = không giới hạn)                   |
-| `split_on_comma`        | `true`      | Cho phép ngắt tại dấu phẩy                       |
-| `offset_seconds`        | `0.24`      | Offset timestamp subtitle (giây)                 |
-| `keep_tts_synced_debug` | `false`     | Giữ file remap SRT để debug                      |
-| `fail_policy`           | `"warn"`    | `warn` → fallback remap; `raise` → dừng pipeline |
 
 **Output:**
 
@@ -1175,17 +1151,6 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 ]
 ```
 
-**Lệnh chạy:**
-
-```colab
-!uv run sync-video \
-    --task-file /content/tasks_batch.json \
-    --tts-provider qwen \
-    --tts-config /content/CharenjiZukan/config/tts_config.yaml \
-    --render-config /content/CharenjiZukan/assets/default_render_config.json \
-    --workers 4
-```
-
 **Lưu ý:**
 
 - Task JSON bắt buộc phải có `input` (video) và `subtitle`.
@@ -1218,7 +1183,6 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 | `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)                                        | `100`                                   |
 | `--no-gpu`             | Tùy chọn tương thích cũ; video render vẫn bắt buộc dùng `hevc_nvenc -preset p4 -tune hq -cq 28` | (tắt)                                   |
 | `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                                              | (tắt)                                   |
-| `--note-max-chars`     | Deprecated cho dynamic note overlay; note overlay dùng pixel wrap theo layout                   | `15`                                    |
 | `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                                                 | `0`                                     |
 
 > **Lưu ý về âm lượng (Volume):** Khi cấu hình tách BGM trong `render_config`, bạn có thể điều chỉnh âm lượng của BGM đã tách và ambient thông qua block `audio_mix`:
