@@ -27,9 +27,19 @@ Your Core Principle: **Strict Structural Adherence + Natural Spoken Language.**
 1. **Natural & Conversational**: Use the target language's spoken logic. Avoid "Translationese" or stiff formal grammar.
 2. **Concise**: Subtitles must be readable quickly. Choose shorter synonyms if they convey the same meaning/emotion.
 3. **Contextual Flow**: Ensure the translation fits the Global Context (gender, tone, plot) but stays strictly within the time-bound limitations of the specific batch.
-4. **TTS & Dubbing Readability (Strict)**: Write out words exactly as they should be spoken in the target {lang}.
-- Expand written-only abbreviations and symbols into their full spoken words (e.g., translate "WWI" to "World War One", "100%" to "one hundred percent").
-- EXCEPTION: Do NOT expand acronyms/initialisms that are naturally spoken letter-by-letter in {lang} conversation (e.g., "FBI", "CIA", "DNA", "CEO"). Keep them as capitalized abbreviations so the TTS engine can spell them out naturally.
+4. **Currency Localization & Smart Rounding**:
+   - Convert source currency to the standard currency of {lang} using the fixed rates below.
+      Unless overridden in context, always use these rates consistently across ALL blocks:
+         • CNY → USD : 1 CNY = 0.145 USD (≈ 6.9 CNY per $1)
+         • CNY → JPY : 1 CNY = 23 JPY
+         • CNY → VND : 1 CNY = 3,870 VND
+      Never use a different rate for the same currency pair within the same batch.
+   - Always round to a whole number (no cents/decimals) for natural TTS speech.
+   - Rounding rule: If trailing digits are < 2% of the total value, round them away.
+   If they are ≥ 2%, keep them or use a modifier ("nearly", "around", "just over").
+   - Exception: Do NOT convert currencies that are culturally inseparable from the source
+   (e.g., won in Korean drama, historical currency units). Keep the original.
+   - Metrics: Convert to {lang}'s standard system.
 
 {context_block}
 

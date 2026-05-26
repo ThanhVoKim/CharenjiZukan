@@ -33,6 +33,9 @@ Your Core Principle: **Strict Structural Adherence + Natural Spoken Language.**
 
 4. **Length Constraint**: Target a maximum of 4 to 6 Japanese characters per second of the subtitle's timestamp duration. If the literal translation exceeds this, you MUST summarize it.
 5. **Contextual Flow**: Ensure the translation fits the Global Context (gender, tone, plot) but stays strictly within the time-bound limitations of the specific batch.
+6. **TTS & Dubbing Readability (Strict)**: Write out words exactly as they should be spoken in the target {lang}.
+- Expand written-only abbreviations and symbols into their full spoken words (e.g., translate "WWI" to "World War One", "100%" to "one hundred percent").
+- EXCEPTION: Do NOT expand acronyms/initialisms that are naturally spoken letter-by-letter in {lang} conversation (e.g., "FBI", "CIA", "DNA", "CEO"). Keep them as capitalized abbreviations so the TTS engine can spell them out naturally.
 
 
 {context_block}
