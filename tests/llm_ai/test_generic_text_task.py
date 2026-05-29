@@ -25,6 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from llm_ai.base import BaseLLMProvider
+from llm_ai.openai_compat import CapabilityNotEnabledError
 from llm_ai.provider_chain import FallbackLLMProvider, ProviderChainError
 from llm_ai.retry import calculate_linear_retry_wait_seconds
 from llm_ai.tasks.generic_text_task import GenericTextTaskConfig, run_generic_text_task
@@ -48,6 +49,20 @@ class FailingProvider(BaseLLMProvider):
 
     def call(self, message: str) -> str:
         raise RuntimeError("primary failed")
+
+
+class CapabilityFailingProvider(BaseLLMProvider):
+    @property
+    def name(self) -> str:
+        return "CapabilityFailingLLM"
+
+    def call(self, message: str) -> str:
+        raise CapabilityNotEnabledError(
+            "capability disabled",
+            profile_name="unit_profile",
+            feature="reasoning_effort",
+            api_mode="chat_completions",
+        )
 
 
 class TestLayer1_PromptTemplate:
@@ -111,6 +126,17 @@ class TestLayer1_RetryAndProviderChain:
             provider.call("hello")
 
         assert len(exc_info.value.failures) == 2
+
+    def test_fallback_provider_does_not_fallback_on_capability_error(self):
+        provider = FallbackLLMProvider(
+            [CapabilityFailingProvider(), FakeProvider()],
+            names=["primary", "fallback"],
+        )
+
+        with pytest.raises(CapabilityNotEnabledError, match="capability disabled"):
+            provider.call("hello")
+
+        assert provider.active_provider_name == "CapabilityFailingLLM"
 
 
 class TestLayer2_GenericTextTask:

@@ -1228,15 +1228,6 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 
 Loại bỏ các đoạn thừa từ video gốc **trước khi** chạy transcript/translate/sync. CLI này tạo video clean và manifest JSON để trace timeline.
 
-#### Pre-cut nhanh (hybrid-copy — mặc định)
-
-```colab
-!uv run pre-cut-video \
-    --input /content/source.mp4 \
-    --output /content/clean.mp4 \
-    --remove-srt /content/remove.srt
-```
-
 #### Re-encode smooth (HEVC NVENC)
 
 ```colab
@@ -1295,28 +1286,6 @@ CUT sponsor
 | `--disable-audio-fade` | Tắt audio fade                                       | (tắt)                        |
 | `--keep-tmp`           | Giữ part files tạm sau concat để debug               | (tắt)                        |
 | `--verbose`, `-v`      | Bật log chi tiết (DEBUG level)                       | (tắt)                        |
-
-#### Workflow đầy đủ với pre-cut
-
-```colab
-# Bước 1: Pre-cut — loại bỏ đoạn thừa
-!uv run pre-cut-video \
-    --input /content/source.mp4 \
-    --output /content/clean.mp4 \
-    --remove-srt /content/remove.srt
-
-# Bước 2: Transcript/ASR trên video clean
-!uv run qwen3-asr-srt --input /content/clean.mp4 --output /content/subs/
-
-# Bước 3: Translate
-!uv run translate-srt --input /content/subs/clean.srt --keys "{gemini_key}"
-
-# Bước 4: Sync video với video clean
-!uv run sync-video \
-    --video /content/clean.mp4 \
-    --subtitle /content/subs/clean_ja.srt \
-    --output-dir /content/output_sync
-```
 
 > **Lưu ý:** Sau pre-cut, tất cả timestamp đều thuộc timeline của video clean. Không dùng lại timestamp của video gốc cho các bước sau.
 

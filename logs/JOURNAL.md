@@ -1,5 +1,50 @@
 # Project Journal
 
+## 2026-05-29: OpenAI-compatible capability implementation
+
+### Tóm tắt
+
+- **Mục tiêu**: Triển khai coding theo `plans/openai-compatible-provider-capabilities-plan.md`, giữ Chat Completions cơ bản làm baseline nhưng thêm profile/capability flags riêng cho từng OpenAI-compatible `base_url`.
+- **Kết quả chính**: Đã thêm hạ tầng `OpenAICompatProfile`, custom capability exceptions, request builders cho Chat Completions/Responses, telemetry cache/usage best-effort, versioned capability report và provider integration backward-compatible.
+- **Tác động vận hành**: Provider fail-fast trước network call khi config yêu cầu capability chưa bật; endpoint rejection 400/404/422 cho capability đã bật được wrap thành `CapabilityRejectedError`; provider chain không fallback khi gặp lỗi capability/config để tránh chạy sai endpoint/profile.
+
+### File mới
+
+- `llm_ai/openai_compat.py` — Config models, capability flags, exceptions, payload builders, telemetry helpers và versioned capability report writer.
+- `tests/llm_ai/test_openai_compat_capabilities.py` — Layer 1/2 tests cho config parsing, request builders, telemetry/report và mocked OpenAI-compatible client.
+- `tests/llm_ai/test_openai_compat_capability_probe.py` — Layer 4 opt-in real endpoint probe, ghi capability report theo profile/timestamp.
+
+### File sửa
+
+- `llm_ai/providers/openai.py` — Tích hợp capability profile, Chat Completions/Responses branching, raw header telemetry, previous response state, compaction và custom endpoint rejection wrapping.
+- `llm_ai/factory.py` — Truyền full provider config vào OpenAI-compatible provider để giữ schema mới/backward-compatible.
+- `llm_ai/provider_chain.py` — Cho phép override profile/capability fields trong `provider_chain` và re-raise `OpenAICompatCapabilityError` thay vì fallback.
+- `llm_ai/base.py` — Thêm optional `compact_state`, `last_response_id`, `last_telemetry_record` không phá interface `call(message) -> str`.
+- `config/llm/openai_compat.yaml` — Mở rộng profile schema với `api_mode`, `capability_flags`, `request_options`, `stateful_options`, `telemetry`; advanced features mặc định tắt.
+- `tests/llm_ai/test_generic_text_task.py` — Thêm regression test đảm bảo provider chain không fallback khi gặp capability error.
+- `docs/testing-guide.md` — Bổ sung tag hợp lệ `llm_capability`, `openai_compat`, `llm_capability_probe`, `external_api` và env probe liên quan.
+- `tests/test_matrix.yaml` — Thêm entries Layer 1, Layer 2, Layer 4 cho OpenAI-compatible capability tests.
+- `.gitignore` — Ignore runtime telemetry/report outputs `logs/llm_telemetry.jsonl` và `tests/test_reports/`.
+- `run_colab_tests.py` — Cấu hình stdout/stderr UTF-8 để thông báo lỗi dependency không vỡ encoding trên Windows console.
+
+### Verification
+
+- `python -m compileall -q run_colab_tests.py llm_ai tests/llm_ai && python -m pytest tests/llm_ai/test_openai_compat_capabilities.py tests/llm_ai/test_generic_text_task.py tests/llm_ai/test_openai_compat_capability_probe.py -v` → 25 passed, 1 skipped (Layer 4 probe skip đúng vì chưa bật env/API key).
+- `python run_colab_tests.py --tags llm_capability` → chưa chạy được trong môi trường hiện tại vì thiếu `PyYAML`; sau fix UTF-8 runner đã hiển thị lỗi rõ: `PyYAML chưa cài. Chạy: pip install pyyaml`.
+
+### Quyết định kiến trúc
+
+1. **Capability-first, fail-fast**: Request builders chỉ inject tham số nâng cao khi capability flag tương ứng bật; lỗi config/capability dùng custom exception rõ nguyên nhân.
+2. **Không fallback trên capability error**: `provider_chain` chỉ fallback cho lỗi runtime/provider thông thường; capability/config errors là deterministic và phải dừng ngay.
+3. **Telemetry production là metadata-only**: Không tạo request phụ để test cache; chỉ ghi usage/header/latency từ response thật, sanitize secret và hash `base_url`.
+4. **Probe có lịch sử**: Capability report ghi theo `profile_name` và timestamp, đồng thời cập nhật `latest.json` để tiện đọc trạng thái mới nhất.
+
+### Pending
+
+- Cài dependency project (`PyYAML`) trong môi trường chạy hiện tại rồi chạy lại `python run_colab_tests.py --tags llm_capability`.
+- Khi có API key/base_url thật, chạy Layer 4 probe với `OPENAI_COMPAT_PROBE_ALLOW_COST=1`, `OPENAI_COMPAT_PROFILE` và `OPENAI_API_KEY` để tạo report thực tế.
+- Mở rộng probe nâng cao cho từng capability cụ thể nếu cần xác minh sâu hơn ngoài basic generation.
+
 ## 2026-05-24: ASR subtitle segmentation — `max_chars=0` grammar-only
 
 ### Tóm tắt

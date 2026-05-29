@@ -265,11 +265,16 @@ tests:
   # Dùng: python run_colab_tests.py --tags unit
   # ──────────────────────────────────────────────
   # Tags có sẵn:
-  #   unit        → Không cần GPU/FFmpeg, chạy nhanh
-  #   integration → Cần FFmpeg hoặc system binary
-  #   ffmpeg      → Cần FFmpeg trong PATH
-  #   gpu         → Cần CUDA GPU
-  #   native_ocr  → Cần GPU + VRAM >= 10GB
+  #   unit                 → Không cần GPU/FFmpeg/API thật, chạy nhanh
+  #   integration          → Cần file thật, subprocess, hoặc component mock
+  #   ffmpeg               → Cần FFmpeg trong PATH
+  #   gpu                  → Cần CUDA GPU
+  #   native_ocr           → Cần GPU + VRAM >= 10GB
+  #   sync_engine          → Nhóm test sync pipeline
+  #   llm_capability       → Nhóm test capability flags/telemetry/report của LLM
+  #   openai_compat        → Nhóm test OpenAI-compatible provider profiles
+  #   llm_capability_probe → Probe endpoint thật, luôn opt-in bằng env
+  #   external_api         → Có gọi API/dịch vụ thật bên ngoài
 
   # ──────────────────────────────────────────────
   # NATIVE VIDEO OCR — 4 layers riêng biệt
@@ -415,6 +420,37 @@ tests:
     timeout_sec: 30
     pytest_args: ["-v", "-s"]
     tags: ["unit"]
+    enabled: true
+
+  - name: "OpenAI-compatible Capabilities — Layer 1: Config, Payload, Telemetry & Reports"
+    file: "tests/llm_ai/test_openai_compat_capabilities.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit", "llm_capability", "openai_compat"]
+    enabled: true
+
+  - name: "OpenAI-compatible Capabilities — Layer 2: Mock Client Integration"
+    file: "tests/llm_ai/test_openai_compat_capabilities.py"
+    keyword: "Layer2"
+    timeout_sec: 60
+    pytest_args: ["-v"]
+    tags: ["integration", "llm_capability", "openai_compat"]
+    enabled: true
+
+  - name: "OpenAI-compatible Capabilities — Layer 4: Real Endpoint Probe"
+    file: "tests/llm_ai/test_openai_compat_capability_probe.py"
+    keyword: "Layer4"
+    timeout_sec: 180
+    pytest_args: ["-v", "-s"]
+    tags:
+      [
+        "integration",
+        "external_api",
+        "llm_capability",
+        "llm_capability_probe",
+        "openai_compat",
+      ]
     enabled: true
 
   # ──────────────────────────────────────────────

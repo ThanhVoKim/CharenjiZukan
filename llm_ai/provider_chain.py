@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence
 
 from llm_ai.base import BaseLLMProvider
+from llm_ai.openai_compat import OpenAICompatCapabilityError
 
 logger = logging.getLogger("llm_ai")
 ProviderFactory = Callable[[], BaseLLMProvider]
@@ -25,6 +26,13 @@ PROVIDER_CHAIN_OVERRIDE_KEYS = (
     "generation_config",
     "safety_settings",
     "cache_ttl_seconds",
+    "profile_name",
+    "api_mode",
+    "capability_flags",
+    "request_options",
+    "stateful_options",
+    "telemetry",
+    "task_name",
 )
 
 
@@ -202,6 +210,14 @@ class FallbackLLMProvider(BaseLLMProvider):
 
             try:
                 return provider.call(message)
+            except OpenAICompatCapabilityError as exc:
+                logger.error(
+                    "[ProviderChain] Lỗi capability/config ở %s (%s); không fallback để tránh chạy sai profile: %s",
+                    chain_name,
+                    provider.name,
+                    exc,
+                )
+                raise
             except Exception as exc:
                 last_exc = exc
                 failure = ProviderFailure(

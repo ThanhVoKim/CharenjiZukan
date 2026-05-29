@@ -53,6 +53,7 @@ def create_provider(
             request_timeout=cfg.get("request_timeout", 120),
             retry_attempts=cfg.get("retry_attempts", 3),
             retry_wait_seconds=cfg.get("retry_wait_seconds", 5),
+            profile_config=cfg,
         )
 
     if resolved_provider_type == "vertexai":

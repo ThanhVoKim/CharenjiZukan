@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Any, Mapping
 
 
 class BaseLLMProvider(ABC):
@@ -29,6 +30,20 @@ class BaseLLMProvider(ABC):
             False nếu provider không hỗ trợ hoặc không thể set context.
         """
         return False
+
+    def compact_state(self, response_id: str | None = None) -> Any:
+        """Tuỳ chọn compact provider-side state nếu provider hỗ trợ."""
+        return None
+
+    @property
+    def last_response_id(self) -> str | None:
+        """Response id gần nhất nếu provider/stateful API có trả về."""
+        return None
+
+    @property
+    def last_telemetry_record(self) -> Mapping[str, Any] | None:
+        """Telemetry metadata gần nhất nếu provider có bật observability."""
+        return None
 
 
 # Backward-compatible alias cho các import cũ trong translation/*.

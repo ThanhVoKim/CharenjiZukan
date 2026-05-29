@@ -31,7 +31,7 @@ Phần này tóm tắt 10 quy tắc tuyệt đối không được vi phạm khi
 - **R5 — Hardware Validation:** Logic check GPU/VRAM phải dùng fixture từ `tests/conftest.py`, tuyệt đối không viết inline bằng `torch.cuda` trong test method. ([Xem Mục 5](#5-hardware-checking--detect-gpu-và-phân-loại))
 - **R6 — Mandatory Mocking (L3):** Layer 3 bắt buộc phải mock hoàn toàn `_load_model()` và `_infer()`. Tuyệt đối không load model thật ở Layer 3. ([Xem Mục 3.5](#35-feature-yêu-cầu-ai-model-lớn--8gb-vram))
 - **R7 — test_matrix.yaml Sync:** Tạo test mới phải cập nhật `test_matrix.yaml`. Mỗi layer 1 entry riêng biệt với timeout thực tế. ([Xem Mục 8](#8-hướng-dẫn-chi-tiết-test_matrixyaml))
-- **R8 — Strict Tagging:** Chỉ sử dụng các tag đã quy định (`unit`, `integration`, `ffmpeg`, `gpu`, `gpu_small`, `native_ocr`, `demucs`). ([Xem Mục 4](#4-taxonomy-tag--quy-tắc-gán-nhãn))
+- **R8 — Strict Tagging:** Chỉ sử dụng các tag đã quy định (`unit`, `integration`, `ffmpeg`, `gpu`, `gpu_small`, `native_ocr`, `audio_separator`, `sync_engine`, `llm_capability`, `openai_compat`, `llm_capability_probe`, `external_api`, `api`). ([Xem Mục 4](#4-taxonomy-tag--quy-tắc-gán-nhãn))
 - **R9 — No Hardcoded Secrets:** HuggingFace token và các API key bắt buộc đọc từ biến môi trường (Environment variables). ([Xem Mục 5.3](#53-biến-môi-trường-kiểm-soát-threshold))
 - **R10 — CJK Font Rendering:** Khi test Layer 4 cần OCR chữ Trung/Nhật/Hàn, không dùng `cv2.putText()` (không hỗ trợ CJK), bắt buộc dùng Pillow. ([Xem Mục 3.3](#33-feature-xử-lý-video-opencv--ffmpeg))
 
@@ -322,15 +322,21 @@ monkeypatch.setattr(extractor, "_infer", fake_infer)
 
 Mỗi entry trong `test_matrix.yaml` phải có ít nhất 1 tag. Dưới đây là toàn bộ tag hợp lệ và ý nghĩa của chúng:
 
-| Tag               | Ý nghĩa                                              | Phụ thuộc hardware     |
-| ----------------- | ---------------------------------------------------- | ---------------------- |
-| `unit`            | Test thuần logic, không I/O, không external process  | Không có               |
-| `integration`     | Test với file thật hoặc subprocess bên ngoài         | Python dependencies    |
-| `ffmpeg`          | Cần `ffmpeg` trong PATH                              | FFmpeg binary          |
-| `gpu`             | Cần CUDA GPU với VRAM theo `NATIVE_OCR_MIN_VRAM_GB`  | CUDA GPU ≥ 8GB         |
-| `gpu_small`       | Cần CUDA GPU nhưng VRAM nhỏ hơn (< 4GB)              | CUDA GPU ≥ 4GB         |
-| `native_ocr`      | Liên quan đến Native Video OCR pipeline (Qwen3-VL)   | Tùy layer              |
-| `audio_separator` | Liên quan đến thư viện tách âm thanh audio-separator | GPU hoặc CPU ≥ 4 cores |
+| Tag                    | Ý nghĩa                                                            | Phụ thuộc hardware / external |
+| ---------------------- | ------------------------------------------------------------------ | ----------------------------- |
+| `unit`                 | Test thuần logic, không I/O, không external process                | Không có                      |
+| `integration`          | Test với file thật, subprocess bên ngoài, hoặc component mock      | Python/system dependencies    |
+| `ffmpeg`               | Cần `ffmpeg` trong PATH                                            | FFmpeg binary                 |
+| `gpu`                  | Cần CUDA GPU với VRAM theo `NATIVE_OCR_MIN_VRAM_GB`                | CUDA GPU ≥ 8GB                |
+| `gpu_small`            | Cần CUDA GPU nhưng VRAM nhỏ hơn (< 4GB)                            | CUDA GPU ≥ 4GB                |
+| `native_ocr`           | Liên quan đến Native Video OCR pipeline (Qwen3-VL)                 | Tùy layer                     |
+| `audio_separator`      | Liên quan đến thư viện tách âm thanh audio-separator               | GPU hoặc CPU ≥ 4 cores        |
+| `sync_engine`          | Liên quan đến pipeline đồng bộ video/audio/subtitle                | Tùy layer                     |
+| `llm_capability`       | Test capability flags, request builder, telemetry/report của LLM   | Không có ở L1/L2              |
+| `openai_compat`        | Test riêng cho OpenAI-compatible provider/base_url profile         | Không có ở L1/L2              |
+| `llm_capability_probe` | Probe capability thật trên endpoint LLM, luôn opt-in bằng env      | External API, có thể tốn phí  |
+| `external_api`         | Có gọi API/dịch vụ thật bên ngoài, bắt buộc đọc secret từ env      | Network + API key             |
+| `api`                  | Legacy alias cho test gọi API thật; ưu tiên tag mới `external_api` | Network + API key             |
 
 **Quy tắc gán nhiều tag**: Một entry có thể và nên có nhiều tag khi phù hợp:
 
@@ -357,6 +363,12 @@ python run_colab_tests.py --tags unit integration gpu
 
 # Chạy tất cả có liên quan đến native OCR
 python run_colab_tests.py --tags native_ocr
+
+# Chạy capability tests OpenAI-compatible không gọi API thật
+python run_colab_tests.py --tags llm_capability openai_compat
+
+# Chạy probe endpoint thật: chỉ chạy khi đã set env opt-in/API key
+python run_colab_tests.py --tags llm_capability_probe external_api openai_compat
 ```
 
 ---
@@ -425,13 +437,16 @@ class TestLayer4_RealModelOCR:
 
 Biến môi trường cho phép điều chỉnh threshold mà không cần sửa code:
 
-| Biến                     | Mặc định                    | Ý nghĩa                             |
-| ------------------------ | --------------------------- | ----------------------------------- |
-| `NATIVE_OCR_MIN_VRAM_GB` | `15`                        | VRAM tối thiểu cho Qwen3-VL         |
-| `MIN_VRAM_GB`            | `8`                         | VRAM tối thiểu chung cho GPU tests  |
-| `TEST_OCR_MODEL`         | `Qwen/Qwen3-VL-8B-Instruct` | Model dùng trong Layer 4            |
-| `HF_TOKEN`               | (empty)                     | HuggingFace token để download model |
-| `CUDA_VISIBLE_DEVICES`   | (all)                       | Chỉ định GPU index                  |
+| Biến                             | Mặc định                    | Ý nghĩa                                                    |
+| -------------------------------- | --------------------------- | ---------------------------------------------------------- |
+| `NATIVE_OCR_MIN_VRAM_GB`         | `15`                        | VRAM tối thiểu cho Qwen3-VL                                |
+| `MIN_VRAM_GB`                    | `8`                         | VRAM tối thiểu chung cho GPU tests                         |
+| `TEST_OCR_MODEL`                 | `Qwen/Qwen3-VL-8B-Instruct` | Model dùng trong Layer 4                                   |
+| `HF_TOKEN`                       | (empty)                     | HuggingFace token để download model                        |
+| `CUDA_VISIBLE_DEVICES`           | (all)                       | Chỉ định GPU index                                         |
+| `OPENAI_COMPAT_PROFILE`          | (empty)                     | YAML profile dùng cho OpenAI-compatible real probe         |
+| `OPENAI_COMPAT_PROBE_ALLOW_COST` | `0`                         | Phải là `1` để cho phép probe endpoint thật có thể tốn phí |
+| `OPENAI_API_KEY`                 | (empty)                     | API key cho OpenAI-compatible real probe                   |
 
 Đặt trong `env` section của `test_matrix.yaml`:
 

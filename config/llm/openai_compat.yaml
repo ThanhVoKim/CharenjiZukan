@@ -1,9 +1,47 @@
 # Provider config chung cho OpenAI-Compatible LLM APIs
 provider: "openai"
+profile_name: "openai_compat_default"
 base_url: "https://api.freemodel.dev/v1"
 model: "gpt-5.5"
+api_mode: "chat_completions"
+
 temperature: 1
 max_tokens: 8192
 request_timeout: 300
 retry_attempts: 3
 retry_wait_seconds: 5
+
+capability_flags:
+  supports_chat_completions: true
+  supports_responses_api: false
+  supports_reasoning_effort: false
+  supports_verbosity: false
+  supports_prompt_cache_key: false
+  supports_previous_response_state: false
+  supports_compaction: false
+  structured_output:
+    supports_prompt_json: true
+    supports_chat_response_format: false
+    supports_responses_text_format: false
+
+request_options:
+  reasoning_effort: null
+  verbosity: null
+  prompt_cache_key: null
+  structured_output:
+    mode: "none"
+    schema_name: null
+    schema: null
+
+stateful_options:
+  store: false
+  use_previous_response_id: false
+  compact_threshold: null
+
+telemetry:
+  enabled: false
+  capture_usage: true
+  capture_cache_headers: true
+  capture_raw_headers: false
+  log_level: "summary"
+  output_path: "logs/llm_telemetry.jsonl"
