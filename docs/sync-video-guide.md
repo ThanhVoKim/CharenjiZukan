@@ -27,9 +27,9 @@ Phase 1: Analysis (classify blocks, compute speeds, build timeline)
     ↓
 Phase 2: Video Processing (split + stretch + concat chunks)
     ↓
-Phase 2.5: BGM Extraction (optional, nếu extract_bgm=true)
+Phase 2.5: Optional Global BGM Extraction (nếu audio_policies.global_bgm là whole_video hoặc exclude_mute)
     ↓
-Phase 3: Audio Assembly (mix TTS + original audio + ambient + BGM)
+Phase 3: Audio Assembly (main concat + ambient overlay + BGM overlay theo audio_policies)
     ↓
 Phase 3.5: Forced Alignment Subtitle (optional, nếu forced_alignment_subtitle.enabled=true)
     ↓
@@ -323,24 +323,65 @@ Output khi có `--note-overlay-ass`:
 
 ### 2.8 `audio_mix`
 
+`audio_mix` hiện là nơi cấu hình gain cuối cùng cho các overlay audio. Runtime preprocess ambient/BGM chỉ lo đúng timing và mask 0/1; volume thực tế được áp ở final mix để tránh nhân volume hai lần.
+
 ```json
 {
   "audio_mix": {
-    "tts_volume": 1.0,
-    "original_volume": 0.3,
-    "ambient_volume": 0.15,
-    "bgm_volume": 0.4
+    "ambient_volume": 0.03,
+    "bgm_volume": 1.0
   }
 }
 ```
 
-### 2.9 `audio_separator`
+| Key              | Type  | Default | Mô tả                                             |
+| ---------------- | ----- | ------- | ------------------------------------------------- |
+| `ambient_volume` | float | `0.03`  | Gain cuối cùng cho ambient overlay ở final mix    |
+| `bgm_volume`     | float | `1.0`   | Gain cuối cùng cho global BGM overlay ở final mix |
+
+### 2.9 `audio_policies`
+
+`audio_policies` là schema chính thức mới để điều khiển audio behavior trong [`cli/sync_video.py`](cli/sync_video.py) và [`sync_engine/audio_assembler.py`](sync_engine/audio_assembler.py).
+
+```json
+{
+  "audio_policies": {
+    "global_bgm": "off",
+    "mute_audio": "original",
+    "ambient": "exclude_mute"
+  }
+}
+```
+
+| Key          | Giá trị hợp lệ                                  | Default        | Mô tả                                                                                                                                       |
+| ------------ | ----------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `global_bgm` | `off`, `whole_video`, `exclude_mute`            | `off`          | Bật/tắt global BGM overlay. `whole_video` phát trên toàn timeline; `exclude_mute` vẫn build track đúng timing nhưng mute ở các đoạn `mute`. |
+| `mute_audio` | `original`, `vocals`, `instrumental`, `silence` | `original`     | Quyết định audio của chính các segment `mute`: giữ audio gốc, chỉ vocals, chỉ instrumental, hoặc silence.                                   |
+| `ambient`    | `off`, `whole_video`, `exclude_mute`            | `exclude_mute` | Điều khiển ambient overlay độc lập với mute audio policy.                                                                                   |
+
+Ví dụ nhanh:
+
+```json
+{
+  "audio_policies": {
+    "global_bgm": "exclude_mute",
+    "mute_audio": "original",
+    "ambient": "whole_video"
+  }
+}
+```
+
+- `global_bgm=exclude_mute`: track BGM được sync theo timeline final rồi apply volume mask ở final mix.
+- `mute_audio=instrumental`: nếu đã có [`bgm_path`](sync_engine/audio_assembler.py:513) từ global BGM extraction, runtime sẽ ưu tiên reuse track này cho mute chunks để tránh chạy separator trùng.
+- `ambient=exclude_mute`: ambient preprocessing chỉ loop/trim + mask 0/1; volume cuối cùng vẫn lấy từ `audio_mix.ambient_volume`.
+
+### 2.10 `audio_separator`
+
+`audio_separator` giờ chỉ còn chứa tuning cho separator runtime. Hai key cũ `extract_bgm` và `extract_vocals` được xem là deprecated compatibility keys; nếu xuất hiện cùng `audio_policies`, runtime sẽ warning và ưu tiên `audio_policies`.
 
 ```json
 {
   "audio_separator": {
-    "extract_bgm": false,
-    "extract_vocals": false,
     "mdxc_params": {
       "model": "MDX23C-InstVoc_HQ",
       "device": "cuda"
@@ -349,7 +390,7 @@ Output khi có `--note-overlay-ass`:
 }
 ```
 
-### 2.10 `video_encoding`
+### 2.11 `video_encoding`
 
 `sync-video` hiện ép toàn bộ lệnh FFmpeg render video trong Phase 2 và Phase 5 dùng HEVC NVENC cố định:
 
@@ -370,7 +411,7 @@ Block `video_encoding` trong render config chỉ còn vai trò mô tả/tương 
 }
 ```
 
-### 2.11 `forced_alignment_subtitle`
+### 2.12 `forced_alignment_subtitle`
 
 ```json
 {

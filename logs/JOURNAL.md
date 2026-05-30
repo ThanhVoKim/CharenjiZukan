@@ -1,5 +1,44 @@
 # Project Journal
 
+## 2026-05-30: Implemented sync-video audio policy refactor
+
+### Tóm tắt
+
+- **Mục tiêu**: Triển khai runtime/config/docs/tests theo [`plans/sync-video-audio-policy-refactor-plan.md`](../plans/sync-video-audio-policy-refactor-plan.md).
+- **Kết quả chính**: [`cli/sync_video.py`](../cli/sync_video.py) hiện resolve `audio_policies`; [`sync_engine/audio_assembler.py`](../sync_engine/audio_assembler.py) đã hỗ trợ `global_bgm`, `mute_audio`, `ambient`, reuse `bgm_path` cho `mute_audio=instrumental`, ambient/BGM masking theo volume expression và final mix là SSOT cho `ambient_volume`/`bgm_volume`.
+- **Migration hoàn tất**: Đã cập nhật config mẫu, docs sync-video, fake render config trong tests và mở rộng test coverage cho policy resolver/mask logic.
+- **Verification**: `python -m compileall -q cli sync_engine tests && python -m pytest tests/sync_engine/test_audio_assembler.py tests/sync_engine/test_note_overlay_layout.py tests/sync_engine/test_sync_video_pipeline.py -v` → `40 passed, 1 skipped` (pipeline NVENC integration bị skip trong môi trường hiện tại).
+
+### File sửa
+
+- [`cli/sync_video.py`](../cli/sync_video.py) — Resolve `audio_policies`, log policy đã resolve, chỉ extract global BGM khi policy yêu cầu, truyền policy vào audio assembly.
+- [`sync_engine/audio_assembler.py`](../sync_engine/audio_assembler.py) — Thêm policy normalization/validation, mute-range helpers, ambient preprocess theo mask 0/1, global BGM synced track + `exclude_mute` volume mask, reuse `bgm_path` để tránh separator trùng.
+- [`assets/default_render_config.json`](../assets/default_render_config.json) — Migrate sang block `audio_policies` mặc định.
+- [`assets/thearmorylog_render_config.json`](../assets/thearmorylog_render_config.json) — Migrate sang block `audio_policies` cho preset có global BGM.
+- [`docs/sync-video-guide.md`](../docs/sync-video-guide.md) — Cập nhật phase overview, schema `audio_mix`/`audio_policies`/`audio_separator` và migration note deprecation.
+- [`tests/sync_engine/test_audio_assembler.py`](../tests/sync_engine/test_audio_assembler.py) — Bổ sung Layer 1 policy/mask tests và giữ Layer 2 FFmpeg coverage.
+- [`tests/sync_engine/test_sync_video_pipeline.py`](../tests/sync_engine/test_sync_video_pipeline.py) — Cập nhật fake render config theo schema mới.
+- [`tests/sync_engine/test_note_overlay_layout.py`](../tests/sync_engine/test_note_overlay_layout.py) — Cập nhật fake render config theo schema mới.
+
+### Quyết định kiến trúc
+
+1. **Policy ownership rõ ràng**: `mute_audio` quyết định audio của segment `mute`; ambient/BGM là overlay độc lập.
+2. **Hybrid BGM masking**: Global BGM luôn được sync theo timeline final trước, sau đó `exclude_mute` mới apply volume mask ở final mix.
+3. **SSOT volume tại final mix**: Ambient preprocessing chỉ lo timing + mask 0/1; volume cuối cùng lấy từ `audio_mix` để tránh double attenuation.
+4. **Migration an toàn**: `audio_separator.extract_bgm` và `extract_vocals` vẫn được map như deprecated compatibility keys khi config cũ chưa migrate.
+
+### Trạng thái hiện tại
+
+- ✓ Runtime audio policy refactor đã triển khai xong.
+- ✓ Config/docs/test fake config đã migrate sang `audio_policies`.
+- ✓ Test mục tiêu đã chạy pass trong môi trường hiện tại.
+- ⚠ [`tests/sync_engine/test_sync_video_pipeline.py`](../tests/sync_engine/test_sync_video_pipeline.py) vẫn skip nhánh integration đầy đủ khi máy không có `hevc_nvenc`.
+
+### Pending / Next steps
+
+- Nếu cần xác minh end-to-end trên pipeline render thật, chạy lại [`tests/sync_engine/test_sync_video_pipeline.py`](../tests/sync_engine/test_sync_video_pipeline.py) trên môi trường có FFmpeg `hevc_nvenc`.
+- Có thể bổ sung thêm test chuyên biệt cho nhánh separator batch/reuse `bgm_path` bằng monkeypatch nếu muốn regression guard sâu hơn mà không phụ thuộc separator thật.
+
 ## 2026-05-29: OpenAI-compatible capability implementation
 
 ### Tóm tắt

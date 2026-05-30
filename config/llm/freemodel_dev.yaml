@@ -1,0 +1,46 @@
+provider: "openai"
+profile_name: "freemodel_dev_full"
+base_url: "https://api.freemodel.dev/v1"
+model: "gpt-5.4-mini"
+api_mode: "responses"
+
+temperature: 1
+max_tokens: 512
+request_timeout: 120
+retry_attempts: 1
+retry_wait_seconds: 1
+
+capability_flags:
+  supports_chat_completions: false
+  supports_responses_api: true
+  supports_reasoning_effort: true
+  supports_verbosity: true
+  supports_prompt_cache_key: true
+  supports_previous_response_state: true
+  supports_compaction: true
+  structured_output:
+    supports_prompt_json: true
+    supports_chat_response_format: true
+    supports_responses_text_format: true
+
+request_options:
+  reasoning_effort: "low"
+  verbosity: "low"
+  prompt_cache_key: "capability-probe-responses-v1"
+  structured_output:
+    mode: "none"
+    schema_name: null
+    schema: null
+
+stateful_options:
+  store: true
+  use_previous_response_id: true
+  compact_threshold: 4096
+
+telemetry:
+  enabled: true
+  capture_usage: true
+  capture_cache_headers: true
+  capture_raw_headers: true
+  log_level: "summary"
+  output_path: "logs/llm_telemetry.jsonl"

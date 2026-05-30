@@ -19,7 +19,7 @@ from utils.srt_parser import parse_srt_file
 
 from sync_engine.analyzer import classify_and_compute_slots, compute_speeds, build_timeline_map
 from sync_engine.video_processor import query_keyframes, process_video_chunks_parallel
-from sync_engine.audio_assembler import assemble_audio_track
+from sync_engine.audio_assembler import assemble_audio_track, resolve_audio_policies
 from sync_engine.timestamp_remapper import recalculate_srt, recalculate_ass
 from sync_engine.renderer import render_final_video
 from sync_engine.llm_metadata import apply_llm_metadata_override, run_llm_metadata_task
@@ -291,19 +291,26 @@ def run_sync_pipeline(args):
         # Đo duration thực tế của video đã concat
         video_actual_duration_ms = _probe_video_duration(stretched_video_chunked)
             
-        # Lấy cấu hình tách audio
+        # Lấy cấu hình audio policy + separator
         audio_separator_cfg = render_config.get("audio_separator", {})
-        extract_bgm = audio_separator_cfg.get("extract_bgm", False)
-        extract_vocals = audio_separator_cfg.get("extract_vocals", False)
+        audio_policies = resolve_audio_policies(render_config)
+        logger.info(
+            "Audio policies resolved: global_bgm=%s, mute_audio=%s, ambient=%s",
+            audio_policies["global_bgm"],
+            audio_policies["mute_audio"],
+            audio_policies["ambient"],
+        )
+        should_extract_global_bgm = audio_policies["global_bgm"] in {"whole_video", "exclude_mute"}
+        extract_vocals = audio_policies["mute_audio"] == "vocals"
 
         # Cập nhật timeline dựa trên duration thực tế
         from sync_engine.analyzer import recalculate_timeline_from_actual_durations
         timeline = recalculate_timeline_from_actual_durations(timeline, actual_durations, fps_float)
         logger.info(f"Timeline đã cập nhật với {len(timeline)} segments (dựa trên duration thực tế).")
             
-        # PHASE 2.5: BGM EXTRACTION (nếu được bật)
+        # PHASE 2.5: BGM EXTRACTION (nếu được bật bởi global_bgm policy)
         bgm_path = None
-        if extract_bgm:
+        if should_extract_global_bgm:
             logger.info("\n--- PHASE 2.5: BGM EXTRACTION ---")
             from cli.audio_separator import separate_audio
             try:
@@ -336,6 +343,7 @@ def run_sync_pipeline(args):
             bgm_path=bgm_path,
             audio_mix_config=render_config.get("audio_mix"),
             audio_separator_config=audio_separator_cfg,
+            audio_policies=audio_policies,
         )
         
         # PHASE 3.5: FORCED ALIGNMENT SUBTITLE (nếu được bật)

@@ -126,7 +126,12 @@ class TestLayer3_SyncVideoPipeline:
                     "subtitles": {"enabled": False, "burn_hardsub": False},
                     "note_overlay": {"enabled": False},
                     "audio_mix": {"ambient_volume": 0.0, "bgm_volume": 0.0},
-                    "audio_separator": {"extract_bgm": False, "extract_vocals": False},
+                    "audio_policies": {
+                        "global_bgm": "off",
+                        "mute_audio": "original",
+                        "ambient": "exclude_mute",
+                    },
+                    "audio_separator": {},
                     "video_encoding": {
                         "codec": "hevc_nvenc",
                         "preset": "p4",

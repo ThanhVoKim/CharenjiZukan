@@ -144,9 +144,12 @@
     "ambient_volume": 0.03,
     "bgm_volume": 1.0
   },
+  "audio_policies": {
+    "global_bgm": "off",
+    "mute_audio": "original",
+    "ambient": "exclude_mute"
+  },
   "audio_separator": {
-    "extract_bgm": false,
-    "extract_vocals": false,
     "mdxc_params": {
       "segment_size": 512,
       "overlap": 128,
