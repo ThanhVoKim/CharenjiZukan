@@ -1,5 +1,39 @@
 # Project Journal
 
+## 2026-05-31: Forced alignment dash compound reconstruction
+
+### Tóm tắt
+
+- **Mục tiêu**: Sửa lỗi forced alignment subtitle tái tạo sai compound word có hyphen/dash, ví dụ `47round-round`, `largecapacity-capacity`, `continuousfire-fire`.
+- **Kết quả chính**: `merge_punctuation()` trong [`utils/asr_subtitle_utils.py`](../utils/asr_subtitle_utils.py) nhận diện dash giữa ký tự chữ/số trong transcript gốc, phục hồi text compound gốc và bỏ qua suffix token bị aligner lặp.
+- **Phạm vi cố ý giới hạn**: Chỉ xử lý hyphen/dash compound words (`-`, `‐`, `‑`, `‒`, `–`, `—`); underscore `_` không được normalize theo quyết định scope hiện tại.
+
+### File sửa
+
+- [`utils/asr_subtitle_utils.py`](../utils/asr_subtitle_utils.py) — Thêm helper nhận diện dash compound, normalize phần compound theo ký tự chữ/số, đối chiếu transcript cursor và skip suffix token an toàn.
+- [`tests/utils/test_asr_subtitle_utils.py`](../tests/utils/test_asr_subtitle_utils.py) — Thêm regression tests cho `47-round`, `large-capacity`, `continuous-fire`, en dash, em dash và test khóa hành vi underscore/legacy split.
+
+### Verification
+
+- `python -m pytest tests/utils/test_asr_subtitle_utils.py tests/cli/test_qwen3_asr.py -q` → `60 passed in 0.28s`.
+
+### Quyết định kiến trúc
+
+1. **Fix tại reconstruction layer**: Lỗi phát sinh trong nhánh forced alignment khi tái ghép text từ token aligner, không phải trong nhánh timestamp remap; vì vậy sửa tại `utils/asr_subtitle_utils.py` để dùng chung cho `sync_engine/forced_alignment_subtitle.py` và CLI ASR.
+2. **Transcript gốc là SSOT cho dấu dash**: Khi aligner normalize `large-capacity` thành `largecapacity`, output subtitle phải phục hồi nguyên compound từ transcript gốc thay vì tạo token lai.
+3. **Skip suffix có guard theo cursor**: Chỉ bỏ qua token suffix trùng khi vị trí hiện tại trong transcript không thật sự bắt đầu bằng từ đó, tránh nuốt mất từ hợp lệ ngay sau compound.
+4. **Không mở rộng sang underscore**: `_` giữ hành vi punctuation hiện tại để tránh normalize các identifier/chuỗi không phải subtitle tự nhiên.
+
+### Trạng thái hiện tại
+
+- ✓ Forced-alignment subtitle đã phục hồi đúng hyphen/dash compound words.
+- ✓ Regression tests mục tiêu đã chạy pass.
+- ✓ Nhánh remap timestamp vẫn không đổi và tiếp tục giữ nguyên text input.
+
+### Pending / Next steps
+
+- Nếu gặp thêm ký tự dash Unicode ngoài bộ hiện tại trong transcript thực tế, có thể bổ sung vào `COMPOUND_DASH_CHARS` kèm test tương ứng.
+
 ## 2026-05-30: Implemented sync-video audio policy refactor
 
 ### Tóm tắt

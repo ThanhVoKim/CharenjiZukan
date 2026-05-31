@@ -110,6 +110,76 @@ class TestLayer1_MergePunctuation:
         assert result[0]["start_time"] == 1.0
         assert result[0]["end_time"] == 2.5
 
+    @pytest.mark.parametrize(
+        ("full_text", "token_texts", "expected_text"),
+        [
+            (
+                "47-round pan magazine",
+                ["47round", "round", "pan", "magazine"],
+                "47-round pan magazine",
+            ),
+            (
+                "large-capacity magazines",
+                ["largecapacity", "capacity", "magazines"],
+                "large-capacity magazines",
+            ),
+            (
+                "continuous-fire weapons",
+                ["continuousfire", "fire", "weapons"],
+                "continuous-fire weapons",
+            ),
+            (
+                "pre–war rifle",
+                ["prewar", "war", "rifle"],
+                "pre–war rifle",
+            ),
+            (
+                "pre—war rifle",
+                ["prewar", "war", "rifle"],
+                "pre—war rifle",
+            ),
+        ],
+    )
+    def test_normalized_dash_compound_does_not_duplicate_suffix(
+        self,
+        full_text,
+        token_texts,
+        expected_text,
+    ):
+        """Aligner bỏ dash trong compound words không được tạo text lặp."""
+        words = [
+            _FakeWord(text, idx * 0.5, (idx + 1) * 0.5)
+            for idx, text in enumerate(token_texts)
+        ]
+
+        result = merge_punctuation(words, full_text)
+        joined_text = "".join(item["text"] for item in result)
+
+        assert joined_text == expected_text
+        assert "round-round" not in joined_text
+        assert "capacity-capacity" not in joined_text
+        assert "fire-fire" not in joined_text
+
+    def test_ascii_hyphen_between_separate_tokens_keeps_existing_behavior(self):
+        """Token split thường vẫn giữ dash ở token trước như legacy behavior."""
+        words = [_FakeWord("360", 0.0, 0.5), _FakeWord("degree", 0.5, 1.0)]
+        full_text = "360-degree"
+
+        result = merge_punctuation(words, full_text)
+
+        assert [item["text"] for item in result] == ["360-", "degree"]
+        assert "".join(item["text"] for item in result) == full_text
+
+    def test_underscore_between_separate_tokens_is_not_treated_as_dash_compound(self):
+        """Underscore không nằm trong nhóm dash/hyphen cần normalize."""
+        words = [_FakeWord("large", 0.0, 0.5), _FakeWord("capacity", 0.5, 1.0)]
+        full_text = "large_capacity"
+
+        result = merge_punctuation(words, full_text)
+
+        assert [item["text"] for item in result] == ["large_", "capacity"]
+        assert "".join(item["text"] for item in result) == full_text
+
 
 class TestLayer1_SegmentWordsToSubtitles:
     """Test segment_words_to_subtitles — tuân thủ invariant max_chars."""

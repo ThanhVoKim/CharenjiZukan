@@ -24,6 +24,10 @@ OPENING_PUNCT = set("\u201c\u2018（《【")
 CLOSING_PUNCT = set("\u201d\u2019）》】")
 BRACKET_PAIRS = {"（": "）", "《": "》", "【": "】", "\u201c": "\u201d", "\u2018": "\u2019"}
 
+# Chỉ xử lý dash/hyphen nằm giữa chữ/số trong compound words.
+# Không bao gồm underscore vì thường là filename/key/code-like text, không phải subtitle tự nhiên.
+COMPOUND_DASH_CHARS = set("-\u2010\u2011\u2012\u2013\u2014")
+
 
 def format_srt_time(seconds: float) -> str:
     """Định dạng thời gian SRT từ giây.
@@ -37,6 +41,86 @@ def format_srt_time(seconds: float) -> str:
     s = int(seconds % 60)
     ms = int((seconds - int(seconds)) * 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _is_compound_dash_at(text: str, idx: int) -> bool:
+    """True nếu dash/hyphen ở idx nằm giữa hai ký tự chữ/số."""
+    if idx <= 0 or idx + 1 >= len(text):
+        return False
+    return (
+        text[idx] in COMPOUND_DASH_CHARS
+        and text[idx - 1].isalnum()
+        and text[idx + 1].isalnum()
+    )
+
+
+def _normalize_compound_piece(text: str) -> str:
+    """Normalize phần text để so khớp overlap compound đã bị aligner bỏ dash."""
+    return "".join(char.lower() for char in text if char.isalnum())
+
+
+def _full_text_norm_startswith(full_text: str, start_idx: int, expected_norm: str) -> bool:
+    """True nếu phần full_text tại start_idx bắt đầu bằng expected_norm sau normalize."""
+    if not expected_norm:
+        return False
+
+    collected = []
+    scan_idx = start_idx
+    while scan_idx < len(full_text) and len(collected) < len(expected_norm):
+        char = full_text[scan_idx]
+        if char.isalnum():
+            collected.append(char.lower())
+        elif collected:
+            break
+        scan_idx += 1
+
+    return "".join(collected) == expected_norm
+
+
+def _match_dash_compound_remainder(
+    full_text: str,
+    token_start_idx: int,
+    dash_idx: int,
+    clean_word: str,
+    match_len: int,
+) -> tuple[str, int, str] | None:
+    """Khôi phục compound word khi aligner normalize bỏ dash/hyphen.
+
+    Ví dụ transcript là "47-round" nhưng aligner trả token "47round".
+    Sau khi partial-match "47", con trỏ đứng tại "-". Hàm này xác nhận
+    phần còn lại "round" khớp qua dash, trả về text gốc "47-round" và
+    suffix normalized "round" để caller skip token duplicate kế tiếp.
+    """
+    if match_len <= 0 or match_len >= len(clean_word):
+        return None
+    if dash_idx >= len(full_text) or not _is_compound_dash_at(full_text, dash_idx):
+        return None
+
+    remainder = clean_word[match_len:]
+    remainder_idx = 0
+    scan_idx = dash_idx
+    saw_dash = False
+
+    while scan_idx < len(full_text) and remainder_idx < len(remainder):
+        char = full_text[scan_idx]
+        if char in COMPOUND_DASH_CHARS:
+            if not _is_compound_dash_at(full_text, scan_idx):
+                return None
+            saw_dash = True
+            scan_idx += 1
+            continue
+
+        if char.lower() != remainder[remainder_idx].lower():
+            return None
+        scan_idx += 1
+        remainder_idx += 1
+
+    if not saw_dash or remainder_idx != len(remainder):
+        return None
+
+    compound_text = full_text[token_start_idx:scan_idx]
+    consumed_suffix = _normalize_compound_piece(remainder)
+    return compound_text, scan_idx, consumed_suffix
 
 
 def merge_punctuation(words, full_text: str) -> List[Dict]:
@@ -59,13 +143,17 @@ def merge_punctuation(words, full_text: str) -> List[Dict]:
       - Token rỗng (Case 36): không gây IndexError.
       - Token cuối cùng có hậu tố chữ (Case 43): vớt toàn bộ phần còn lại.
       - Token không khớp hoàn toàn (Case 33, 45): dùng Partial Match để tránh kẹt con trỏ.
+      - Token aligner normalize bỏ dash trong compound words: khôi phục text gốc
+        như 47-round, large-capacity, continuous-fire và skip token suffix bị lặp.
     """
+    word_items = list(words)
     merged_words = []
     text_idx = 0
     full_len = len(full_text)
-    total_words = len(words)
+    total_words = len(word_items)
+    skip_compound_suffix = ""
 
-    for i, word_obj in enumerate(words):
+    for i, word_obj in enumerate(word_items):
         # Hỗ trợ cả object (attribute) và dict (key)
         if isinstance(word_obj, dict):
             clean_word = word_obj.get("text", "")
@@ -89,10 +177,25 @@ def merge_punctuation(words, full_text: str) -> List[Dict]:
             })
             continue
 
+        # Nếu token hiện tại chỉ là suffix đã nằm trong compound token trước đó
+        # (vd token trước đã khôi phục "large-capacity", token này là "capacity")
+        # thì bỏ qua để tránh output "large-capacitycapacity" hoặc "largecapacity-capacity".
+        # Chỉ skip khi token KHÔNG khớp vị trí transcript hiện tại; nếu khớp, đó có
+        # thể là từ thật kế tiếp trùng prefix với suffix đã consume.
+        clean_norm = _normalize_compound_piece(clean_word)
+        current_text_has_same_word = _full_text_norm_startswith(full_text, text_idx, clean_norm)
+        if skip_compound_suffix and clean_norm:
+            if not current_text_has_same_word and skip_compound_suffix.startswith(clean_norm):
+                skip_compound_suffix = skip_compound_suffix[len(clean_norm):]
+                continue
+            skip_compound_suffix = ""
+
         # Thu thập prefix: các ký tự không phải chữ/số trước khi gặp ký tự đầu tiên của token
         while text_idx < full_len and full_text[text_idx].lower() != clean_word[0].lower():
             prefix_chars += full_text[text_idx]
             text_idx += 1
+
+        token_start_idx = text_idx
 
         # Partial Match: đếm số ký tự khớp liên tiếp giữa token và full_text
         match_len = 0
@@ -101,6 +204,18 @@ def merge_punctuation(words, full_text: str) -> List[Dict]:
                full_text[text_idx + match_len].lower() == clean_word[match_len].lower()):
             match_len += 1
         text_idx += match_len
+
+        output_word = clean_word
+        compound_match = _match_dash_compound_remainder(
+            full_text,
+            token_start_idx,
+            text_idx,
+            clean_word,
+            match_len,
+        )
+        if compound_match is not None:
+            output_word, text_idx, consumed_suffix = compound_match
+            skip_compound_suffix = consumed_suffix
 
         # Thu thập trailing chars
         while text_idx < full_len:
@@ -125,7 +240,7 @@ def merge_punctuation(words, full_text: str) -> List[Dict]:
                     text_idx = full_len
 
         merged_words.append({
-            "text": prefix_chars + clean_word + trailing_chars,
+            "text": prefix_chars + output_word + trailing_chars,
             "start_time": w_start,
             "end_time": w_end
         })

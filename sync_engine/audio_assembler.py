@@ -170,7 +170,7 @@ def compress_tts_clip(
         base_filter = ""
     else:
         # EdgeTTS và các provider khác: chuẩn hóa âm lượng theo chuẩn EBU R128
-        base_filter = "volume=2"
+        base_filter = "volume=1.75"
 
     if audio_speed > 1.01:
         atempo_str = _build_atempo_filter(audio_speed)
