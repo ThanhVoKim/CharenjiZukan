@@ -739,6 +739,65 @@ class TestLayer2_FailFastRemoveAll:
             )
 
 
+class TestLayer2_HybridCopyKeepTopology:
+    """Regression: hybrid-copy must preserve SRT keep topology."""
+
+    @patch("utils.video_cutter.probe_output_duration_ms", return_value=21065.0)
+    @patch("utils.video_cutter.concat_parts")
+    @patch("subprocess.run")
+    @patch("utils.video_cutter.query_keyframes", return_value=[0, 5000, 10000, 15000, 20000, 30000, 37000])
+    @patch("utils.video_cutter.probe_video_info")
+    def test_hybrid_copy_keeps_four_parts_for_three_remove_ranges(
+        self,
+        mock_probe,
+        mock_kf,
+        mock_subproc,
+        mock_concat,
+        mock_dur,
+        tmp_path,
+    ):
+        mock_probe.return_value = VideoInfo(
+            duration_ms=37106,
+            fps=30.0,
+            has_audio=True,
+            video_bitrate=5000000,
+            video_codec="h264",
+        )
+
+        def create_fake_part(cmd, *args, **kwargs):
+            Path(cmd[-1]).parent.mkdir(parents=True, exist_ok=True)
+            Path(cmd[-1]).write_bytes(b"fake_video_data" * 1000)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_subproc.side_effect = create_fake_part
+
+        srt_file = tmp_path / "remove.srt"
+        srt_file.write_text(
+            "1\n00:00:04,879 --> 00:00:10,160\nmute\n\n"
+            "2\n00:00:13,919 --> 00:00:18,319\nmute\n\n"
+            "3\n00:00:30,799 --> 00:00:36,560\nmute\n",
+            encoding="utf-8",
+        )
+
+        from utils.video_cutter import run_pre_cut
+        result = run_pre_cut(
+            input_path="input.mp4",
+            output_path=str(tmp_path / "output.mp4"),
+            remove_srt_path=str(srt_file),
+            method="hybrid-copy",
+            safe_margin_ms=100,
+            keep_tmp=True,
+        )
+
+        keep_ranges = result.manifest["keep_ranges"]
+        assert len(keep_ranges) == 4
+        assert len(list((tmp_path / "output_precut_tmp").glob("keep_*.mp4"))) == 4
+        assert keep_ranges[0]["start_ms"] == 0
+        assert keep_ranges[1]["start_ms"] == 10260
+        assert keep_ranges[2]["start_ms"] == 18419
+        assert keep_ranges[3]["start_ms"] == 36660
+
+
 class TestLayer2_TempCleanup:
     """Test 16: Temp files cleaned after concat (unless --keep-tmp)."""
 
@@ -751,11 +810,12 @@ class TestLayer2_TempCleanup:
         video_info_with_audio.duration_ms = 20000
         mock_probe.return_value = video_info_with_audio
 
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = ""
-        mock_result.stderr = ""
-        mock_subproc.return_value = mock_result
+        def create_fake_part(cmd, *args, **kwargs):
+            Path(cmd[-1]).parent.mkdir(parents=True, exist_ok=True)
+            Path(cmd[-1]).write_bytes(b"fake_video_data" * 1000)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_subproc.side_effect = create_fake_part
 
         srt_file = tmp_path / "remove.srt"
         srt_file.write_text(
@@ -765,10 +825,6 @@ class TestLayer2_TempCleanup:
 
         out_path = tmp_path / "output.mp4"
         tmp_dir = tmp_path / "output_precut_tmp"
-
-        fake_part = tmp_dir / "keep_0000.mp4"
-        tmp_dir.mkdir(exist_ok=True)
-        fake_part.write_bytes(b"fake_video_data" * 1000)
 
         from utils.video_cutter import run_pre_cut
         run_pre_cut(
@@ -789,9 +845,12 @@ class TestLayer2_TempCleanup:
         video_info_with_audio.duration_ms = 20000
         mock_probe.return_value = video_info_with_audio
 
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_subproc.return_value = mock_result
+        def create_fake_part(cmd, *args, **kwargs):
+            Path(cmd[-1]).parent.mkdir(parents=True, exist_ok=True)
+            Path(cmd[-1]).write_bytes(b"fake_video_data" * 1000)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_subproc.side_effect = create_fake_part
 
         srt_file = tmp_path / "remove.srt"
         srt_file.write_text(
@@ -801,10 +860,6 @@ class TestLayer2_TempCleanup:
 
         out_path = tmp_path / "output.mp4"
         tmp_dir = tmp_path / "output_precut_tmp"
-
-        fake_part = tmp_dir / "keep_0000.mp4"
-        tmp_dir.mkdir(exist_ok=True)
-        fake_part.write_bytes(b"fake_video_data" * 1000)
 
         from utils.video_cutter import run_pre_cut
         run_pre_cut(

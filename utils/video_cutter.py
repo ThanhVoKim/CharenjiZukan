@@ -491,7 +491,12 @@ def run_pre_cut(
         if not keyframes:
             raise RuntimeError("Failed to query keyframes. Cannot perform hybrid-copy safely.")
         logger.info("Found %d keyframes", len(keyframes))
-        final_remove = expand_to_keyframes(normalized, keyframes, info.duration_ms)
+        # Do not expand remove ranges to GOP/keyframe boundaries here.
+        # Expanding DELETE ranges can make separate remove intervals overlap,
+        # which collapses valid keep ranges and silently removes content between
+        # SRT blocks. hybrid-copy is a speed-oriented stream-copy path, but the
+        # source SRT topology must remain the source of truth for part creation.
+        final_remove = normalized
     else:
         final_remove = snap_to_frame_grid(normalized, info.fps, info.duration_ms)
         keyframes = []
