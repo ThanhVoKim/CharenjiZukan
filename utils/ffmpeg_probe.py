@@ -61,16 +61,17 @@ def detect_hevc_nvenc(force_refresh: bool = False) -> bool:
 
     try:
         encoders = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-encoders"],
+            ["ffmpeg", "-encoders", "-v", "quiet"],
             capture_output=True,
             text=True,
             check=False,
             timeout=30,
         )
+        encoders_output = f"{encoders.stdout}\n{encoders.stderr}"
     except (OSError, subprocess.TimeoutExpired) as exc:
         return _set_hevc_nvenc_probe_result(False, f"Không chạy được ffmpeg -encoders: {exc}")
 
-    if "hevc_nvenc" not in encoders.stdout:
+    if "hevc_nvenc" not in encoders_output:
         return _set_hevc_nvenc_probe_result(False, "FFmpeg không advertise encoder hevc_nvenc")
 
     try:
@@ -84,7 +85,7 @@ def detect_hevc_nvenc(force_refresh: bool = False) -> bool:
                 "-f",
                 "lavfi",
                 "-i",
-                "color=c=black:s=64x64:r=30:d=0.04",
+                "color=c=black:s=256x256:r=30:d=0.04",
                 "-frames:v",
                 "1",
                 *HEVC_NVENC_VIDEO_ARGS,

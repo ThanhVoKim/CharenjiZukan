@@ -29,6 +29,7 @@ from utils.video_cutter import (
     VideoInfo,
     apply_safe_margin,
     normalize_and_merge,
+    query_keyframes,
     expand_to_keyframes,
     snap_to_frame_grid,
     invert_to_keep_ranges,
@@ -211,6 +212,30 @@ class TestLayer1_NormalizeAndMerge:
         ]
         result = normalize_and_merge(ranges, source_duration_ms=100000)
         assert len(result) == 2
+
+
+class TestLayer1_KeyframeQuery:
+    """Regression tests for ffprobe keyframe CSV parsing."""
+
+    @patch("subprocess.run")
+    def test_parse_ffprobe_key_frame_then_timestamp_csv(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout="1,0.000000\n0,0.033333\n0,0.066667\n1,2.000000\n",
+        )
+
+        result = query_keyframes("input.mp4")
+
+        assert result == [0.0, 2000.0]
+        cmd = mock_run.call_args.args[0]
+        assert "frame=key_frame,best_effort_timestamp_time" in cmd
+
+    @patch("subprocess.run")
+    def test_ignore_invalid_keyframe_timestamp_rows(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout="1,N/A\n0,0.033333\n1,4.500000\n",
+        )
+
+        assert query_keyframes("input.mp4") == [4500.0]
 
 
 class TestLayer1_KeyframeExpansion:

@@ -1,5 +1,31 @@
 # Project Journal
 
+## 2026-06-01: Fix pre-cut hybrid-copy keyframe ffprobe parsing
+
+### Tóm tắt
+
+- **Mục tiêu**: Sửa lỗi [`pre-cut-video`](../pyproject.toml:20) với [`--method hybrid-copy`](../cli/pre_cut_video.py:53) fail tại bước query keyframes dù video có keyframe hợp lệ.
+- **Nguyên nhân**: [`utils.video_cutter.query_keyframes()`](../utils/video_cutter.py:109) parse ngược thứ tự CSV của [`ffprobe`](../utils/video_cutter.py:111). Output thực tế là `key_frame,timestamp` như `1,0.000000`, nhưng code cũ đang kỳ vọng `timestamp,key_frame`.
+- **Kết quả chính**: [`query_keyframes()`](../utils/video_cutter.py:109) dùng [`best_effort_timestamp_time`](../utils/video_cutter.py:114) và parse cột đầu là `key_frame`, cột sau là timestamp.
+
+### File sửa
+
+- [`utils/video_cutter.py`](../utils/video_cutter.py) — Đổi command [`ffprobe`](../utils/video_cutter.py:111) sang `frame=key_frame,best_effort_timestamp_time`, parse output dạng `1,0.000000`, bỏ qua dòng timestamp invalid như `N/A`.
+- [`tests/utils/test_video_cutter.py`](../tests/utils/test_video_cutter.py) — Thêm regression tests trong [`TestLayer1_KeyframeQuery`](../tests/utils/test_video_cutter.py:216) cho CSV `key_frame,timestamp` và invalid timestamp rows.
+
+### Verification
+
+- `python -m compileall -q utils/video_cutter.py tests/utils/test_video_cutter.py && python -m pytest tests/utils/test_video_cutter.py -v` → `57 passed`.
+
+### Trạng thái hiện tại
+
+- ✓ [`hybrid-copy`](../cli/pre_cut_video.py:53) không còn fail keyframe query do parser đọc sai cột [`ffprobe`](../utils/video_cutter.py:111).
+- ✓ Regression tests cho format Colab thực tế `1,0.000000` đã pass.
+
+### Pending / Next steps
+
+- Chạy lại lệnh [`pre-cut-video`](../cli/pre_cut_video.py:119) trong Colab với file thật để xác nhận end-to-end concat/cut pass.
+
 ## 2026-06-01: HEVC NVENC runtime probe shared utility
 
 ### Tóm tắt

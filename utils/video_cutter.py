@@ -107,23 +107,24 @@ def probe_video_info(video_path: str) -> VideoInfo:
 
 
 def query_keyframes(video_path: str) -> List[float]:
-    """Query all keyframe PTS (in ms) from video using ffprobe."""
+    """Query all keyframe timestamps (in ms) from video using ffprobe."""
     cmd = [
         "ffprobe", "-v", "quiet",
-        "-select_streams", "v",
-        "-show_entries", "frame=pkt_pts_time,key_frame",
+        "-select_streams", "v:0",
+        "-show_entries", "frame=key_frame,best_effort_timestamp_time",
         "-of", "csv=p=0",
         video_path,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     kfs: List[float] = []
     for line in result.stdout.splitlines():
-        parts = line.strip().split(",")
-        if len(parts) == 2 and parts[1] == "1":
-            try:
-                kfs.append(float(parts[0]) * 1000)
-            except ValueError:
-                pass
+        parts = [p.strip() for p in line.strip().split(",")]
+        if len(parts) < 2 or parts[0] != "1":
+            continue
+        try:
+            kfs.append(float(parts[1]) * 1000)
+        except ValueError:
+            pass
     return sorted(kfs)
 
 

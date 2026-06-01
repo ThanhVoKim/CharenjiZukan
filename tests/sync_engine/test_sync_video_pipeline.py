@@ -139,6 +139,10 @@ class TestLayer3_SyncVideoPipeline:
                         "quality": ["-cq", "28"],
                     },
                     "llm_metadata": {"enabled": False},
+                    "forced_alignment_subtitle": {
+                        "enabled": False,
+                        "keep_tts_synced_debug": True
+                    }
                 }
             ),
             encoding="utf-8",
