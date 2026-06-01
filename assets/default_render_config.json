@@ -141,6 +141,8 @@
     }
   },
   "audio_mix": {
+    "non_voicevox_tts_volume": 1.75,
+    "mute_audio_volume": 1.0,
     "ambient_volume": 0.03,
     "bgm_volume": 1.0
   },

@@ -323,21 +323,27 @@ Output khi có `--note-overlay-ass`:
 
 ### 2.8 `audio_mix`
 
-`audio_mix` hiện là nơi cấu hình gain cuối cùng cho các overlay audio. Runtime preprocess ambient/BGM chỉ lo đúng timing và mask 0/1; volume thực tế được áp ở final mix để tránh nhân volume hai lần.
+`audio_mix` là nơi cấu hình gain cho các layer audio trong Phase 3. TTS non-Voicevox và mute chunks được áp volume khi chuẩn hóa từng chunk; ambient/BGM vẫn chỉ áp gain ở final mix để tránh nhân volume hai lần.
 
 ```json
 {
   "audio_mix": {
+    "non_voicevox_tts_volume": 1.75,
+    "mute_audio_volume": 1.0,
     "ambient_volume": 0.03,
     "bgm_volume": 1.0
   }
 }
 ```
 
-| Key              | Type  | Default | Mô tả                                             |
-| ---------------- | ----- | ------- | ------------------------------------------------- |
-| `ambient_volume` | float | `0.03`  | Gain cuối cùng cho ambient overlay ở final mix    |
-| `bgm_volume`     | float | `1.0`   | Gain cuối cùng cho global BGM overlay ở final mix |
+| Key                       | Type  | Default | Mô tả                                                                                                        |
+| ------------------------- | ----- | ------- | ------------------------------------------------------------------------------------------------------------ |
+| `non_voicevox_tts_volume` | float | `1.75`  | Gain cho TTS provider không bắt đầu bằng `voicevox` (ví dụ Edge/Qwen). Voicevox/Voicevox Nemo bỏ qua key này |
+| `mute_audio_volume`       | float | `1.0`   | Gain cho audio của segment `mute` khi policy là `original`, `vocals` hoặc `instrumental`                     |
+| `ambient_volume`          | float | `0.03`  | Gain cuối cùng cho ambient overlay ở final mix                                                               |
+| `bgm_volume`              | float | `1.0`   | Gain cuối cùng cho global BGM overlay ở final mix                                                            |
+
+> Voicevox family dùng `volume_scale` trong `config/tts_config.yaml`; render config không can thiệp vào volume của Voicevox/Voicevox Nemo.
 
 ### 2.9 `audio_policies`
 

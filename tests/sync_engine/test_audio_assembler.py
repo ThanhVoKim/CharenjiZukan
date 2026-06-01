@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -27,6 +28,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from sync_engine import audio_assembler
 from sync_engine.audio_assembler import (
     _build_mute_volume_filter,
     assemble_audio_track,
@@ -223,6 +225,81 @@ class TestLayer1_AudioAssemblerMaskLogic:
         assert "between(t,45.500,50.250)" in volume_filter
         assert ", 0, 0.350000)" in volume_filter
         assert volume_filter.endswith("':eval=frame")
+
+
+class TestLayer1_AudioAssemblerVolumeConfigLogic:
+    def test_compress_tts_clip_applies_non_voicevox_volume_filter(self):
+        with patch("sync_engine.audio_assembler.subprocess.run") as run_mock:
+            compress_tts_clip(
+                "input.wav",
+                1.0,
+                "output.wav",
+                tts_provider="edge",
+                target_dur_s=1.0,
+                non_voicevox_tts_volume=1.75,
+            )
+
+        cmd = run_mock.call_args.args[0]
+        filter_str = cmd[cmd.index("-filter:a") + 1]
+        assert "volume=1.750000" in filter_str
+        assert "apad=whole_dur=1.000000" in filter_str
+
+    def test_compress_tts_clip_ignores_render_volume_for_voicevox_family(self):
+        with patch("sync_engine.audio_assembler.subprocess.run") as run_mock:
+            compress_tts_clip(
+                "input.wav",
+                1.0,
+                "output.wav",
+                tts_provider="voicevox_nemo",
+                target_dur_s=1.0,
+                non_voicevox_tts_volume=3.0,
+            )
+
+        cmd = run_mock.call_args.args[0]
+        filter_str = cmd[cmd.index("-filter:a") + 1]
+        assert "volume=" not in filter_str
+        assert "apad=whole_dur=1.000000" in filter_str
+
+    def test_assemble_audio_track_passes_mute_audio_volume_to_original_mute_chunk(self, tmp_path):
+        timeline = [_segment(0.0, 1000.0, 0.0, 1000.0, "mute")]
+        output_wav = str(tmp_path / "mixed.wav")
+        finalized_volumes = []
+
+        def fake_finalize(*args, **kwargs):
+            finalized_volumes.append(kwargs["volume"])
+            Path(args[1]).write_bytes(b"fake wav")
+
+        with (
+            patch.object(audio_assembler, "extract_quoted_audio", return_value=0.0),
+            patch.object(audio_assembler, "_finalize_audio_chunk", side_effect=fake_finalize),
+            patch.object(audio_assembler, "_generate_silence_chunk"),
+            patch.object(audio_assembler.concurrent.futures, "ThreadPoolExecutor") as executor_cls,
+            patch.object(audio_assembler.concurrent.futures, "as_completed", side_effect=lambda futures: futures),
+            patch.object(audio_assembler.subprocess, "run"),
+            patch.object(audio_assembler.shutil, "copy"),
+        ):
+            executor = executor_cls.return_value.__enter__.return_value
+            executor.submit.side_effect = lambda fn, *args, **kwargs: _ImmediateFuture(fn(*args, **kwargs))
+
+            assemble_audio_track(
+                timeline=timeline,
+                video_path="fake_video.mp4",
+                ambient_path=None,
+                output_path=output_wav,
+                tmp_dir=str(tmp_path),
+                audio_mix_config={"mute_audio_volume": 0.42},
+                audio_policies={"mute_audio": "original", "ambient": "off", "global_bgm": "off"},
+            )
+
+        assert finalized_volumes == [0.42]
+
+
+class _ImmediateFuture:
+    def __init__(self, result):
+        self._result = result
+
+    def result(self):
+        return self._result
 
 
 # ═════════════════════════════════════════════════════════════════════

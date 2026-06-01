@@ -4,6 +4,7 @@ Review nhanh kiến trúc file này:
 - `audio_policies` là lớp cấu hình canonical cho mute chunks, ambient và global BGM.
 - Runtime luôn build `main concat` bám theo final timeline trước.
 - Ambient và global BGM là các overlay độc lập, được xử lý sau `main concat`.
+- Gain của TTS non-Voicevox và mute chunks được áp ngay khi chuẩn hóa từng chunk.
 - Gain cuối cùng của ambient/BGM được quyết định ở final mix để tránh nhân volume hai lần.
 - Các key cũ `audio_separator.extract_bgm` / `extract_vocals` chỉ còn được giữ để tương thích ngược.
 """
@@ -164,31 +165,31 @@ def compress_tts_clip(
     fade_ms: float = _TTS_FADE_MS,
     is_first_chunk: bool = False,
     is_last_chunk: bool = False,
+    non_voicevox_tts_volume: float = 1.0,
 ) -> None:
-    # Voicevox family (Voicevox chính thức và Voicevox Nemo) đã tự tăng volumeScale, không cần filter
-    if tts_provider.startswith("voicevox"):
-        base_filter = ""
-    else:
-        # EdgeTTS và các provider khác: chuẩn hóa âm lượng theo chuẩn EBU R128
-        base_filter = "volume=1.75"
-
+    filters = []
     if audio_speed > 1.01:
-        atempo_str = _build_atempo_filter(audio_speed)
-        filter_str = f"{atempo_str},{base_filter}" if base_filter else atempo_str
-    else:
-        filter_str = base_filter
+        filters.append(_build_atempo_filter(audio_speed))
+
+    # Voicevox family dùng `volumeScale` trong TTS config; render_config không can thiệp.
+    if not tts_provider.startswith("voicevox"):
+        volume = float(non_voicevox_tts_volume)
+        if volume != 1.0:
+            filters.append(f"volume={volume:.6f}")
+
     # Thêm atrim và apad để đảm bảo duration chính xác tuyệt đối
     if target_dur_s is not None:
-        pad_trim_filter = (
+        filters.append(
             f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},"
             f"atrim=end={target_dur_s:.6f}"
         )
-        filter_str = f"{filter_str},{pad_trim_filter}" if filter_str else pad_trim_filter
     # Fade in/out tại biên chunk để triệt tiêu pop/click khi concat
     fade_dur_ms = (target_dur_s * 1000.0) if target_dur_s else 0
     af_fade = _build_audio_fade_filter(fade_dur_ms, fade_ms, is_first_chunk, is_last_chunk)
     if af_fade:
-        filter_str = f"{filter_str},{af_fade}" if filter_str else af_fade
+        filters.append(af_fade)
+
+    filter_str = ",".join(f for f in filters if f)
 
     cmd = [
         "ffmpeg",
@@ -218,6 +219,7 @@ def _prepare_synced_audio_chunk(
     fade_ms: float = _DEFAULT_FADE_MS,
     is_first_chunk: bool = False,
     is_last_chunk: bool = False,
+    volume: float = 1.0,
 ) -> Tuple[int, str]:
     target_dur_s = seg.new_chunk_dur / 1000.0
     if target_dur_s <= 0:
@@ -232,6 +234,10 @@ def _prepare_synced_audio_chunk(
     filters = []
     if seg.video_speed > 1.01 or seg.video_speed < 0.99:
         filters.append(_build_atempo_filter(seg.video_speed))
+
+    volume = float(volume)
+    if volume != 1.0:
+        filters.append(f"volume={volume:.6f}")
 
     filters.append(
         f"atrim=start=0,asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},atrim=end={target_dur_s:.6f}"
@@ -273,6 +279,7 @@ def _prepare_bgm_chunk(
     fade_ms: float = _DEFAULT_FADE_MS,
     is_first_chunk: bool = False,
     is_last_chunk: bool = False,
+    volume: float = 1.0,
 ) -> Tuple[int, str]:
     bgm_chunk = str(Path(tmp_dir) / f"bgm_chunk_{index:04d}.wav")
     return _prepare_synced_audio_chunk(
@@ -284,6 +291,7 @@ def _prepare_bgm_chunk(
         fade_ms=fade_ms,
         is_first_chunk=is_first_chunk,
         is_last_chunk=is_last_chunk,
+        volume=volume,
     )
 
 
@@ -435,17 +443,25 @@ def _finalize_audio_chunk(
     fade_ms: float = _DEFAULT_FADE_MS,
     is_first_chunk: bool = False,
     is_last_chunk: bool = False,
+    volume: float = 1.0,
 ) -> None:
     atrim_expr = f"atrim=start={trim_start_s:.6f}"
     if trim_duration_s is not None:
         atrim_expr += f":duration={trim_duration_s:.6f}"
 
-    base_filter = (
-        f"{atrim_expr},asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},"
-        f"atrim=end={target_dur_s:.6f}"
-    )
+    filters = [
+        (
+            f"{atrim_expr},asetpts=PTS-STARTPTS,apad=whole_dur={target_dur_s:.6f},"
+            f"atrim=end={target_dur_s:.6f}"
+        )
+    ]
+    volume = float(volume)
+    if volume != 1.0:
+        filters.append(f"volume={volume:.6f}")
     af_fade = _build_audio_fade_filter(target_dur_s * 1000.0, fade_ms, is_first_chunk, is_last_chunk)
-    filter_str = f"{base_filter},{af_fade}" if af_fade else base_filter
+    if af_fade:
+        filters.append(af_fade)
+    filter_str = ",".join(filters)
 
     cmd = [
         "ffmpeg",
@@ -592,6 +608,8 @@ def assemble_audio_track(
         total_ms = int(timeline[-1].new_end)
 
     audio_mix_config = audio_mix_config or {}
+    non_voicevox_tts_volume = float(audio_mix_config.get("non_voicevox_tts_volume", 1.75))
+    mute_audio_volume = float(audio_mix_config.get("mute_audio_volume", 1.0))
     has_bgm_source = bool(bgm_path and Path(bgm_path).exists())
     resolved_policies = _normalize_audio_policies_for_assembly(
         audio_policies,
@@ -663,6 +681,7 @@ def assemble_audio_track(
                     fade_ms=_DEFAULT_FADE_MS,
                     is_first_chunk=is_first,
                     is_last_chunk=is_last,
+                    volume=mute_audio_volume,
                 )
 
             actual_left_pad = extract_quoted_audio(
@@ -691,6 +710,7 @@ def assemble_audio_track(
                     target_dur_s,
                     is_first_chunk=is_first,
                     is_last_chunk=is_last,
+                    volume=mute_audio_volume,
                 )
             return index, final_q
 
@@ -705,6 +725,7 @@ def assemble_audio_track(
                     target_dur_s=target_dur_s,
                     is_first_chunk=is_first,
                     is_last_chunk=is_last,
+                    non_voicevox_tts_volume=non_voicevox_tts_volume,
                 )
             return index, final_c
 
@@ -759,6 +780,7 @@ def assemble_audio_track(
                     trim_duration_s=dur_s,
                     is_first_chunk=is_first,
                     is_last_chunk=is_last,
+                    volume=mute_audio_volume,
                 )
             logger.info("Hoàn tất tách audio cho mute chunks và trim padding.")
         except Exception as e:
@@ -774,6 +796,7 @@ def assemble_audio_track(
                     trim_duration_s=dur_s,
                     is_first_chunk=is_first,
                     is_last_chunk=is_last,
+                    volume=mute_audio_volume,
                 )
 
     ambient_processed_path = str(Path(tmp_dir) / "ambient_processed.wav")
@@ -839,6 +862,7 @@ def assemble_audio_track(
                     _DEFAULT_FADE_MS,
                     i == 0,
                     i == total_chunks - 1,
+                    1.0,
                 )
                 for i, seg in enumerate(timeline)
             ]
