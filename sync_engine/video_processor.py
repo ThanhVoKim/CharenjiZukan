@@ -1,29 +1,18 @@
 import math
 import subprocess
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import Dict, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
 from sync_engine.models import TimelineSegment
+from utils.ffmpeg_probe import (
+    HEVC_NVENC_VIDEO_ARGS as _HEVC_NVENC_VIDEO_ARGS,
+    detect_hevc_nvenc,
+    get_hevc_nvenc_unavailable_reason,
+)
 
 logger = logging.getLogger(__name__)
-
-_HEVC_NVENC_VIDEO_ARGS = ["-c:v", "hevc_nvenc", "-preset", "p4", "-tune", "hq", "-cq", "28"]
-
-
-def detect_hevc_nvenc() -> bool:
-    """Kiểm tra FFmpeg có encoder hevc_nvenc hay không."""
-    try:
-        r = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-encoders"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return "hevc_nvenc" in r.stdout
-    except OSError:
-        return False
 
 
 def query_keyframes(video_path: str) -> List[float]:
@@ -256,9 +245,12 @@ def process_video_chunks_parallel(
         raise RuntimeError("Timeline rỗng: không có segment nào để tạo chunk video.")
 
     if not detect_hevc_nvenc():
+        reason = get_hevc_nvenc_unavailable_reason()
+        detail = f" Chi tiết probe: {reason}" if reason else ""
         raise RuntimeError(
-            "hevc_nvenc không khả dụng. Flow sync_video hiện yêu cầu NVIDIA HEVC NVENC "
+            "hevc_nvenc không khả dụng ở runtime. Flow sync_video hiện yêu cầu NVIDIA HEVC NVENC "
             "với tham số -c:v hevc_nvenc -preset p4 -tune hq -cq 28."
+            f"{detail}"
         )
 
     if not use_gpu:

@@ -9,12 +9,12 @@ Chứa các fixtures cho:
 - Rubberband availability
 """
 
-import os
-import subprocess
-import pytest
 import multiprocessing
 import shutil
-from pathlib import Path
+
+import pytest
+
+from utils.ffmpeg_probe import detect_hevc_nvenc
 
 
 def pytest_addoption(parser):
@@ -36,46 +36,14 @@ def pytest_addoption(parser):
 
 @pytest.fixture(scope="session")
 def use_gpu() -> bool:
-    """Tự động phát hiện NVIDIA HEVC NVENC (hevc_nvenc) có sẵn hay không.
+    """Tự động phát hiện HEVC NVENC usable ở runtime.
 
-    Fixture giữ tên ``use_gpu`` để tương thích các test cũ, nhưng flow
-    ``sync_video`` hiện yêu cầu encoder ``hevc_nvenc`` với preset/quality cố định.
-
-    Phát hiện 2 bước:
-      1. ``torch.cuda.is_available()`` — kiểm tra nhanh GPU hardware + driver.
-         PyTorch đã có sẵn trong project nên không cần thêm dependency.
-      2. Dummy encode test — thực sự gọi FFmpeg encode 1 frame bằng hevc_nvenc
-         với ``-preset p4 -tune hq -cq 28`` để xác nhận encoder hoạt động.
-
-    Trả về True chỉ khi CẢ HAI bước đều pass.
+    Fixture giữ tên ``use_gpu`` để tương thích các test cũ, nhưng SSOT phát hiện
+    encoder hiện nằm ở ``utils.ffmpeg_probe.detect_hevc_nvenc``. Hàm dùng chung này
+    không chỉ đọc ``ffmpeg -encoders`` mà còn dummy encode 1 frame bằng đúng tham số
+    production ``hevc_nvenc -preset p4 -tune hq -cq 28``.
     """
-    # ── Bước 1: PyTorch CUDA check (nhanh, ~50ms) ──────────────────────
-    try:
-        import torch
-        if not torch.cuda.is_available():
-            return False
-    except ImportError:
-        # Không có PyTorch → không thể xác nhận GPU → fallback qua bước 2
-        pass
-
-    # ── Bước 2: Dummy encode test (chậm hơn, ~2-5s) ────────────────────
-    if not shutil.which("ffmpeg"):
-        return False
-    try:
-        # Tạo 1 frame đen 64x64, encode bằng hevc_nvenc, pipe ra null
-        result = subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.04",
-                "-c:v", "hevc_nvenc",
-                "-preset", "p4", "-tune", "hq", "-cq", "28",
-                "-f", "null", "-",
-            ],
-            capture_output=True, text=True, timeout=30,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
-        return False
+    return detect_hevc_nvenc()
 
 
 # ─────────────────────────────────────────────────────────────────────

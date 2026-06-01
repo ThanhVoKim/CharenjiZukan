@@ -32,7 +32,7 @@ import numpy as np
 from pydub import AudioSegment
 
 from cli.sync_video import run_sync_pipeline
-from sync_engine.video_processor import detect_hevc_nvenc
+from utils.ffmpeg_probe import detect_hevc_nvenc
 
 
 # ═════════════════════════════════════════════════════════════════════

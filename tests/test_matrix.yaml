@@ -181,6 +181,14 @@ tests:
     tags: ["unit"]
     enabled: true
 
+  - name: "FFmpeg Probe — Layer 1: HEVC NVENC Runtime Detection"
+    file: "tests/utils/test_ffmpeg_probe.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
   # ──────────────────────────────────────────────
   # INTEGRATION TESTS — Cần FFmpeg, không cần GPU
   # ──────────────────────────────────────────────

@@ -49,8 +49,8 @@ from sync_engine.video_processor import (
     build_ffmpeg_batch_cmd,
     process_video_chunks_parallel,
     _concat_chunks,
-    detect_hevc_nvenc,
 )
+from utils.ffmpeg_probe import detect_hevc_nvenc
 
 
 # ═════════════════════════════════════════════════════════════════════

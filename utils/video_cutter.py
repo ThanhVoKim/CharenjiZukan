@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from utils.ffmpeg_probe import detect_hevc_nvenc, get_hevc_nvenc_unavailable_reason
 from utils.srt_parser import parse_srt, ts_to_ms
 
 logger = logging.getLogger(__name__)
@@ -124,17 +125,6 @@ def query_keyframes(video_path: str) -> List[float]:
             except ValueError:
                 pass
     return sorted(kfs)
-
-
-def detect_hevc_nvenc() -> bool:
-    try:
-        r = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-encoders"],
-            capture_output=True, text=True,
-        )
-        return "hevc_nvenc" in r.stdout
-    except FileNotFoundError:
-        return False
 
 
 def probe_output_duration_ms(video_path: str) -> float:
@@ -471,9 +461,12 @@ def run_pre_cut(
     # 2. Method-specific checks
     if method == "reencode-smooth":
         if not detect_hevc_nvenc():
+            reason = get_hevc_nvenc_unavailable_reason()
+            detail = f" Probe detail: {reason}" if reason else ""
             raise RuntimeError(
                 "hevc_nvenc not available. Method 'reencode-smooth' requires NVIDIA GPU encoder. "
                 "Use --method hybrid-copy or install NVIDIA drivers with NVENC support."
+                f"{detail}"
             )
 
     # 3. Parse remove SRT

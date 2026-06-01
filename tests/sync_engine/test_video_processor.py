@@ -30,12 +30,8 @@ from sync_engine.video_processor import (
     snap_to_nearest_keyframe,
     build_ffmpeg_chunk_cmd,
     process_video_chunks_parallel,
-    detect_hevc_nvenc,
 )
-
-cv2 = pytest.importorskip("cv2", reason="pip install opencv-python")
-import numpy as np
-
+from utils.ffmpeg_probe import detect_hevc_nvenc
 
 # ═════════════════════════════════════════════════════════════════════
 # SHARED FIXTURES
@@ -44,6 +40,9 @@ import numpy as np
 @pytest.fixture(scope="module")
 def synthetic_video_path(tmp_path_factory) -> Path:
     """Video ngắn 2 giây, 30fps."""
+    cv2 = pytest.importorskip("cv2", reason="pip install opencv-python")
+    import numpy as np
+
     tmp_dir = tmp_path_factory.mktemp("video")
     path = tmp_dir / "synthetic_test.mp4"
     W, H, FPS = 640, 360, 30
@@ -120,7 +119,6 @@ class TestLayer1_VideoProcessorUnit:
         assert "hevc_nvenc" in cmd2
         assert "libx264" not in cmd2
         assert "h264_nvenc" not in cmd2
-
 
 # ═════════════════════════════════════════════════════════════════════
 # LAYER 2 — COMPONENT TESTS

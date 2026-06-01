@@ -7,20 +7,13 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from sync_engine.image_overlay import ImageOverlayEvent
+from utils.ffmpeg_probe import (
+    HEVC_NVENC_VIDEO_ARGS as _HEVC_NVENC_VIDEO_ARGS,
+    detect_hevc_nvenc,
+    get_hevc_nvenc_unavailable_reason,
+)
 
 logger = logging.getLogger("sync_video")
-
-_HEVC_NVENC_VIDEO_ARGS = ["-c:v", "hevc_nvenc", "-preset", "p4", "-tune", "hq", "-cq", "28"]
-
-
-def detect_hevc_nvenc() -> bool:
-    """Kiểm tra FFmpeg có encoder hevc_nvenc hay không."""
-    try:
-        r = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
-                           capture_output=True, text=True, check=False)
-        return "hevc_nvenc" in r.stdout
-    except OSError:
-        return False
 
 
 def _get_video_duration(video_path: str) -> float:
@@ -221,9 +214,12 @@ def render_final_video(
     subtitle_synced_srt_esc = _ffmpeg_path(subtitle_synced_srt)
 
     if not detect_hevc_nvenc():
+        reason = get_hevc_nvenc_unavailable_reason()
+        detail = f" Chi tiết probe: {reason}" if reason else ""
         raise RuntimeError(
-            "hevc_nvenc không khả dụng. Flow sync_video hiện yêu cầu NVIDIA HEVC NVENC "
+            "hevc_nvenc không khả dụng ở runtime. Flow sync_video hiện yêu cầu NVIDIA HEVC NVENC "
             "với tham số -c:v hevc_nvenc -preset p4 -tune hq -cq 28."
+            f"{detail}"
         )
 
     if not use_gpu:

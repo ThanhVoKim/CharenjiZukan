@@ -27,7 +27,7 @@
     "bgm_volume": 0.5
   },
   "audio_policies": {
-    "global_bgm": "whole_video",
+    "global_bgm": "off",
     "mute_audio": "original",
     "ambient": "exclude_mute"
   },
