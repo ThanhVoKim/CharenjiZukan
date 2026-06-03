@@ -33,6 +33,7 @@ video-ocr-native = "cli.video_ocr_native:main"
 whisper-srt = "cli.whisper_srt:main"
 qwen3-asr-srt = "cli.qwen3_asr:main"
 pre-cut-video = "cli.pre_cut_video:main"
+tuber-repair = "cli.tuber_repair:main"
 
 [tool.setuptools.packages.find]
 include = ["cli*", "utils*", "sync_engine*", "video_subtitle_extractor*", "translation*", "llm_ai*"]

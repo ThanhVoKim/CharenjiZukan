@@ -1,5 +1,56 @@
 # Project Journal
 
+## 2026-06-03: MotionPNGTuber — implement Python orchestration + test suite
+
+### Tóm tắt
+
+- **Mục tiêu**: Implement toàn bộ Python orchestration cho tuber overlay theo plan `motionpngtuber-remotion-prototype-plan.md`.
+- **Kết quả chính**: 5 module Python mới (`tuber_config`, `tuber_manifest`, `tuber_artifacts`, `tuber_status`, `tuber_overlay`), CLI `tuber_repair`, tích hợp `--tuber-config` vào `sync_video`, sample config, test Layer 1-3 (46 passed, 7 skipped), docs mới.
+- **Subproject `remotion_tuber/`**: Đã hoàn thiện trước đó (render driver, component, mouth warp, prepare-assets auto-detect màu nền `0x08A702`, width ưu tiên cho character).
+
+### File tạo
+
+- [`sync_engine/tuber_config.py`](../sync_engine/tuber_config.py) — Load/validate config, resolve layout (jobName sentinel, tuberRoot, artifactPolicy).
+- [`sync_engine/tuber_manifest.py`](../sync_engine/tuber_manifest.py) — Build groups từ timeline (Phase F), export run/group manifest absolute paths (Phase H).
+- [`sync_engine/tuber_artifacts.py`](../sync_engine/tuber_artifacts.py) — Promote media/final_render_inputs (Phase E), cleanup overlay_frames/failedGroups theo policy (Phase T), serialize/deserialize ImageOverlayEvent.
+- [`sync_engine/tuber_status.py`](../sync_engine/tuber_status.py) — status.json per group (pending/running/done/failed/skipped).
+- [`sync_engine/tuber_overlay.py`](../sync_engine/tuber_overlay.py) — Orchestration: prepare-assets, build group base (tái dùng `build_ffmpeg_batch_cmd` — B5), render driver, composite, validate, concat, retry, coordinator `run_tuber_flow_all_in`.
+- [`cli/tuber_repair.py`](../cli/tuber_repair.py) — Late repair CLI: đọc run_manifest + final_render_inputs, render tuber muộn, gọi `render_final_video`.
+- [`assets/tuber_overlay_config.json`](../assets/tuber_overlay_config.json) — Sample config với `chromakey: {color:"0x08A702", similarity:0.12, blend:0.1}`.
+- [`docs/tuber-overlay-guide.md`](../docs/tuber-overlay-guide.md) — Hướng dẫn đầy đủ tham số JSON config + CLI repair + retry logic.
+- [`tests/sync_engine/test_tuber_overlay_pipeline.py`](../tests/sync_engine/test_tuber_overlay_pipeline.py) — Test Layer 1 (frame math, group, config, status, serialize), Layer 2 (manifest export, artifact promote), Layer 3 (composite, validate, retry/cleanup mock). 46 passed, 7 skipped (thiếu GPU).
+
+### File sửa
+
+- [`cli/sync_video.py`](../cli/sync_video.py) — Thêm `--tuber-config` arg, load config + swap `stretched_video` → `video_stretched_with_tuber` + fallback ở Phase 5.
+- [`pyproject.toml`](../pyproject.toml) — Thêm `tuber-repair = "cli.tuber_repair:main"`.
+- [`tests/test_matrix.yaml`](../tests/test_matrix.yaml) — Thêm 3 entry Tuber Overlay Pipeline Layer 1/2/3.
+- [`docs/colab-guide.md`](../docs/colab-guide.md) — Thêm `--tuber-config` vào bảng tham số sync-video + section 2.12 Tuber Overlay + CLI `tuber-repair`.
+
+### Quyết định kiến trúc
+
+1. **Width ưu tiên trong `resolveCharacterBox`**: Có `width` → suy `height = width / aspect(mouth_track)`, bỏ qua `height`. Không cần cờ `maintainAspect`. Giữ `objectFit:'fill'` để body + canvas đồng scale, miệng không lệch.
+2. **Auto-detect màu nền chromakey**: `prepare-assets` lấy median 4 góc frame đầu làm key color, không hardcode `0x00FF00`. Asset hiện tại nền `~0x08A702`.
+3. **Concatenation ngoài retry loop**: Concat `-c copy` chỉ chạy 1 lần sau khi tất cả group pass validate. Chỉ render + composite + validate mới có retry.
+4. **`attempt` counter chỉ tăng khi composite/validate fail**: Batch render fail → re-render riêng group đó trong cùng attempt (soft fallback), không tính là retry.
+5. **Dùng chung `detect_hevc_nvenc` (SSOT)**: Test skip GPU dùng `_GPU_OK = detect_hevc_nvenc()` khớp fixture `use_gpu` trong `tests/conftest.py`.
+
+### Trạng thái hiện tại
+
+- ✓ 5 module Python orchestration đã implement (tuber_config, tuber_manifest, tuber_artifacts, tuber_status, tuber_overlay).
+- ✓ [`cli/tuber_repair.py`](../cli/tuber_repair.py) hoàn chỉnh với late repair flow.
+- ✓ Tích hợp vào [`sync_video`](../cli/sync_video.py) (load config → resolve layout → build groups → base.mp4 → render → composite → validate → concat → fallback).
+- ✓ Sample config [`assets/tuber_overlay_config.json`](../assets/tuber_overlay_config.json) có chromakey params.
+- ✓ Test Layer 1-3 (46 passed, 7 skipped do thiếu GPU NVENC).
+- ✓ [`docs/tuber-overlay-guide.md`](../docs/tuber-overlay-guide.md) hoàn chỉnh.
+- ✓ [`docs/colab-guide.md`](../docs/colab-guide.md) đã cập nhật.
+- ✓ Không hồi quy: [`test_tuber_remotion_validation.py`](../tests/sync_engine/test_tuber_remotion_validation.py) vẫn 6 passed.
+
+### Pending / Next steps
+
+- Smoke test end-to-end trên Colab với video thật 30-60s: `sync-video --tuber-config` → kiểm tra output có tuber overlay + alpha sạch.
+- Khi có GPU: bật `enabled: true` trong config, chạy `REMOTION_TUBER_E2E=1` verify Layer 4 Remotion thật.
+
 ## 2026-06-01: Sync-video audio mix volume schema
 
 ### Tóm tắt

@@ -1,0 +1,52 @@
+{
+  "enabled": false,
+  "outputDir": "tuber-output",
+  "remotion": {
+    "projectDir": "remotion_tuber",
+    "compositionId": "TuberOverlay",
+    "entryPoint": "src/index.ts",
+    "renderDriver": "scripts/render-groups.ts"
+  },
+  "asset": {
+    "assetDir": "assets/pngtuber/nike_loop_fix",
+    "assetId": "nike_loop_fix",
+    "mouthTrack": "mouth_track.json",
+    "mouthSprites": {
+      "closed": "mouth/closed.png",
+      "half": "mouth/half.png",
+      "open": "mouth/open.png"
+    },
+    "bodySource": "loop_mouthless_h264.mp4",
+    "chromakey": {
+      "color": "0x08A702",
+      "similarity": 0.12,
+      "blend": 0.1
+    }
+  },
+  "character": {
+    "left": 1280,
+    "top": 360,
+    "width": 512,
+    "clipInset": "0px"
+  },
+  "grouping": {
+    "maxGroupSec": 300,
+    "paddingSec": 0
+  },
+  "mouth": {
+    "mode": "cue"
+  },
+  "overlay": {
+    "format": "png_sequence"
+  },
+  "artifactPolicy": {
+    "mode": "repairable"
+  },
+  "repair": {
+    "defaultOutputSuffix": "_with_tuber"
+  },
+  "retry": {
+    "retryAttempts": 3,
+    "onExhausted": "render_without_tuber"
+  }
+}

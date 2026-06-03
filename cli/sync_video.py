@@ -29,6 +29,7 @@ from sync_engine.image_overlay import (
     remap_image_overlay_events,
     write_image_overlay_debug_srt,
 )
+from sync_engine.tuber_config import load_tuber_config, TuberConfigError
 
 logger = get_logger("sync_video")
 
@@ -100,6 +101,16 @@ def run_sync_pipeline(args):
         # Load render config từ JSON
         render_config = _load_render_config(args.render_config)
         render_config = apply_llm_metadata_override(render_config, getattr(args, "llm_metadata_override", None))
+
+        # Load tuber overlay config (Phase A). Lỗi config → tắt tuber, không phá pipeline.
+        tuber_cfg = None
+        try:
+            tuber_cfg = load_tuber_config(getattr(args, "tuber_config", None), PROJECT_ROOT)
+            if tuber_cfg.enabled:
+                logger.info("Tuber overlay: ENABLED (config=%s)", args.tuber_config)
+        except TuberConfigError as e:
+            logger.error("Tuber config lỗi: %s. Tắt tuber overlay.", e)
+            tuber_cfg = None
 
         start_time = time.time()
         logger.info("=== BẮT ĐẦU TTS-VIDEO SYNC ===")
@@ -515,8 +526,48 @@ def run_sync_pipeline(args):
         if not args.no_hardsub:
             final_video = str(output_dir / f"{args.output_name}.mp4")
 
+            # Tuber overlay (Phase C/D-P): nếu enabled, dựng video_stretched_with_tuber
+            # và dùng nó thay stretched_video. Fail → fallback stretched_video gốc.
+            render_input_video = stretched_video_chunked
+            if tuber_cfg is not None and tuber_cfg.enabled:
+                logger.info("\n--- PHASE 5.0: TUBER OVERLAY ---")
+                from sync_engine.tuber_overlay import (
+                    run_tuber_flow_all_in, TuberOverlayError,
+                )
+                try:
+                    tuber_cfg.resolve_layout(
+                        PROJECT_ROOT, input_video=args.video, output_name=args.output_name,
+                    )
+                    tuber_cfg.make_dirs()
+                    final_render_args = {
+                        "output_name": args.output_name,
+                        "use_gpu": not args.no_gpu,
+                        "repair_output_suffix": tuber_cfg.repair_output_suffix,
+                    }
+                    video_with_tuber = run_tuber_flow_all_in(
+                        config=tuber_cfg,
+                        video_path=args.video,
+                        timeline=timeline,
+                        fps_float=fps_float,
+                        fps_str=fps_str,
+                        base_video_stretched=stretched_video_chunked,
+                        mixed_audio=mixed_audio,
+                        render_config=render_config,
+                        final_render_args=final_render_args,
+                        subtitle_synced_srt=subtitle_synced,
+                        note_overlay_final_ass=note_overlay_final_ass,
+                        image_overlay_events=image_overlay_events,
+                        tmp_dir=tmp_dir,
+                    )
+                    render_input_video = str(video_with_tuber)
+                    logger.info("Tuber overlay thành công → %s", render_input_video)
+                except TuberOverlayError as e:
+                    logger.error("Tuber overlay fail: %s. Fallback render KHÔNG tuber.", e)
+                except Exception as e:  # noqa: BLE001 — tuber không được phá final render
+                    logger.exception("Tuber overlay lỗi bất ngờ: %s. Fallback render KHÔNG tuber.", e)
+
             render_final_video(
-                stretched_video=stretched_video_chunked,
+                stretched_video=render_input_video,
                 mixed_audio=mixed_audio,
                 subtitle_synced_srt=subtitle_synced,
                 output_path=final_video,
@@ -580,6 +631,8 @@ def worker_task(task_data: dict, base_args: argparse.Namespace):
             args.image_overlay_dir = task_data["image_overlay_dir"]
         if "render_config" in task_data:
             args.render_config = task_data["render_config"]
+        if "tuber_config" in task_data:
+            args.tuber_config = task_data["tuber_config"]
         if "llm_metadata" in task_data:
             args.llm_metadata_override = task_data["llm_metadata"]
             
@@ -620,6 +673,10 @@ def main():
     # Render Config
     parser.add_argument("--render-config", default=str(PROJECT_ROOT / "assets" / "default_render_config.json"),
                         help="File JSON cấu hình render (mặc định: assets/default_render_config.json)")
+
+    # Tuber overlay (MotionPNGTuber qua Remotion). Không truyền → tuber disabled.
+    parser.add_argument("--tuber-config", default=None,
+                        help="File JSON cấu hình tuber overlay (vd assets/tuber_overlay_config.json). Bỏ trống = tắt tuber.")
     
     # Algorithm
     parser.add_argument("--slow-cap", type=float, default=0.5, help="Video speed tối thiểu (mặc định: 0.5)")

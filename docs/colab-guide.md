@@ -1184,6 +1184,9 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 | `--no-gpu`             | Tùy chọn tương thích cũ; video render vẫn bắt buộc dùng `hevc_nvenc -preset p4 -tune hq -cq 28` | (tắt)                                   |
 | `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                                              | (tắt)                                   |
 | `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                                                 | `0`                                     |
+| `--tuber-config`       | File JSON cấu hình tuber overlay (bỏ trống = tắt). Xem [Tuber Overlay Guide](tuber-overlay-guide.md) | (không dùng)                            |
+
+> **Lưu ý về Tuber Overlay:** Khi bật `--tuber-config`, pipeline sẽ render overlay nhân vật PNGTuber qua Remotion lên video trước khi final render.
 
 > **Lưu ý về âm lượng (Volume):** Khi cấu hình tách BGM trong `render_config`, bạn có thể điều chỉnh âm lượng của BGM đã tách và ambient thông qua block `audio_mix`:
 >
@@ -1224,7 +1227,42 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 
 ---
 
-### 2.12. Pre-cut Video (pre-cut-video)
+### 2.12. Tuber Overlay (sync-video --tuber-config + tuber-repair)
+
+Thêm overlay nhân vật ảo PNGTuber (MotionPNGTuber) vào video output qua Remotion subproject `remotion_tuber/`. Yêu cầu Node.js + npm trong môi trường Colab. Xem chi tiết tại [Tuber Overlay Guide](tuber-overlay-guide.md).
+
+#### Cài đặt Remotion subproject
+
+```colab
+%cd /content/CharenjiZukan/remotion_tuber
+!npm install
+%cd /content/CharenjiZukan
+```
+
+#### Chạy sync-video với tuber overlay
+
+```colab
+!uv run sync-video \
+    --video /content/video.mp4 \
+    --subtitle /content/subtitle_ja.srt \
+    --tuber-config /content/CharenjiZukan/assets/tuber_overlay_config.json
+```
+
+> **Lưu ý:** `--tuber-config` dùng file JSON mẫu tại `assets/tuber_overlay_config.json`. Sửa `enabled: true` để bật.
+
+#### Late repair (sau khi fallback non-tuber)
+
+```colab
+!uv run tuber-repair --tuber-root tuber-output/<job>/tuber
+```
+
+#### File cấu hình `assets/tuber_overlay_config.json`
+
+Các key chính: `enabled` (bật/tắt), `remotion` (project dir/composition), `asset` (PNGTuber + chromakey), `character` (vị trí/kích thước — width ưu tiên giữ tỉ lệ), `mouth.mode=cue` (V1), `retry.retryAttempts`, `artifactPolicy.mode=repairable`. Xem [Tuber Overlay Guide](tuber-overlay-guide.md) để biết đầy đủ tham số.
+
+---
+
+### 2.13. Pre-cut Video (pre-cut-video)
 
 Loại bỏ các đoạn thừa từ video gốc **trước khi** chạy transcript/translate/sync. CLI này tạo video clean và manifest JSON để trace timeline.
 
