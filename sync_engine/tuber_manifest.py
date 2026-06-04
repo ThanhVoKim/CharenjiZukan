@@ -162,8 +162,15 @@ def _build_segment_mouth_events(
     fps_float: float,
     tts_clip_dir: Optional[Path] = None,
     mouth_opts: Optional[Dict[str, Any]] = None,
+    global_start_frame: int = 0,
 ) -> Optional[List[Dict[str, Any]]]:
-    """Build mouthEvents cho 1 segment (V2 mouth mode amplitude)."""
+    """Build mouthEvents cho 1 segment (V2 mouth mode amplitude).
+
+    Args:
+        global_start_frame: Frame offset toàn cục trong group (từ
+            seg_dict["startFrame"]). Đảm bảo event frame khớp với
+            global frame mà _lookup_state() so sánh.
+    """
     if not _seg_has_tts(seg):
         return None
     tts_path = None
@@ -180,7 +187,7 @@ def _build_segment_mouth_events(
         n = segment_output_frames(seg, fps_float)
         opts = dict(mouth_opts or {})
         return build_mouth_events_for_segment(
-            0, n, True, tts_path, fps_float, **opts,
+            global_start_frame, n, True, tts_path, fps_float, **opts,
         )
     except Exception as exc:
         logger.warning("Không build được mouthEvents cho segment: %s", exc)
@@ -236,6 +243,7 @@ def build_group_manifest(
                 fps_float,
                 tts_clip_dir=tts_clip_dir,
                 mouth_opts=mouth_opts,
+                global_start_frame=sd["startFrame"],
             )
             mouth_events_map[str(sd["segmentIndex"])] = ev
         # Nhúng vào segment dict

@@ -318,12 +318,14 @@ def _build_prerender_frame_list(
     group_manifest: Dict[str, Any],
     prerender_dir: Path,
     prerender_manifest: Dict[str, Any],
-    mouth_events_map: Dict[str, List[Dict[str, Any]]],
 ) -> Path:
     """Tạo overlay_frames từ pre-rendered character frames cho 1 group.
 
     Tạo symlink (hoặc copy) các pre-rendered frame vào overlay_frames/ theo
     thứ tự timeline → overlay_frames/frame_000000.png, frame_000001.png, ...
+
+    Đọc mouthEvents trực tiếp từ group_manifest["segments"] để tránh
+    cross-group collision + đảm bảo frame index đúng phạm vi group.
 
     Returns:
         Path tới overlay_frames dir.
@@ -347,9 +349,12 @@ def _build_prerender_frame_list(
     end_frame = start_frame + group_manifest["renderDurationFrames"]
 
     # Pre-compute per-segment mouth events lookup
+    # Đọc trực tiếp từ group_manifest["segments"] — events đã có global frame
+    # nhờ global_start_frame trong build_group_manifest.
     def _lookup_state(gf: int) -> str:
         best = "closed"
-        for seg_idx, events in mouth_events_map.items():
+        for seg in group_manifest.get("segments", []):
+            events = seg.get("mouthEvents")
             if not events:
                 continue
             lo, hi = 0, len(events) - 1
@@ -392,7 +397,6 @@ def render_and_composite_groups(
     use_prerender: bool = False,
     prerender_dir: Optional[Path] = None,
     prerender_manifest: Optional[Dict[str, Any]] = None,
-    mouth_events_map: Optional[Dict[str, Any]] = None,
 ) -> List[Path]:
     """Render → mỗi group composite/validate/cleanup, retry group fail.
 
@@ -431,7 +435,7 @@ def render_and_composite_groups(
                     status["currentStep"] = st.STEP_RENDERING_OVERLAY
                     st.write_status(g.group_dir, status)
                     _build_prerender_frame_list(
-                        g.manifest, prerender_dir, prerender_manifest, mouth_events_map,
+                        g.manifest, prerender_dir, prerender_manifest,
                     )
                 else:
                     # V1: Remotion render driver
@@ -511,7 +515,6 @@ def render_groups_to_video(
     use_prerender: bool = False,
     prerender_dir: Optional[Path] = None,
     prerender_manifest: Optional[Dict[str, Any]] = None,
-    mouth_events_map: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """High-level: prepare assets → render/composite groups → concat → output_video.
 
@@ -537,7 +540,6 @@ def render_groups_to_video(
         use_prerender=use_prerender,
         prerender_dir=prerender_dir,
         prerender_manifest=prerender_manifest,
-        mouth_events_map=mouth_events_map,
     )
     concat_group_videos(group_videos, output_video, tmp_dir)
     logger.info("Tuber overlay xong → %s", output_video)
@@ -840,15 +842,6 @@ def run_tuber_flow_all_in(
     )
     write_run_manifest(run_manifest, config.tuber_root)
 
-    # V2: build mouth events map for prerender
-    mouth_events_map: Dict[str, Any] = {}
-    if use_prerender and config.mouth_mode != "cue":
-        for j in jobs:
-            for seg in j.manifest.get("segments", []):
-                ev = seg.get("mouthEvents")
-                if ev:
-                    mouth_events_map[str(seg.get("segmentIndex"))] = ev
-
     # Phase I-P: render + composite + concat
     return render_groups_to_video(
         project_dir=config.remotion_project_dir(),
@@ -866,5 +859,4 @@ def run_tuber_flow_all_in(
         use_prerender=use_prerender,
         prerender_dir=prerender_dir,
         prerender_manifest=prerender_manifest,
-        mouth_events_map=mouth_events_map if mouth_events_map else None,
     )

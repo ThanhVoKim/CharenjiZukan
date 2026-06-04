@@ -119,6 +119,11 @@ def warp_sprite_to_quad(
 
     Port mouthsWarp.ts:drawWarpedSprite().
 
+    Sprite được warp lên 1 overlay trong suốt riêng, sau đó alpha_composite
+    lên body. Paste-with-mask KHÔNG phải alpha compositing — nó thay thế
+    pixel canvas bằng pixel source (kể cả transparent) trong vùng mask.
+    Dùng alpha_composite để giữ nguyên body bên dưới vùng sprite trong suốt.
+
     Args:
         body: Body frame RGBA Image (canvas_size).
         sprite: Mouth sprite RGBA Image (thường 128x85).
@@ -127,16 +132,16 @@ def warp_sprite_to_quad(
         supersample: Mẫu > 1 cho anti-aliasing (mặc định 1 = tắt).
 
     Returns:
-        Canvas RGBA Image với body + warped mouth.
+        Canvas RGBA Image với body + warped mouth (alpha composited).
     """
     from PIL import Image
 
-    canvas = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
-    canvas.paste(body, (0, 0), body)  # paste body preserving alpha
-
     sw, sh = sprite.size
     if sw <= 0 or sh <= 0:
-        return canvas
+        return body.copy()
+
+    # Warp sprite lên overlay trong suốt riêng (KHÔNG paste trực tiếp lên body)
+    mouth_overlay = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
 
     # Sprite corners (TL, TR, BR, BL)
     s0 = (0.0, 0.0)
@@ -147,11 +152,14 @@ def warp_sprite_to_quad(
     q0, q1, q2, q3 = [tuple(map(float, p)) for p in quad]
 
     # Triangle 1: (s0,s1,s2) → (q0,q1,q2)
-    canvas = _apply_triangle_warp(canvas, sprite, s0, s1, s2, q0, q1, q2, supersample)
+    mouth_overlay = _apply_triangle_warp(mouth_overlay, sprite, s0, s1, s2, q0, q1, q2, supersample)
 
     # Triangle 2: (s0,s2,s3) → (q0,q2,q3)
-    canvas = _apply_triangle_warp(canvas, sprite, s0, s2, s3, q0, q2, q3, supersample)
+    mouth_overlay = _apply_triangle_warp(mouth_overlay, sprite, s0, s2, s3, q0, q2, q3, supersample)
 
+    # Alpha-composite overlay lên body (giữ body bên dưới vùng sprite trong suốt)
+    canvas = body.copy()
+    canvas = Image.alpha_composite(canvas, mouth_overlay)
     return canvas
 
 

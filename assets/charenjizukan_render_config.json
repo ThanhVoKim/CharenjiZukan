@@ -54,7 +54,7 @@
     "enabled": false
   },
   "forced_alignment_subtitle": {
-    "enabled": true,
+    "enabled": false,
     "language": "Japanese",
     "max_chars": 42,
     "min_chars": 0,
