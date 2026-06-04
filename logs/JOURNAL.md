@@ -1,5 +1,25 @@
 # Project Journal
 
+## 2026-06-04: Bugfix — miệng mở trễ ~1s (bug gộp event _merge_short_silence)
+
+### Tóm tắt
+- **Triệu chứng**: PNGTuber mở miệng trễ ~1s so với audio, xảy ra cả EdgeTTS lẫn Voicevox.
+- **Chẩn đoán**: Sinh script `diag_mouth_onset.py` để in onset tại nhiều ngưỡng dB và events từ pipeline thật. Output trên `dubb-2.wav` (EdgeTTS) cho thấy onset thật = frame 5-6, nhưng `analyze_tts_amplitude()` trả `open` ở frame 39.
+- **Root cause**: Bug trong `_merge_short_silence()` (tuber_mouth_events.py). Bước gộp consecutive same-state: `merged[-1]["frame"] = ev["frame"]` ghi đè frame onset sớm bằng frame muộn. Ví dụ: 2 đoạn `open` (7-34 và 39-44) quanh 1 `closed` ngắn 4 frame bị drop → khi gộp, onset `open` bị dời từ 7 → 39 (~1s). Đây là gốc rễ dùng chung cho CẢ hai engine.
+- **Giả thuyết đã loại**: Voicevox lead-in (strip-silence). WAV onset ~0.17s, không phải 1s.
+- **Fix**: Bỏ dòng ghi đè frame — giữ nguyên frame chuyển trạng thái sớm nhất khi gộp. Thêm `exclude_mute → whole_video` fallback khi không có mute segment (tường minh hoá policy).
+
+### File thay đổi
+- `sync_engine/tuber_mouth_events.py` — fix gộp event trong `_merge_short_silence()`
+- `sync_engine/audio_assembler.py` — fallback exclude_mute → whole_video khi `has_mute_segment = False`
+- `tests/sync_engine/test_tuber_mouth_events.py` — thêm regression test `test_merge_short_silence_keeps_early_onset_frame`
+- `diag_mouth_onset.py` — script chẩn đoán onset miệng (giữ lại làm công cụ)
+
+### Verification
+Chạy diagnostic sau fix: `uv run python diag_mouth_onset.py --glob ".../dubb-2.wav"` → `open` ở frame ~6-7 (không còn 39). Tất cả 13 Layer1 unit test pass.
+
+---
+
 ## 2026-06-04: V2 — Pre-render character + lip-sync amplitude
 
 ### Tóm tắt

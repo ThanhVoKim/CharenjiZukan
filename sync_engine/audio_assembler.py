@@ -620,6 +620,25 @@ def assemble_audio_track(
     mute_audio_policy = resolved_policies["mute_audio"]
     ambient_policy = resolved_policies["ambient"]
 
+    # Khi không có mute segment nào (vd không có mute.srt), `exclude_mute` không
+    # còn ý nghĩa khác `whole_video` (mute_ranges rỗng → mask volume = full). Hạ
+    # tường minh về `whole_video` để log rõ ý định và tránh hiểu nhầm "exclude_mute
+    # đang tắt tiếng" khi thực ra không có gì để loại trừ.
+    has_mute_segment = any(seg.block_type == "mute" for seg in timeline)
+    if not has_mute_segment:
+        downgraded = []
+        if ambient_policy == "exclude_mute":
+            ambient_policy = "whole_video"
+            downgraded.append("ambient")
+        if global_bgm_policy == "exclude_mute":
+            global_bgm_policy = "whole_video"
+            downgraded.append("global_bgm")
+        if downgraded:
+            logger.info(
+                "Không có mute segment → downgrade exclude_mute thành whole_video cho: %s.",
+                ", ".join(downgraded),
+            )
+
     logger.info(
         "Bắt đầu mix audio (Concat approach), tổng thời lượng: %.2fs | policies: global_bgm=%s, mute_audio=%s, ambient=%s",
         total_ms / 1000.0,

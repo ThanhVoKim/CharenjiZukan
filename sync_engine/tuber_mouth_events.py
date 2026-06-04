@@ -228,11 +228,12 @@ def _merge_short_silence(
         return result
     merged: List[Dict[str, Any]] = [result[0]]
     for ev in result[1:]:
-        if ev["state"] == merged[-1]["state"]:
-            # Cập nhật frame cuối, không thêm mới
-            merged[-1]["frame"] = ev["frame"]
-        else:
+        if ev["state"] != merged[-1]["state"]:
             merged.append(ev)
+        # Cùng state với event trước → bỏ qua, GIỮ NGUYÊN frame chuyển trạng thái
+        # sớm nhất. KHÔNG set merged[-1]["frame"] = ev["frame"]: làm vậy sẽ dời
+        # onset (vd "open") về sau khi hai đoạn cùng state quanh một 'closed' ngắn
+        # (đã bị loại ở vòng trên) bị gộp lại — đây là gốc rễ lỗi miệng mở trễ ~1s.
     return merged
 
 

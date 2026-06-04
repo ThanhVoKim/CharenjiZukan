@@ -99,6 +99,28 @@ class TestLayer1_AmplitudeAnalysis:
         merged = _merge_short_silence(events, 10)
         assert len(merged) == 3
 
+    def test_merge_short_silence_keeps_early_onset_frame(self):
+        """Regression: gộp 2 đoạn 'open' quanh 1 'closed' ngắn KHÔNG được dời
+        onset 'open' về frame sau.
+
+        Bug cũ: bước merge consecutive same-state ghi đè
+        ``merged[-1]['frame'] = ev['frame']`` → onset 'open' bị dời từ frame 7
+        sang 39 (~1s ở 30fps) → miệng mở trễ so với audio (cả EdgeTTS lẫn
+        Voicevox). Dữ liệu dựng lại đúng từ dubb-2.wav thật.
+        """
+        events = [
+            {"frame": 0, "state": "closed"},
+            {"frame": 7, "state": "open"},     # onset thật của speech
+            {"frame": 35, "state": "closed"},  # nghỉ ngắn 4 frame (< min 6)
+            {"frame": 39, "state": "open"},    # tiếp tục nói
+        ]
+        merged = _merge_short_silence(events, 6)
+        open_events = [e for e in merged if e["state"] == "open"]
+        assert len(open_events) == 1, f"2 đoạn open phải gộp thành 1: {merged}"
+        assert open_events[0]["frame"] == 7, (
+            f"onset 'open' phải giữ frame 7 (sớm nhất), không bị dời về sau: {merged}"
+        )
+
     def test_empty_rms_raises_for_nonexistent(self):
         with pytest.raises(RuntimeError):
             _read_wav_rms(Path(tempfile.gettempdir()) / "nonexistent_xyz.wav", 30)
