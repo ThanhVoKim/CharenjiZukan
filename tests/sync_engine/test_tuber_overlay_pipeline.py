@@ -648,7 +648,8 @@ class TestLayer3_RetryAndCleanup:
                 "group_0001": {"groupId": "group_0001", "ok": True, "frames": 3},
             }
             # Mock composite: copy base → video_with_tuber (không cần NVENC)
-            def fake_composite(base_video, overlay_dir, output, fps_str):
+            def fake_composite(base_video, overlay_dir, output, fps_str,
+                               *, offset_x=0, offset_y=0):
                 import shutil as _shutil
                 _shutil.copy2(str(base_video), str(output))
                 return output
@@ -685,7 +686,8 @@ class TestLayer3_RetryAndCleanup:
                 return {}  # fail lần 1
             return {"group_0001": {"groupId": "group_0001", "ok": True, "frames": 3}}
 
-        def fake_composite(base_video, overlay_dir, output, fps_str):
+        def fake_composite(base_video, overlay_dir, output, fps_str,
+                           *, offset_x=0, offset_y=0):
             import shutil as _shutil
             _shutil.copy2(str(base_video), str(output))
             return output
@@ -704,13 +706,11 @@ class TestLayer3_RetryAndCleanup:
                 duration_tolerance_s=1.0,
             )
             assert len(videos) == 1
-            assert call_count[0] == 2  # gọi lại sau fail batch
-            # status done
+            assert call_count[0] == 2  # lần 1 fail, lần 2 OK
             s = st.read_status(fake_group.group_dir)
             assert s["status"] == "done"
-            # attempt = 0 vì batch fail → re-render thành công trong cùng vòng lặp,
-            # không qua except nên không tăng counter. Đúng hành vi của render_and_composite_groups.
-            assert s["attempts"] == 0
+            # V2: mỗi lần render/composite/validate 1 group, attempt tăng khi fail
+            assert s["attempts"] == 1
         finally:
             if orig_run is not None:
                 to._run_render_driver = orig_run

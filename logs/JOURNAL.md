@@ -1,5 +1,43 @@
 # Project Journal
 
+## 2026-06-04: V2 — Pre-render character + lip-sync amplitude
+
+### Tóm tắt
+- **Mục tiêu**: Giải quyết 2 vấn đề blocking V1 — miệng không khép khi im lặng, hiệu năng video dài.
+- **Kết quả chính**: Port thuật toán affine warp từ TypeScript → Python/PIL, module `tuber_prerender.py` pre-render 170×N body×mouth, module `tuber_mouth_events.py` phân tích RMS amplitude TTS → mouthEvents chính xác đến frame.
+- **Kiến trúc**: Pipeline thuần Python + FFmpeg khi có pre-render. Remotion code giữ nguyên làm reference, không gọi runtime. Config thêm `mouth.mode=amplitude`, `asset.prerender`, composite hỗ trợ offset cho character box.
+
+### File tạo mới
+| File | Mô tả |
+|------|-------|
+| [`sync_engine/tuber_mouth_events.py`](../sync_engine/tuber_mouth_events.py) | Phân tích RMS amplitude TTS → mouthEvents [{frame, state}] per segment |
+| [`sync_engine/tuber_prerender.py`](../sync_engine/tuber_prerender.py) | Port mouthWarp.ts (affine 2-triangle), pre-render body×mouth → PNG |
+
+### File sửa
+| File | Thay đổi |
+|------|----------|
+| [`sync_engine/tuber_config.py`](../sync_engine/tuber_config.py) | +mouth (mode, silenceDb, minSilenceMs, cadenceMs, mouthStates) +prerender config |
+| [`sync_engine/tuber_manifest.py`](../sync_engine/tuber_manifest.py) | +compute_character_box, +mouthEvents build, +compWidth/compHeight/compOffset, +prerenderManifest trong run_manifest |
+| [`sync_engine/tuber_overlay.py`](../sync_engine/tuber_overlay.py) | +composite offset_x/offset_y, +prerender path (_build_prerender_frame_list, use_prerender param), +mouthEvents map lookup |
+| [`assets/tuber_overlay_config.json`](../assets/tuber_overlay_config.json) | Config mới với mode=amplitude + prerender section |
+| [`docs/tuber-overlay-guide.md`](../docs/tuber-overlay-guide.md) | Update architecture, mouth config, prerender docs |
+
+### Quyết định kiến trúc
+1. **Pre-render là default**: Nếu `prerender_manifest.json` tồn tại → tự động dùng. Không cần config flag renderMode.
+2. **Không CLI mới**: Pre-render qua `python -m sync_engine.tuber_prerender`. MouthEvents tích hợp sẵn vào `build_group_manifest()`.
+3. **Backward compatible**: Manifest cũ không có mouthEvents → V1 legacy vẫn hoạt động.
+4. **TTS amplitude → mouthEvents**: Đọc WAV trực tiếp từ TTS clip path có sẵn trong TimelineSegment. Không cần build speech_control_audio.wav riêng.
+5. **Character box crop**: Pre-render output được crop từ 1920×1080 → kích thước ô character (vd 512×288) → composite với offset, giảm pixel xử lý ~14×.
+
+### Trạng thái
+- ✓ P1 (MouthEvents) + P2 (Pre-render) core code
+- ✓ Config + docs
+- ⬜ Test files: `test_tuber_mouth_events.py`, `test_tuber_prerender.py` (cần viết)
+- ⬜ Smoke test Colab
+- ⬜ Cleanup: xóa `remotion_tuber/` runtime calls khi V2 ổn định
+
+---
+
 ## 2026-06-03: MotionPNGTuber — implement Python orchestration + test suite
 
 ### Tóm tắt

@@ -113,6 +113,80 @@ def _abs(p) -> str:
     return str(Path(p).resolve())
 
 
+def compute_character_box(
+    character: Dict[str, Any],
+    width: int,
+    height: int,
+    track_aspect: float,
+) -> Dict[str, int]:
+    """Tính character box — mirror TS resolveCharacterBox width-priority.
+
+    Returns {compWidth, compHeight, compOffsetX, compOffsetY}.
+    """
+    w_src: Optional[int] = character.get("width")
+    if w_src is None and "widthRatio" in character:
+        w_src = round(character["widthRatio"] * width)
+
+    h_src: Optional[int] = character.get("height")
+    if h_src is None and "heightRatio" in character:
+        h_src = round(character["heightRatio"] * height)
+
+    if w_src is not None:
+        box_w = w_src
+        box_h = round(w_src / track_aspect)
+    elif h_src is not None:
+        box_h = h_src
+        box_w = round(h_src * track_aspect)
+    else:
+        box_h = round(0.6 * height)
+        box_w = round(box_h * track_aspect)
+
+    box_l = character.get("left")
+    if box_l is None:
+        box_l = round(character.get("leftRatio", 0.6) * width)
+
+    box_t = character.get("top")
+    if box_t is None:
+        box_t = round(character.get("topRatio", 0.3) * height)
+
+    return {
+        "compWidth": box_w,
+        "compHeight": box_h,
+        "compOffsetX": int(box_l),
+        "compOffsetY": int(box_t),
+    }
+
+
+def _build_segment_mouth_events(
+    seg: TimelineSegment,
+    fps_float: float,
+    tts_clip_dir: Optional[Path] = None,
+    mouth_opts: Optional[Dict[str, Any]] = None,
+) -> Optional[List[Dict[str, Any]]]:
+    """Build mouthEvents cho 1 segment (V2 mouth mode amplitude)."""
+    if not _seg_has_tts(seg):
+        return None
+    tts_path = None
+    if seg.tts_clip_path:
+        p = Path(seg.tts_clip_path)
+        if not p.is_absolute() and tts_clip_dir:
+            p = tts_clip_dir / p
+        if p.exists():
+            tts_path = p
+    if not tts_path:
+        return None
+    try:
+        from sync_engine.tuber_mouth_events import build_mouth_events_for_segment
+        n = segment_output_frames(seg, fps_float)
+        opts = dict(mouth_opts or {})
+        return build_mouth_events_for_segment(
+            0, n, True, tts_path, fps_float, **opts,
+        )
+    except Exception as exc:
+        logger.warning("Không build được mouthEvents cho segment: %s", exc)
+        return None
+
+
 def build_group_manifest(
     group: RenderGroup,
     *,
@@ -124,15 +198,21 @@ def build_group_manifest(
     character: Dict[str, Any],
     mouth_mode: str,
     group_dir: Path,
+    tts_clip_dir: Optional[Path] = None,
+    mouth_opts: Optional[Dict[str, Any]] = None,
+    track_aspect: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Phase H: dựng dict group_manifest.json cho 1 group (absolute paths)."""
+    """Phase H: dựng dict group_manifest.json cho 1 group (absolute paths).
+
+    Nếu mouth_mode != 'cue' và có mouth_opts, tự build mouthEvents khi export.
+    """
     seg_dicts: List[Dict[str, Any]] = []
     frame_cursor = group.group_start_frame
     for i, seg in enumerate(group.segments):
         n = segment_output_frames(seg, fps_float)
         start_f = frame_cursor
         end_f = frame_cursor + n
-        seg_dicts.append({
+        seg_dict: Dict[str, Any] = {
             "segmentIndex": i,
             "newStartMs": round(seg.new_start, 3),
             "newEndMs": round(seg.new_end, 3),
@@ -140,11 +220,31 @@ def build_group_manifest(
             "endFrame": end_f,
             "blockType": seg.block_type,
             "hasTts": _seg_has_tts(seg),
-        })
+        }
+        # TTS clip path cho Python-side mouthEvents build
+        if seg.tts_clip_path:
+            seg_dict["tts_clip_path"] = str(Path(seg.tts_clip_path).resolve())
+        seg_dicts.append(seg_dict)
         frame_cursor = end_f
 
+    # V2: build mouthEvents nếu mouth_mode != 'cue'
+    if mouth_mode != "cue" and mouth_opts:
+        mouth_events_map: Dict[str, Any] = {}
+        for sd in seg_dicts:
+            ev = _build_segment_mouth_events(
+                group.segments[sd["segmentIndex"]],
+                fps_float,
+                tts_clip_dir=tts_clip_dir,
+                mouth_opts=mouth_opts,
+            )
+            mouth_events_map[str(sd["segmentIndex"])] = ev
+        # Nhúng vào segment dict
+        for sd in seg_dicts:
+            sd["mouthEvents"] = mouth_events_map.get(str(sd["segmentIndex"]))
+
     overlay_dir = group_dir / "overlay_frames"
-    return {
+
+    manifest: Dict[str, Any] = {
         "schemaVersion": SCHEMA_VERSION,
         "groupId": group.group_id,
         "groupIndex": group.index,
@@ -167,8 +267,15 @@ def build_group_manifest(
         "mouth": {"mode": mouth_mode},
     }
 
+    # V2: nếu có track_aspect → thêm character box (compWidth/compHeight/compOffset)
+    if track_aspect and track_aspect > 0:
+        box = compute_character_box(character, width, height, track_aspect)
+        manifest["compWidth"] = box["compWidth"]
+        manifest["compHeight"] = box["compHeight"]
+        manifest["compOffsetX"] = box["compOffsetX"]
+        manifest["compOffsetY"] = box["compOffsetY"]
 
-def write_group_manifest(manifest: Dict[str, Any], group_dir: Path) -> Path:
+    return manifest
     group_dir.mkdir(parents=True, exist_ok=True)
     path = group_dir / "group_manifest.json"
     path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -194,9 +301,14 @@ def build_run_manifest(
     group_manifest_paths: List[Path],
     artifact_policy: Dict[str, str],
     tuber_config_raw: Dict[str, Any],
+    prerender_manifest_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """Phase H: dựng run_manifest.json (absolute paths)."""
-    return {
+    """Phase H: dựng run_manifest.json (absolute paths).
+
+    Args:
+        prerender_manifest_path: Path đến prerender_manifest.json (V2).
+    """
+    manifest = {
         "schemaVersion": SCHEMA_VERSION,
         "jobName": job_name,
         "fps": fps_float,
@@ -221,6 +333,9 @@ def build_run_manifest(
         "tuberConfig": tuber_config_raw,
         "groups": [_abs(p) for p in group_manifest_paths],
     }
+    if prerender_manifest_path:
+        manifest["prerenderManifest"] = _abs(prerender_manifest_path)
+    return manifest
 
 
 def write_run_manifest(manifest: Dict[str, Any], tuber_root: Path) -> Path:

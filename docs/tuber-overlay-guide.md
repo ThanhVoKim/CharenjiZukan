@@ -1,18 +1,32 @@
-# Hướng dẫn sử dụng Tuber Overlay (MotionPNGTuber + Remotion)
+# Hướng dẫn sử dụng Tuber Overlay (Pre-render mode)
 
 Dùng `--tuber-config` trong `sync-video` để kích hoạt overlay nhân vật ảo PNGTuber
-lên video output. Overlay được render bởi **Remotion** (subproject `remotion_tuber/`),
-orchestration do Python trong `sync_engine/tuber_*.py`.
+lên video output.
 
-## Kiến trúc
+**V2 — Pre-render mode (default):** Character frames được bake sẵn bằng Python/PIL
+(port thuật toán warp từ `remotion_tuber/`). Runtime thuần Python + FFmpeg, nhanh
+hơn Remotion ~100×, phù hợp video dài 2-3h.
+
+**V1 — Remotion mode (legacy):** Giữ nguyên code tham khảo `remotion_tuber/`,
+nhưng runtime ưu tiên pre-render.
+
+## Kiến trúc (V2 — Pre-render)
 
 ```
 sync_video (Python)
   → tuber_config: load & validate config JSON
-  → tuber_manifest: build render groups từ timeline, export manifest
-  → tuber_artifacts: promote media + final_render_inputs
-  → tuber_overlay: gọi Node render driver → composite overlay → concat
+  → tuber_manifest: build render groups từ timeline, export manifest + mouthEvents
+  → tuber_prerender: pre-render body×mouth frames (1 lần, offline)
+  → tuber_mouth_events: analyze TTS audio → mouthEvents per segment
+  → tuber_overlay: copy pre-rendered frames → composite overlay (FFmpeg) → concat
   → render_final_video (với video đã có tuber overlay)
+```
+
+**V1 (Remotion) — fallback khi chưa pre-render:**
+```
+  → prepare_assets (npm chromakey body)
+  → render-groups (npm bundle Remotion → renderFrames → PNG)
+  → composite overlay (FFmpeg) → concat
 ```
 
 > ⚠️ **Cập nhật đồng bộ tài liệu:** Mọi thay đổi về cấu hình JSON, tham số CLI, flow pipeline hay quy tắc mới (ví dụ thêm key config, sửa retry logic, đổi output structure...) phải được cập nhật đồng thời trong cả hai file: [`docs/tuber-overlay-guide.md](docs/tuber-overlay-guide.md) (hướng dẫn sử dụng) và [`remotion_tuber/README.md`](remotion_tuber/README.md) (tài liệu kỹ thuật subproject). Config là mặt phân cách (interface) giữa Python và TypeScript — nếu chỉ sửa một bên, tài liệu sẽ mâu thuẫn, gây nhầm lẫn cho người đọc hoặc Agent sau này.
@@ -77,11 +91,14 @@ tuber-output/<job>/tuber/
 
 ### `remotion` — cấu hình Remotion subproject
 
+> **Chỉ bắt buộc khi `overlay.mode` = `"remotion"` hoặc `"auto"`.**
+> Khi `overlay.mode = "prerender"`, section này có thể bỏ qua.
+
 | Key             | Kiểu     | Mặc định                     | Mô tả                                                    |
 | --------------- | -------- | ---------------------------- | -------------------------------------------------------- |
-| `projectDir`    | `string` | `"remotion_tuber"`           | Đường dẫn subproject Remotion. Bắt buộc.                 |
-| `compositionId` | `string` | `"TuberOverlay"`             | Composition ID trong Root.tsx. Bắt buộc.                 |
-| `entryPoint`    | `string` | `"src/index.ts"`             | Entry point cho Remotion bundle. Bắt buộc.               |
+| `projectDir`    | `string` | `"remotion_tuber"`           | Đường dẫn subproject Remotion. Bắt buộc (nếu dùng Remotion). |
+| `compositionId` | `string` | `"TuberOverlay"`             | Composition ID trong Root.tsx.                           |
+| `entryPoint`    | `string` | `"src/index.ts"`             | Entry point cho Remotion bundle.                         |
 | `renderDriver`  | `string` | `"scripts/render-groups.ts"` | Script render driver (bundle once → renderFrames/group). |
 
 ### `asset` — asset PNGTuber
@@ -94,6 +111,12 @@ tuber-output/<job>/tuber/
 | `mouthSprites` | `object` | `{closed, half, open}`            | Path tới 3 sprite mouth PNG (relative từ `assetDir`). Bắt buộc.              |
 | `bodySource`   | `string` | `"loop_mouthless_h264.mp4"`       | Video body loop không miệng, nền màu đặc. Bắt buộc.                          |
 | `chromakey`    | `object` | `{}`                              | Tham số chromakey cho body source.                                           |
+
+#### `asset.prerender` — pre-render character frames
+
+| Key            | Kiểu     | Mặc định | Mô tả                                                                                                                      |
+| -------------- | -------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `characterDir` | `string` | `null`   | Thư mục chứa pre-rendered frames + `prerender_manifest.json`. `null` → dùng `assetDir/prerendered` (tạo tự động nếu thiếu). |
 
 #### `asset.chromakey` — tham số chromakey
 
@@ -139,15 +162,28 @@ tuber-output/<job>/tuber/
 
 ### `mouth` — chế độ miệng
 
-| Key    | Kiểu     | Mặc định | Mô tả                                                                                    |
-| ------ | -------- | -------- | ---------------------------------------------------------------------------------------- |
-| `mode` | `string` | `"cue"`  | `"cue"` — miệng chạy theo `hasTts` trong manifest (V1). `"amplitude"` / `"hybrid"` — V2. |
+| Key            | Kiểu      | Mặc định   | Mô tả                                                                                                    |
+| -------------- | --------- | ---------- | -------------------------------------------------------------------------------------------------------- |
+| `mode`         | `string`  | `"cue"`    | `"cue"` V1 — dùng `hasTts`. `"amplitude"` V2 — phân tích RMS TTS audio → mouthEvents chính xác đến frame. |
+| `silenceDb`    | `number`  | `-40.0`    | Ngưỡng dB coi là im lặng (mode amplitude).                                                               |
+| `minSilenceMs` | `number`  | `200`      | Bỏ qua silence ngắn hơn (tránh miệng nhấp nháy).                                                         |
+| `cadenceMs`    | `number`  | `150`      | Tốc độ cadence khi đang nói (ms/state).                                                                  |
+| `mouthStates`  | `[string]`| `[...3]`   | Danh sách mouth states (mở rộng được).                                                                   |
 
-### `overlay` — format overlay
+### `overlay` — format overlay và mode render
 
-| Key      | Kiểu     | Mặc định         | Mô tả                                                                      |
-| -------- | -------- | ---------------- | -------------------------------------------------------------------------- |
-| `format` | `string` | `"png_sequence"` | `"png_sequence"` — PNG alpha sequence từng frame (V1). V2: WebM VP9 alpha. |
+| Key      | Kiểu     | Mặc định         | Mô tả                                                                                                     |
+| -------- | -------- | ---------------- | --------------------------------------------------------------------------------------------------------- |
+| `format` | `string` | `"png_sequence"` | `"png_sequence"` — PNG alpha sequence từng frame.                                                         |
+| `mode`   | `string` | `"auto"`         | Kiểm soát engine render: `"remotion"` / `"prerender"` / `"auto"`. Xem bảng dưới.                          |
+
+#### `overlay.mode` — lựa chọn engine render
+
+| Giá trị       | Hành vi                                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------- |
+| `"remotion"`  | Luôn dùng Remotion (Node + Chromium). Section `remotion` **bắt buộc**.                                        |
+| `"prerender"` | Luôn dùng pre-render Python/PIL. Nếu `prerender_manifest.json` chưa có → **tự động chạy** `prerender_character()`. Section `remotion` **không cần**. |
+| `"auto"`      | Auto-detect: nếu `prerender_manifest.json` tồn tại → pre-render; ngược lại → Remotion.                        |
 
 ### `artifactPolicy` — chính sách giữ/xóa artifact
 
@@ -190,16 +226,12 @@ tuber-output/<job>/tuber/
 
 ## Config mẫu đầy đủ
 
+### Prerender mode (khuyến nghị — không cần Remotion/Node)
+
 ```json
 {
-  "enabled": false,
+  "enabled": true,
   "outputDir": "tuber-output",
-  "remotion": {
-    "projectDir": "remotion_tuber",
-    "compositionId": "TuberOverlay",
-    "entryPoint": "src/index.ts",
-    "renderDriver": "scripts/render-groups.ts"
-  },
   "asset": {
     "assetDir": "assets/pngtuber/nike_loop_fix",
     "assetId": "nike_loop_fix",
@@ -214,6 +246,9 @@ tuber-output/<job>/tuber/
       "color": "0x08A702",
       "similarity": 0.12,
       "blend": 0.1
+    },
+    "prerender": {
+      "characterDir": null
     }
   },
   "character": {
@@ -227,10 +262,15 @@ tuber-output/<job>/tuber/
     "paddingSec": 0
   },
   "mouth": {
-    "mode": "cue"
+    "mode": "amplitude",
+    "silenceDb": -40.0,
+    "minSilenceMs": 200,
+    "cadenceMs": 150,
+    "mouthStates": ["closed", "half", "open"]
   },
   "overlay": {
-    "format": "png_sequence"
+    "format": "png_sequence",
+    "mode": "prerender"
   },
   "artifactPolicy": {
     "mode": "repairable"
@@ -245,7 +285,42 @@ tuber-output/<job>/tuber/
 }
 ```
 
----
+### Remotion mode (legacy — cần Node.js + Remotion)
+
+```json
+{
+  "enabled": true,
+  "outputDir": "tuber-output",
+  "remotion": {
+    "projectDir": "remotion_tuber",
+    "compositionId": "TuberOverlay",
+    "entryPoint": "src/index.ts",
+    "renderDriver": "scripts/render-groups.ts"
+  },
+  "asset": {
+    "assetDir": "assets/pngtuber/nike_loop_fix",
+    "mouthTrack": "mouth_track.json",
+    "mouthSprites": {
+      "closed": "mouth/closed.png",
+      "half": "mouth/half.png",
+      "open": "mouth/open.png"
+    },
+    "bodySource": "loop_mouthless_h264.mp4",
+    "chromakey": { "color": "0x08A702", "similarity": 0.12, "blend": 0.1 }
+  },
+  "character": { "left": 1280, "top": 360, "width": 512, "clipInset": "0px" },
+  "grouping": { "maxGroupSec": 300, "paddingSec": 0 },
+  "mouth": { "mode": "cue" },
+  "overlay": { "format": "png_sequence", "mode": "remotion" },
+  "artifactPolicy": { "mode": "repairable" },
+  "repair": { "defaultOutputSuffix": "_with_tuber" },
+  "retry": { "retryAttempts": 3, "onExhausted": "render_without_tuber" }
+}
+```
+
+> **Pre-render auto-run:** Khi `overlay.mode = "prerender"` và `prerender_manifest.json`
+> chưa tồn tại, pipeline **tự động chạy** `prerender_character()` (cần `body-transparent/`
+> đã qua chromakey, `mouth/`, `mouth_track.json`). Lần sau có manifest → dùng luôn, skip pre-render.
 
 ## CLI `tuber-repair`
 

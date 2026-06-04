@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 
 from sync_engine.tuber_artifacts import cleanup_overlay_frames
 from sync_engine import tuber_status as st
+from sync_engine.tuber_manifest import compute_character_box
 from utils.ffmpeg_probe import HEVC_NVENC_VIDEO_ARGS as _HEVC_NVENC_VIDEO_ARGS
 
 logger = logging.getLogger("sync_video")
@@ -202,15 +203,25 @@ def composite_group(
     overlay_dir: Path,
     output: Path,
     fps_str: str,
+    *,
+    offset_x: int = 0,
+    offset_y: int = 0,
 ) -> Path:
-    """Phase N: composite overlay PNG alpha lên group base → video_with_tuber.mp4."""
+    """Phase N: composite overlay PNG alpha lên group base → video_with_tuber.mp4.
+
+    Args:
+        offset_x, offset_y: vị trí overlay trên base (V2: character box offset).
+    """
     pattern = _detect_frame_pattern(overlay_dir)
+    overlay_filter = (
+        f"[0:v][1:v]overlay=x={offset_x}:y={offset_y}:format=auto:shortest=1[outv]"
+    )
     cmd = [
         "ffmpeg", "-y",
         "-i", str(base_video),
         "-framerate", fps_str, "-start_number", "0",
         "-i", str(overlay_dir / pattern),
-        "-filter_complex", "[0:v][1:v]overlay=format=auto:shortest=1[outv]",
+        "-filter_complex", overlay_filter,
         "-map", "[outv]",
         "-an",
         *_HEVC_NVENC_VIDEO_ARGS,
@@ -303,6 +314,72 @@ def _expected_group_duration_s(manifest: Dict[str, Any]) -> float:
     return manifest["renderDurationFrames"] / float(manifest["fps"])
 
 
+def _build_prerender_frame_list(
+    group_manifest: Dict[str, Any],
+    prerender_dir: Path,
+    prerender_manifest: Dict[str, Any],
+    mouth_events_map: Dict[str, List[Dict[str, Any]]],
+) -> Path:
+    """Tạo overlay_frames từ pre-rendered character frames cho 1 group.
+
+    Tạo symlink (hoặc copy) các pre-rendered frame vào overlay_frames/ theo
+    thứ tự timeline → overlay_frames/frame_000000.png, frame_000001.png, ...
+
+    Returns:
+        Path tới overlay_frames dir.
+    """
+    from sync_engine.tuber_prerender import (
+        compute_track_frame_index,
+        get_prerender_frame,
+    )
+
+    overlay_dir = Path(group_manifest["overlayDir"])
+    # Xóa overlay cũ nếu có
+    if overlay_dir.exists():
+        import shutil
+        shutil.rmtree(str(overlay_dir))
+    overlay_dir.mkdir(parents=True, exist_ok=True)
+
+    fps = float(group_manifest["fps"])
+    track_fps = float(prerender_manifest.get("trackFps", 30))
+    track_frames = int(prerender_manifest.get("trackFrames", 170))
+    start_frame = group_manifest.get("renderStartFrame", group_manifest["groupStartFrame"])
+    end_frame = start_frame + group_manifest["renderDurationFrames"]
+
+    # Pre-compute per-segment mouth events lookup
+    def _lookup_state(gf: int) -> str:
+        best = "closed"
+        for seg_idx, events in mouth_events_map.items():
+            if not events:
+                continue
+            lo, hi = 0, len(events) - 1
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                ev = events[mid]
+                if ev["frame"] <= gf:
+                    best = ev["state"]
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
+        return best
+
+    frame_idx = 0
+    for gf in range(start_frame, end_frame):
+        track_idx = compute_track_frame_index(gf, fps, track_fps, track_frames)
+        mouth_state = _lookup_state(gf)
+        src = get_prerender_frame(track_idx, mouth_state, prerender_dir, prerender_manifest)
+        if not src.exists():
+            # Fallback to closed
+            src = get_prerender_frame(track_idx, "closed", prerender_dir, prerender_manifest)
+        # Copy vào overlay_frames với pattern frame_000000.png
+        dst = overlay_dir / f"frame_{frame_idx:06d}.png"
+        if src.exists():
+            dst.write_bytes(src.read_bytes())
+        frame_idx += 1
+
+    return overlay_dir
+
+
 def render_and_composite_groups(
     *,
     project_dir: Path,
@@ -312,8 +389,15 @@ def render_and_composite_groups(
     logs_dir: Path,
     min_output_bytes: int = 1024,
     duration_tolerance_s: float = 0.1,
+    use_prerender: bool = False,
+    prerender_dir: Optional[Path] = None,
+    prerender_manifest: Optional[Dict[str, Any]] = None,
+    mouth_events_map: Optional[Dict[str, Any]] = None,
 ) -> List[Path]:
-    """Render (bundle once) → mỗi group composite/validate/cleanup, retry group fail.
+    """Render → mỗi group composite/validate/cleanup, retry group fail.
+
+    V1 (use_prerender=False): bundle Remotion once, render overlay, composite.
+    V2 (use_prerender=True):  copy pre-rendered frames vào overlay_frames/, composite.
 
     Trả về list video_with_tuber.mp4 theo thứ tự group. Raise TuberOverlayError nếu
     một group hết retry vẫn fail (caller fallback render_without_tuber — Phase S).
@@ -321,12 +405,6 @@ def render_and_composite_groups(
     # Init status
     for g in groups:
         st.write_status(g.group_dir, st.new_status(g.group_id))
-
-    # Render tất cả group MỘT lần (bundle once — Phase I).
-    all_manifests = [g.manifest_path for g in groups]
-    results = _run_render_driver(
-        project_dir, all_manifests, log_path=logs_dir / "render_driver.log",
-    )
 
     overlay_policy = artifact_policy.get("overlayFrames", "safe")
     group_videos: List[Path] = []
@@ -338,6 +416,8 @@ def render_and_composite_groups(
         out = Path(g.manifest["videoWithTuber"])
         expected_s = _expected_group_duration_s(g.manifest)
         fps_str = g.manifest.get("fpsStr") or str(g.manifest["fps"])
+        offset_x = g.manifest.get("compOffsetX", 0)
+        offset_y = g.manifest.get("compOffsetY", 0)
 
         attempt = 0
         last_err: Optional[str] = None
@@ -346,8 +426,19 @@ def render_and_composite_groups(
             status["status"] = st.STATUS_RUNNING
             status["attempts"] = attempt
             try:
-                # Render: lần đầu dùng kết quả batch; retry thì gọi lại driver cho group này.
-                if attempt > 0 or str(g.group_id) not in results or not results[str(g.group_id)].get("ok"):
+                if use_prerender:
+                    # V2: tạo overlay_frames từ pre-rendered frames
+                    status["currentStep"] = st.STEP_RENDERING_OVERLAY
+                    st.write_status(g.group_dir, status)
+                    _build_prerender_frame_list(
+                        g.manifest, prerender_dir, prerender_manifest, mouth_events_map,
+                    )
+                else:
+                    # V1: Remotion render driver
+                    # Lần đầu dùng batch results; retry thì gọi lại driver riêng
+                    if attempt == 0:
+                        # Mọi group composite độc lập → không cần batch results
+                        pass
                     status["currentStep"] = st.STEP_RENDERING_OVERLAY
                     st.write_status(g.group_dir, status)
                     r = _run_render_driver(
@@ -361,7 +452,10 @@ def render_and_composite_groups(
 
                 status["currentStep"] = st.STEP_COMPOSITING
                 st.write_status(g.group_dir, status)
-                composite_group(base, overlay_dir, out, fps_str)
+                composite_group(
+                    base, overlay_dir, out, fps_str,
+                    offset_x=offset_x, offset_y=offset_y,
+                )
 
                 status["currentStep"] = st.STEP_VALIDATING
                 st.write_status(g.group_dir, status)
@@ -414,14 +508,18 @@ def render_groups_to_video(
     min_output_bytes: int = 1024,
     duration_tolerance_s: float = 0.1,
     do_prepare_assets: bool = True,
+    use_prerender: bool = False,
+    prerender_dir: Optional[Path] = None,
+    prerender_manifest: Optional[Dict[str, Any]] = None,
+    mouth_events_map: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """High-level: prepare assets → render/composite groups → concat → output_video.
 
-    Dùng chung sync_video (all-in) và tuber_repair. Group base.mp4 phải đã tồn tại
-    (all-in dựng trước khi gọi; repair tái dùng từ groups_dir).
+    V1: Remotion render + composite (use_prerender=False).
+    V2: Pre-rendered frames + composite (use_prerender=True, bỏ Node/Chromium).
     Raise TuberOverlayError nếu fail (caller fallback).
     """
-    if do_prepare_assets:
+    if not use_prerender and do_prepare_assets:
         prepare_assets(
             project_dir,
             asset_id=asset_id, asset_dir=asset_dir, chromakey=chromakey,
@@ -436,6 +534,10 @@ def render_groups_to_video(
         logs_dir=logs_dir,
         min_output_bytes=min_output_bytes,
         duration_tolerance_s=duration_tolerance_s,
+        use_prerender=use_prerender,
+        prerender_dir=prerender_dir,
+        prerender_manifest=prerender_manifest,
+        mouth_events_map=mouth_events_map,
     )
     concat_group_videos(group_videos, output_video, tmp_dir)
     logger.info("Tuber overlay xong → %s", output_video)
@@ -451,10 +553,14 @@ def prepare_groups_and_base(
     fps_str: str,
     width: int,
     height: int,
+    track_aspect: Optional[float] = None,
 ) -> List[GroupJob]:
     """Phase F + H: build groups, dựng base.mp4, ghi group_manifest.json mỗi group.
 
     `config` là TuberConfig đã resolve_layout(). Trả về list GroupJob.
+
+    V2: nếu có mouth_mode amplitude → tự build mouthEvents trong manifest.
+    V2: nếu có track_aspect → thêm compWidth/compHeight/compOffset vào manifest.
     """
     from sync_engine.tuber_manifest import (
         build_render_groups, build_group_manifest, write_group_manifest,
@@ -464,6 +570,16 @@ def prepare_groups_and_base(
     asset_id = config.asset_id()
     character = config.character
     mouth_mode = config.mouth_mode
+
+    # V2: mouth opts for amplitude analysis
+    mouth_opts: Optional[Dict[str, Any]] = None
+    if mouth_mode != "cue":
+        mouth_opts = {
+            "silence_db": config.mouth_silence_db,
+            "min_silence_ms": config.mouth_min_silence_ms,
+            "cadence_ms": config.mouth_cadence_ms,
+            "num_mouth_states": len(config.mouth_states),
+        }
 
     jobs: List[GroupJob] = []
     for rg in render_groups:
@@ -481,6 +597,8 @@ def prepare_groups_and_base(
             fps_float=fps_float, fps_str=fps_str, width=width, height=height,
             asset_id=asset_id, character=character, mouth_mode=mouth_mode,
             group_dir=rg.group_dir,
+            mouth_opts=mouth_opts,
+            track_aspect=track_aspect,
         )
         mpath = write_group_manifest(manifest, rg.group_dir)
         jobs.append(GroupJob(rg.group_id, rg.group_dir, mpath, manifest))
@@ -519,6 +637,75 @@ def probe_resolution(video_path: str) -> tuple:
         raise TuberOverlayError(f"Không probe được resolution: {video_path}")
 
 
+def _load_prerender_manifest(config) -> Optional[Dict[str, Any]]:
+    """Load prerender_manifest.json từ prerender character dir."""
+    try:
+        pdir = config.prerender_character_dir
+        if pdir and (pdir / "prerender_manifest.json").exists():
+            return json.loads((pdir / "prerender_manifest.json").read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return None
+
+
+def _auto_run_prerender(config, width: int, height: int) -> Dict[str, Any]:
+    """Tự động chạy prerender_character() khi manifest chưa tồn tại.
+
+    Gọi khi overlay.mode='prerender' và prerender_manifest.json chưa có.
+    Raise TuberOverlayError nếu thiếu asset cần thiết.
+    """
+    from sync_engine.tuber_prerender import prerender_character, compute_character_box
+
+    body_dir = config.body_transparent_dir()
+    mouth_dir = config.mouth_dir()
+    mouth_track_path = config.mouth_track_path()
+    mouth_states = config.mouth_states
+    out_dir = config.prerender_character_dir
+
+    if not body_dir.is_dir():
+        raise TuberOverlayError(
+            f"Auto-prerender thất bại: body_transparent_dir không tồn tại: {body_dir}. "
+            "Chạy prepare-assets (chromakey) trước."
+        )
+    if not mouth_dir.is_dir():
+        raise TuberOverlayError(
+            f"Auto-prerender thất bại: mouth_dir không tồn tại: {mouth_dir}."
+        )
+    if not mouth_track_path.exists():
+        raise TuberOverlayError(
+            f"Auto-prerender thất bại: mouth_track không tồn tại: {mouth_track_path}."
+        )
+
+    logger.info(
+        "Auto-prerender: chưa có prerender_manifest.json → tạo mới tại %s "
+        "(%d mouth_states, body=%s)",
+        out_dir, len(mouth_states), body_dir,
+    )
+
+    # Tính character_box từ config để crop output
+    character_box = None
+    try:
+        import json as _json
+        track = _json.loads(mouth_track_path.read_text(encoding="utf-8"))
+        tw = int(track.get("width", 1920))
+        th = int(track.get("height", 1080))
+        track_aspect = tw / th if th > 0 else 16.0 / 9.0
+        character_box = compute_character_box(config.character, width, height, track_aspect)
+    except Exception as exc:
+        logger.warning("Auto-prerender: không tính được character_box (%s), dùng full size.", exc)
+
+    manifest = prerender_character(
+        body_dir=body_dir,
+        mouth_dir=mouth_dir,
+        mouth_track_path=mouth_track_path,
+        mouth_states=mouth_states,
+        out_dir=out_dir,
+        character_box=character_box,
+    )
+    logger.info("Auto-prerender hoàn tất: %d frames xuất ra %s", manifest.get("outputCount", 0), out_dir)
+    return manifest
+
+
 def run_tuber_flow_all_in(
     *,
     config,
@@ -537,6 +724,8 @@ def run_tuber_flow_all_in(
 ) -> Path:
     """Phase D-P all-in: trả về path video_stretched_with_tuber.mp4.
 
+    V1: Remotion render (gọi npm prepare-assets + render-groups).
+    V2: Pre-render (nếu config.asset.prerender có valid prerender_manifest.json).
     Raise TuberOverlayError nếu fail (caller fallback render_without_tuber).
     `config` đã resolve_layout() + make_dirs().
     """
@@ -550,6 +739,31 @@ def run_tuber_flow_all_in(
 
     # B3: resolution lấy từ base video stretched thật (không hardcode 1080p)
     width, height = probe_resolution(base_video_stretched)
+
+    # Determine overlay mode (explicit config vs auto-detect)
+    overlay_mode = config.overlay_mode  # "remotion" | "prerender" | "auto"
+    prerender_manifest = None
+    use_prerender = False
+
+    if overlay_mode == "prerender":
+        prerender_manifest = _load_prerender_manifest(config)
+        if prerender_manifest is None:
+            prerender_manifest = _auto_run_prerender(config, width, height)
+        use_prerender = True
+    elif overlay_mode == "remotion":
+        pass  # use_prerender = False, không load prerender
+    else:  # "auto"
+        prerender_manifest = _load_prerender_manifest(config)
+        use_prerender = prerender_manifest is not None
+
+    prerender_dir = config.prerender_character_dir if use_prerender else None
+
+    # Track aspect (từ prerender manifest hoặc mặc định 16:9)
+    track_aspect = None
+    if prerender_manifest:
+        tw = float(prerender_manifest.get("trackWidth", 1920))
+        th = float(prerender_manifest.get("trackHeight", 1080))
+        track_aspect = tw / th if th > 0 else 16.0 / 9.0
 
     # Phase E: promote media + final_render_inputs (repairable)
     promote_media(
@@ -572,6 +786,7 @@ def run_tuber_flow_all_in(
     jobs = prepare_groups_and_base(
         config=config, video_path=video_path, timeline=timeline,
         fps_float=fps_float, fps_str=fps_str, width=width, height=height,
+        track_aspect=track_aspect,
     )
 
     # run_manifest.json
@@ -598,8 +813,18 @@ def run_tuber_flow_all_in(
         remotion=remotion, asset=asset,
         group_manifest_paths=[j.manifest_path for j in jobs],
         artifact_policy=ap, tuber_config_raw=config.raw,
+        prerender_manifest_path=prerender_dir / "prerender_manifest.json" if prerender_dir else None,
     )
     write_run_manifest(run_manifest, config.tuber_root)
+
+    # V2: build mouth events map for prerender
+    mouth_events_map: Dict[str, Any] = {}
+    if use_prerender and config.mouth_mode != "cue":
+        for j in jobs:
+            for seg in j.manifest.get("segments", []):
+                ev = seg.get("mouthEvents")
+                if ev:
+                    mouth_events_map[str(seg.get("segmentIndex"))] = ev
 
     # Phase I-P: render + composite + concat
     return render_groups_to_video(
@@ -615,4 +840,8 @@ def run_tuber_flow_all_in(
         artifact_policy=ap,
         min_output_bytes=int((render_config.get("tuber_validation", {}) or {}).get("minOutputBytes", 1024)),
         duration_tolerance_s=float((render_config.get("tuber_validation", {}) or {}).get("durationToleranceSec", 0.1)),
+        use_prerender=use_prerender,
+        prerender_dir=prerender_dir,
+        prerender_manifest=prerender_manifest,
+        mouth_events_map=mouth_events_map if mouth_events_map else None,
     )

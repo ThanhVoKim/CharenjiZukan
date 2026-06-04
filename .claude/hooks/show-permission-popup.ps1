@@ -9,7 +9,7 @@ Add-Type -AssemblyName System.Drawing
 
 # Build the popup form
 $form = New-Object System.Windows.Forms.Form
-$form.Text           = "Claude Code - Xác nhận yêu cầu"
+$form.Text           = "Claude Code - Confirmation Required"
 $form.Size           = New-Object System.Drawing.Size(460, 160)
 $form.StartPosition  = "CenterScreen"
 $form.TopMost        = $true
@@ -19,7 +19,7 @@ $form.BackColor      = [System.Drawing.Color]::FromArgb(255, 248, 225)  # light 
 
 # --- Title label ---
 $title = New-Object System.Windows.Forms.Label
-$title.Text      = "Claude đang chờ xác nhận của bạn!"
+$title.Text      = "Claude is waiting for your confirmation!"
 $title.AutoSize  = $true
 $title.Font      = New-Object System.Drawing.Font("Segoe UI", 13, [System.Drawing.FontStyle]::Bold)
 $title.ForeColor = [System.Drawing.Color]::FromArgb(180, 80, 0)
@@ -28,7 +28,7 @@ $form.Controls.Add($title)
 
 # --- Subtitle label ---
 $sub = New-Object System.Windows.Forms.Label
-$sub.Text      = "Vui lòng kiểm tra terminal Claude Code để phê duyệt."
+$sub.Text      = "Please check the Claude Code terminal to approve."
 $sub.AutoSize  = $true
 $sub.Font      = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Regular)
 $sub.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
@@ -37,7 +37,7 @@ $form.Controls.Add($sub)
 
 # --- Countdown label ---
 $countdown = New-Object System.Windows.Forms.Label
-$countdown.Text      = "Tự đóng sau 3s..."
+$countdown.Text      = "Auto-closing in 3s..."
 $countdown.AutoSize  = $true
 $countdown.Font      = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Italic)
 $countdown.ForeColor = [System.Drawing.Color]::Gray

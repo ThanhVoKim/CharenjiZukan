@@ -1,6 +1,10 @@
 {
-  "enabled": false,
+  "enabled": true,
   "outputDir": "tuber-output",
+  "overlay": {
+    "format": "png_sequence",
+    "mode": "prerender"
+  },
   "remotion": {
     "projectDir": "remotion_tuber",
     "compositionId": "TuberOverlay",
@@ -21,6 +25,9 @@
       "color": "0x08A702",
       "similarity": 0.12,
       "blend": 0.1
+    },
+    "prerender": {
+      "characterDir": null
     }
   },
   "character": {
@@ -34,10 +41,15 @@
     "paddingSec": 0
   },
   "mouth": {
-    "mode": "cue"
-  },
-  "overlay": {
-    "format": "png_sequence"
+    "mode": "amplitude",
+    "silenceDb": -40.0,
+    "minSilenceMs": 200,
+    "cadenceMs": 150,
+    "mouthStates": [
+      "closed",
+      "half",
+      "open"
+    ]
   },
   "artifactPolicy": {
     "mode": "repairable"

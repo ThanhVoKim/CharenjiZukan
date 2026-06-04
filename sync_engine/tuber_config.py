@@ -36,9 +36,6 @@ _REPAIRABLE_DEFAULTS = {
 
 # Các key tối thiểu bắt buộc khi enabled=true (Phase A bước 5).
 _REQUIRED_KEYS = [
-    "remotion.projectDir",
-    "remotion.compositionId",
-    "remotion.entryPoint",
     "asset.assetDir",
     "asset.mouthTrack",
     "asset.mouthSprites",
@@ -47,6 +44,13 @@ _REQUIRED_KEYS = [
     "overlay.format",
     "retry.retryAttempts",
     "retry.onExhausted",
+]
+
+# Các key Remotion — chỉ bắt buộc khi overlay.mode != "prerender".
+_REMOTION_REQUIRED_KEYS = [
+    "remotion.projectDir",
+    "remotion.compositionId",
+    "remotion.entryPoint",
 ]
 
 
@@ -94,8 +98,47 @@ class TuberConfig:
         return _get_nested(self.raw, "overlay.format") or "png_sequence"
 
     @property
+    def overlay_mode(self) -> str:
+        """Mode kiểm soát render: 'remotion' | 'prerender' | 'auto' (default).
+
+        'remotion' → luôn dùng Remotion, bỏ qua prerender_manifest.json.
+        'prerender' → bắt buộc dùng pre-render, lỗi nếu không có manifest.
+        'auto' → auto-detect: dùng prerender nếu có manifest, ngược lại Remotion.
+        """
+        mode = _get_nested(self.raw, "overlay.mode")
+        if mode in ("remotion", "prerender", "auto"):
+            return mode
+        return "auto"
+
+    @property
     def mouth_mode(self) -> str:
         return _get_nested(self.raw, "mouth.mode") or "cue"
+
+    @property
+    def mouth_silence_db(self) -> float:
+        return float(_get_nested(self.raw, "mouth.silenceDb") or -40.0)
+
+    @property
+    def mouth_min_silence_ms(self) -> float:
+        return float(_get_nested(self.raw, "mouth.minSilenceMs") or 200.0)
+
+    @property
+    def mouth_cadence_ms(self) -> float:
+        return float(_get_nested(self.raw, "mouth.cadenceMs") or 150.0)
+
+    @property
+    def mouth_states(self) -> list:
+        states = _get_nested(self.raw, "mouth.mouthStates")
+        return list(states) if states else ["closed", "half", "open"]
+
+    @property
+    def prerender_character_dir(self) -> Optional[Path]:
+        """Path to prerendered character dir (có thể relative). None = chưa pre-render."""
+        cd = _get_nested(self.raw, "asset.prerender.characterDir")
+        if cd:
+            return self._abs(str(cd))
+        # Default: assetDir / prerendered
+        return self.asset_dir() / "prerendered"
 
     @property
     def retry_attempts(self) -> int:
@@ -145,6 +188,24 @@ class TuberConfig:
     def asset_dir(self) -> Path:
         return self._abs(_get_nested(self.raw, "asset.assetDir"))
 
+    def mouth_track_path(self) -> Path:
+        rel = _get_nested(self.raw, "asset.mouthTrack") or "mouth_track.json"
+        p = Path(rel)
+        return p if p.is_absolute() else self.asset_dir() / p
+
+    def mouth_dir(self) -> Path:
+        """Thư mục chứa mouth sprites (lấy từ dir của sprite đầu tiên trong mouthSprites)."""
+        sprites = _get_nested(self.raw, "asset.mouthSprites") or {}
+        for rel in sprites.values():
+            p = Path(rel)
+            d = (self.asset_dir() / p).parent if not p.is_absolute() else p.parent
+            return d
+        return self.asset_dir() / "mouth"
+
+    def body_transparent_dir(self) -> Path:
+        """Thư mục body-transparent (PNG frames sau chromakey). Convention: assetDir/body-transparent."""
+        return self.asset_dir() / "body-transparent"
+
     def asset_id(self) -> str:
         """assetId = tên thư mục asset (dùng cho public/pngtuber/<id>)."""
         explicit = _get_nested(self.raw, "asset.assetId")
@@ -189,6 +250,12 @@ def _validate_required(raw: Dict[str, Any]) -> List[str]:
     for key in _REQUIRED_KEYS:
         if _get_nested(raw, key) in (None, ""):
             missing.append(key)
+    # Remotion keys chỉ bắt buộc khi overlay.mode != "prerender"
+    overlay_mode = _get_nested(raw, "overlay.mode")
+    if overlay_mode != "prerender":
+        for key in _REMOTION_REQUIRED_KEYS:
+            if _get_nested(raw, key) in (None, ""):
+                missing.append(key)
     return missing
 
 
