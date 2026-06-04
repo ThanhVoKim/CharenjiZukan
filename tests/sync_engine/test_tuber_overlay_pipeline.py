@@ -649,7 +649,7 @@ class TestLayer3_RetryAndCleanup:
             }
             # Mock composite: copy base → video_with_tuber (không cần NVENC)
             def fake_composite(base_video, overlay_dir, output, fps_str,
-                               *, offset_x=0, offset_y=0, scale_w=None, scale_h=None):
+                               *, offset_x=0, offset_y=0):
                 import shutil as _shutil
                 _shutil.copy2(str(base_video), str(output))
                 return output
@@ -687,7 +687,7 @@ class TestLayer3_RetryAndCleanup:
             return {"group_0001": {"groupId": "group_0001", "ok": True, "frames": 3}}
 
         def fake_composite(base_video, overlay_dir, output, fps_str,
-                           *, offset_x=0, offset_y=0, scale_w=None, scale_h=None):
+                           *, offset_x=0, offset_y=0):
             import shutil as _shutil
             _shutil.copy2(str(base_video), str(output))
             return output
