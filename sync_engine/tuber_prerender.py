@@ -366,6 +366,117 @@ def compute_character_box(
     }
 
 
+# ── Chromakey extract ─────────────────────────────────────────────────────
+
+def _auto_detect_chroma_color(video_path: Path) -> str:
+    """Lấy màu nền từ 4 góc frame đầu tiên (median RGB) → '0xRRGGBB'.
+
+    Port từ prepare-assets.ts auto-detect logic.
+    Dùng ffmpeg crop 80x80 từ 4 góc → lấy pixel trung bình → median 4 góc.
+    Fallback '0x00FF00' nếu không probe được.
+    """
+    import subprocess
+    import struct
+
+    corners = []
+    # 4 góc: top-left, top-right, bottom-left, bottom-right
+    crops = ["crop=80:80:0:0", "crop=80:80:iw-80:0", "crop=80:80:0:ih-80", "crop=80:80:iw-80:ih-80"]
+    for crop in crops:
+        try:
+            cmd = [
+                "ffmpeg", "-y", "-i", str(video_path),
+                "-vf", f"{crop},scale=1:1:flags=area",
+                "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1",
+            ]
+            result = subprocess.run(cmd, capture_output=True, timeout=15)
+            if result.returncode == 0 and len(result.stdout) >= 3:
+                r, g, b = result.stdout[0], result.stdout[1], result.stdout[2]
+                corners.append((r, g, b))
+        except Exception:
+            pass
+
+    if not corners:
+        logger.warning("Auto-detect chroma color thất bại → fallback 0x00FF00")
+        return "0x00FF00"
+
+    # Median từng channel
+    r = sorted(c[0] for c in corners)[len(corners) // 2]
+    g = sorted(c[1] for c in corners)[len(corners) // 2]
+    b = sorted(c[2] for c in corners)[len(corners) // 2]
+    color = f"0x{r:02X}{g:02X}{b:02X}"
+    logger.info("Auto-detect chroma color: %s", color)
+    return color
+
+
+def extract_body_transparent(
+    body_source: Path,
+    out_dir: Path,
+    *,
+    chroma_color: Optional[str] = None,
+    similarity: float = 0.10,
+    blend: float = 0.10,
+) -> Path:
+    """Extract body frames từ video source với chromakey → RGBA PNG sequence.
+
+    Port từ remotion_tuber/scripts/prepare-assets.ts.
+
+    Args:
+        body_source: Path tới video body loop (nền màu đặc, vd green).
+        out_dir: Output dir cho frame-NNN.png (tạo tự động nếu chưa có).
+        chroma_color: Màu nền dạng '0xRRGGBB'. None → auto-detect từ 4 góc.
+        similarity: FFmpeg chromakey similarity (0–1). Default 0.10.
+        blend: FFmpeg chromakey blend (0–1). Default 0.10.
+
+    Returns:
+        out_dir path.
+
+    Raises:
+        FileNotFoundError: body_source không tồn tại.
+        RuntimeError: FFmpeg thất bại.
+    """
+    import subprocess
+
+    if not body_source.exists():
+        raise FileNotFoundError(f"bodySource không tồn tại: {body_source}")
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if chroma_color is None:
+        chroma_color = _auto_detect_chroma_color(body_source)
+
+    # Normalize: '0xRRGGBB' → '0xRRGGBB' (FFmpeg dùng 0x prefix)
+    color_ffmpeg = chroma_color.replace("#", "0x")
+
+    vf = f"chromakey={color_ffmpeg}:{similarity}:{blend},format=rgba"
+    out_pattern = str(out_dir / "frame-%03d.png")
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(body_source),
+        "-vf", vf,
+        "-vsync", "0",
+        "-start_number", "0",
+        out_pattern,
+    ]
+
+    logger.info(
+        "extract_body_transparent: chromakey %s sim=%.2f blend=%.2f → %s",
+        color_ffmpeg, similarity, blend, out_dir,
+    )
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"FFmpeg chromakey thất bại (code {result.returncode}):\n{result.stderr[-1000:]}"
+        )
+
+    frames = list(out_dir.glob("frame-*.png"))
+    logger.info("extract_body_transparent: %d frames xuất ra %s", len(frames), out_dir)
+    if not frames:
+        raise RuntimeError(f"FFmpeg chạy xong nhưng không có frame nào trong {out_dir}")
+
+    return out_dir
+
+
 # ── Pre-render all body×mouth ─────────────────────────────────────────────
 
 def prerender_character(

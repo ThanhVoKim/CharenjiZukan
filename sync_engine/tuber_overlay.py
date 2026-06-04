@@ -649,12 +649,15 @@ def _load_prerender_manifest(config) -> Optional[Dict[str, Any]]:
 
 
 def _auto_run_prerender(config, width: int, height: int) -> Dict[str, Any]:
-    """Tự động chạy prerender_character() khi manifest chưa tồn tại.
+    """Tự động chạy chromakey + prerender_character() khi chưa có manifest.
 
     Gọi khi overlay.mode='prerender' và prerender_manifest.json chưa có.
-    Raise TuberOverlayError nếu thiếu asset cần thiết.
+    Nếu body-transparent/ chưa có → tự chạy FFmpeg chromakey từ bodySource trước.
+    Raise TuberOverlayError nếu thiếu asset không thể tự tạo (mouth_dir, mouth_track).
     """
-    from sync_engine.tuber_prerender import prerender_character, compute_character_box
+    from sync_engine.tuber_prerender import (
+        prerender_character, compute_character_box, extract_body_transparent,
+    )
 
     body_dir = config.body_transparent_dir()
     mouth_dir = config.mouth_dir()
@@ -662,11 +665,31 @@ def _auto_run_prerender(config, width: int, height: int) -> Dict[str, Any]:
     mouth_states = config.mouth_states
     out_dir = config.prerender_character_dir
 
-    if not body_dir.is_dir():
-        raise TuberOverlayError(
-            f"Auto-prerender thất bại: body_transparent_dir không tồn tại: {body_dir}. "
-            "Chạy prepare-assets (chromakey) trước."
+    # Auto-chromakey: nếu body-transparent/ chưa có → tạo từ bodySource
+    if not body_dir.is_dir() or not any(body_dir.glob("frame-*.png")):
+        from sync_engine.tuber_config import _get_nested
+        body_source_rel = _get_nested(config.raw, "asset.bodySource")
+        body_source = config.asset_dir() / body_source_rel if body_source_rel else None
+        if not body_source or not body_source.exists():
+            raise TuberOverlayError(
+                f"Auto-prerender thất bại: body-transparent/ chưa có và bodySource "
+                f"không tìm thấy: {body_source}."
+            )
+        ck = config.chromakey
+        logger.info(
+            "Auto-chromakey: body-transparent/ chưa có → extract từ %s", body_source.name
         )
+        try:
+            extract_body_transparent(
+                body_source=body_source,
+                out_dir=body_dir,
+                chroma_color=ck.get("color") or None,
+                similarity=float(ck.get("similarity", 0.10)),
+                blend=float(ck.get("blend", 0.10)),
+            )
+        except Exception as exc:
+            raise TuberOverlayError(f"Auto-chromakey thất bại: {exc}") from exc
+
     if not mouth_dir.is_dir():
         raise TuberOverlayError(
             f"Auto-prerender thất bại: mouth_dir không tồn tại: {mouth_dir}."
