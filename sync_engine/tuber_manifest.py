@@ -345,6 +345,13 @@ def write_run_manifest(manifest: Dict[str, Any], tuber_root: Path) -> Path:
     return path
 
 
+def write_group_manifest(manifest: Dict[str, Any], group_dir: Path) -> Path:
+    group_dir.mkdir(parents=True, exist_ok=True)
+    path = group_dir / "group_manifest.json"
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
 def load_run_manifest(tuber_root: Path) -> Dict[str, Any]:
     path = Path(tuber_root) / "run_manifest.json"
     if not path.exists():
