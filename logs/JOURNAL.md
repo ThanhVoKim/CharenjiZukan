@@ -1,5 +1,38 @@
 # Project Journal
 
+## 2026-06-04: V2 prerender — fix 3 lỗi runtime + overlay.mode tường minh + auto-chromakey
+
+### Tóm tắt
+Sau khi chạy prerender mode thật trên Colab, phát hiện và sửa 3 lỗi hiển thị + bổ sung 2 tính năng vận hành.
+
+### Lỗi đã sửa (phát hiện trên Colab)
+1. **Mouth tĩnh (không nhép theo TTS)** — `_build_prerender_frame_list` so frame GLOBAL với mouthEvents lưu frame LOCAL (0-based per segment) → luôn trả state cuối. Sửa: lookup theo `segments[].startFrame/endFrame` (global) + `mouthEvents.frame` (local = gf − startFrame).
+2. **Black box quanh miệng** — `_apply_triangle_warp` paste sprite bằng triangle mask, vùng trong suốt của sprite (RGB 0,0,0 alpha 0) bị thành đen đặc. Sửa: `ImageChops.multiply(triangle_mask, warped_sprite_alpha)`.
+3. **Nhân vật full màn, bỏ qua left/top/width** — prerender output full canvas nhưng composite overlay tại (0,0) không scale. Sửa: composite `scale={compWidth}:{compHeight}` rồi overlay tại `(compOffsetX, compOffsetY)`. `character.left/top/width` lại có hiệu lực.
+
+### Tính năng bổ sung
+- **`overlay.mode` tường minh**: `"remotion"` | `"prerender"` | `"auto"`. Thay auto-detect ngầm. Section `remotion` chỉ bắt buộc khi mode ≠ prerender.
+- **Auto-chromakey + auto-prerender**: mode=prerender mà thiếu `prerender_manifest.json` → tự chạy `extract_body_transparent()` (FFmpeg chromakey từ bodySource) rồi `prerender_character()`. Lần sau có manifest → skip.
+
+### Dọn dẹp
+- Xóa code chết song song trong `tuber_prerender.py`: `build_prerender_frame_sequence`, `_lookup_mouth_state` (cùng bug global/local, không dùng runtime). Runtime chỉ dùng `_build_prerender_frame_list` ở `tuber_overlay.py`.
+- Bỏ threading `mouth_events_map` (4 signature) — state lấy trực tiếp từ manifest segments.
+- Bỏ param `character_box` của `prerender_character()` — output luôn full canvas.
+- Thêm `write_group_manifest()` vào `tuber_manifest.py` (trước đó bị gọi nhưng chưa định nghĩa).
+
+### File sửa chính
+| File | Thay đổi |
+|------|----------|
+| [`sync_engine/tuber_overlay.py`](../sync_engine/tuber_overlay.py) | Lookup mouth theo segment local-frame, composite scale_w/scale_h, overlay_mode, _auto_run_prerender + auto-chromakey |
+| [`sync_engine/tuber_prerender.py`](../sync_engine/tuber_prerender.py) | +extract_body_transparent (chromakey port), warp mask × sprite alpha, output full canvas, xóa code chết |
+| [`sync_engine/tuber_manifest.py`](../sync_engine/tuber_manifest.py) | +write_group_manifest |
+| [`sync_engine/tuber_config.py`](../sync_engine/tuber_config.py) | +overlay_mode, +mouth_track_path/mouth_dir/body_transparent_dir, remotion keys conditional |
+| [`assets/tuber_overlay_config.json`](../assets/tuber_overlay_config.json) | +overlay.mode, character.left/top pixel |
+
+### Lưu ý vận hành
+- Sau khi sửa, prerendered cũ (crop sai) phải xóa: `rm -rf assets/pngtuber/<id>/prerendered` rồi chạy lại.
+- Tests: 86 passed, 14 skipped (skip cần GPU NVENC / REMOTION_TUBER_E2E / TTS_CLIP_DIR).
+
 ## 2026-06-04: V2 — Pre-render character + lip-sync amplitude
 
 ### Tóm tắt

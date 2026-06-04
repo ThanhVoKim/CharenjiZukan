@@ -250,8 +250,16 @@ def _apply_triangle_warp(
         warped_sprite = warped_sprite.resize((box_w, box_h), Image.LANCZOS)
         warped_mask = warped_mask.resize((box_w, box_h), Image.LANCZOS)
 
-    # Paste warped mouth sprite onto canvas using mask
-    canvas.paste(warped_sprite, (min_x, min_y), warped_mask)
+    # Kết hợp triangle mask với alpha riêng của sprite. Nếu chỉ dùng triangle
+    # mask, vùng trong suốt của sprite (RGB=0,0,0 alpha=0) sẽ bị paste thành
+    # đen đặc → tạo "black box" quanh miệng. Multiply giữ pixel CHỈ khi vừa
+    # trong tam giác VỪA đục trong sprite.
+    from PIL import ImageChops
+    warped_alpha = warped_sprite.split()[3]
+    combined_mask = ImageChops.multiply(warped_mask, warped_alpha)
+
+    # Paste warped mouth sprite onto canvas using combined mask
+    canvas.paste(warped_sprite, (min_x, min_y), combined_mask)
 
     return canvas
 
@@ -487,10 +495,13 @@ def prerender_character(
     out_dir: Path,
     *,
     sprite_dir: Optional[Path] = None,  # fallback mouth sprite dir
-    character_box: Optional[Dict[str, int]] = None,
     supersample: int = 1,
 ) -> Dict[str, Any]:
     """Pre-render toàn bộ body×mouth combinations → PNG files + manifest.
+
+    Output luôn full canvas (track_width × track_height) — character giữ nguyên
+    vị trí như trong body-transparent frames. Việc scale/đặt vị trí về character
+    box do composite (FFmpeg overlay scale + offset) đảm nhận.
 
     Args:
         body_dir: Thư mục body-transparent (frame-*.png).
@@ -498,7 +509,6 @@ def prerender_character(
         mouth_track_path: Path đến mouth_track.json.
         mouth_states: List các mouth state IDs (vd ['closed', 'half', 'open']).
         out_dir: Thư mục output (tự tạo nếu chưa có).
-        character_box: Nếu có → crop body/output về kích thước này.
         supersample: Anti-aliasing (1=tắt, 2=2x).
 
     Returns:
@@ -542,12 +552,10 @@ def prerender_character(
     # Prepare output dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Compute character box (fallback: full canvas)
-    track_aspect = track_width / track_height if track_height > 0 else 16 / 9
-    final_box = character_box or {"compWidth": track_width, "compHeight": track_height,
-                                   "compOffsetX": 0, "compOffsetY": 0}
-    out_w = final_box["compWidth"]
-    out_h = final_box["compHeight"]
+    # Prerender luôn output full canvas (track_width × track_height)
+    # Không crop — character nằm trong canvas đúng vị trí như body-transparent frames
+    out_w = track_width
+    out_h = track_height
 
     logger.info("Pre-render %d body × %d mouth states = %d frames → %s",
                 num_body_frames, len(mouth_states), num_body_frames * len(mouth_states),
@@ -580,16 +588,6 @@ def prerender_character(
                 supersample=supersample,
             )
 
-            # Crop to character box if needed
-            if character_box:
-                cb = character_box
-                canvas = canvas.crop((
-                    cb["compOffsetX"],
-                    cb["compOffsetY"],
-                    cb["compOffsetX"] + cb["compWidth"],
-                    cb["compOffsetY"] + cb["compHeight"],
-                ))
-
             out_name = f"frame-{body_idx:03d}_{state}.png"
             canvas.save(str(out_dir / out_name), "PNG")
             rendered += 1
@@ -617,7 +615,6 @@ def prerender_character(
         "framePattern": "frame-{trackIdx:03d}_{state}.png",
         "outputWidth": out_w,
         "outputHeight": out_h,
-        "characterBox": final_box,
     }
 
     manifest_path = out_dir / "prerender_manifest.json"
@@ -646,72 +643,3 @@ def get_prerender_frame(
     """
     fn = f"frame-{track_frame_index:03d}_{mouth_state}.png"
     return prerender_dir / fn
-
-
-def build_prerender_frame_sequence(
-    group_start_frame: int,
-    group_end_frame: int,
-    fps: float,
-    track_fps: float,
-    track_frames: int,
-    prerender_dir: Path,
-    prerender_manifest: Dict[str, Any],
-    mouth_events_map: Dict[str, Any],
-) -> List[Path]:
-    """Tạo list pre-rendered frame paths cho toàn bộ group.
-
-    Với mỗi global_frame từ group_start → group_end:
-      - track_idx = compute_track_frame_index(...)
-      - mouth_state = lookup từ mouthEvents tại global_frame
-      - frame path = prerender_dir / frame-{track_idx:03d}_{state}.png
-
-    Returns:
-        List[Path] các pre-rendered frame theo thứ tự timeline.
-    """
-    frame_list: List[Path] = []
-    for gf in range(group_start_frame, group_end_frame):
-        track_idx = compute_track_frame_index(gf, fps, track_fps, track_frames)
-        mouth_state = _lookup_mouth_state(gf, mouth_events_map)
-        fp = get_prerender_frame(track_idx, mouth_state, prerender_dir, prerender_manifest)
-        if not fp.exists():
-            # Fallback: dùng closed (nếu thiếu)
-            fp = get_prerender_frame(track_idx, "closed", prerender_dir, prerender_manifest)
-        frame_list.append(fp)
-    return frame_list
-
-
-def _lookup_mouth_state(
-    global_frame: int,
-    mouth_events_map: Dict[str, Any],
-) -> str:
-    """Binary search mouthEvents gần nhất ≤ global_frame.
-
-    mouthEvents dict: {segment_idx: [{"frame": int, "state": str}, ...]}
-    """
-    # Hiện tại đơn giản: segment đầu tiên chứa frame này
-    # Có thể optimize sau
-    for seg_idx, events in mouth_events_map.items():
-        if not events:
-            continue
-        # Kiểm tra frame có nằm trong segment này không
-        first_ev = events[0]
-        last_ev = events[-1]
-        # Không biết segment bounds ở đây → binary search event
-        pass
-
-    # Binary search trên events
-    best_state = "closed"
-    for seg_idx, events in mouth_events_map.items():
-        if not events:
-            continue
-        low, high = 0, len(events) - 1
-        while low <= high:
-            mid = (low + high) // 2
-            ev = events[mid]
-            if ev["frame"] <= global_frame:
-                best_state = ev["state"]
-                low = mid + 1
-            else:
-                high = mid - 1
-
-    return best_state

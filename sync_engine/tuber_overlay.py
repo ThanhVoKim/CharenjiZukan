@@ -27,7 +27,6 @@ from typing import Any, Dict, List, Optional
 
 from sync_engine.tuber_artifacts import cleanup_overlay_frames
 from sync_engine import tuber_status as st
-from sync_engine.tuber_manifest import compute_character_box
 from utils.ffmpeg_probe import HEVC_NVENC_VIDEO_ARGS as _HEVC_NVENC_VIDEO_ARGS
 
 logger = logging.getLogger("sync_video")
@@ -206,16 +205,26 @@ def composite_group(
     *,
     offset_x: int = 0,
     offset_y: int = 0,
+    scale_w: Optional[int] = None,
+    scale_h: Optional[int] = None,
 ) -> Path:
     """Phase N: composite overlay PNG alpha lên group base → video_with_tuber.mp4.
 
     Args:
-        offset_x, offset_y: vị trí overlay trên base (V2: character box offset).
+        offset_x, offset_y: vị trí overlay trên base (character box offset).
+        scale_w, scale_h: nếu có → scale overlay về kích thước này trước khi
+            overlay (prerender: frame full-canvas → scale về character box).
     """
     pattern = _detect_frame_pattern(overlay_dir)
-    overlay_filter = (
-        f"[0:v][1:v]overlay=x={offset_x}:y={offset_y}:format=auto:shortest=1[outv]"
-    )
+    if scale_w and scale_h:
+        overlay_filter = (
+            f"[1:v]scale={scale_w}:{scale_h}[ov];"
+            f"[0:v][ov]overlay=x={offset_x}:y={offset_y}:format=auto:shortest=1[outv]"
+        )
+    else:
+        overlay_filter = (
+            f"[0:v][1:v]overlay=x={offset_x}:y={offset_y}:format=auto:shortest=1[outv]"
+        )
     cmd = [
         "ffmpeg", "-y",
         "-i", str(base_video),
@@ -318,12 +327,14 @@ def _build_prerender_frame_list(
     group_manifest: Dict[str, Any],
     prerender_dir: Path,
     prerender_manifest: Dict[str, Any],
-    mouth_events_map: Dict[str, List[Dict[str, Any]]],
 ) -> Path:
     """Tạo overlay_frames từ pre-rendered character frames cho 1 group.
 
-    Tạo symlink (hoặc copy) các pre-rendered frame vào overlay_frames/ theo
-    thứ tự timeline → overlay_frames/frame_000000.png, frame_000001.png, ...
+    Copy các pre-rendered frame vào overlay_frames/ theo thứ tự timeline
+    → overlay_frames/frame_000000.png, frame_000001.png, ...
+
+    Mouth state mỗi frame lấy từ group_manifest["segments"]: mỗi segment có
+    startFrame/endFrame (global) + mouthEvents (frame local 0-based trong segment).
 
     Returns:
         Path tới overlay_frames dir.
@@ -345,23 +356,32 @@ def _build_prerender_frame_list(
     track_frames = int(prerender_manifest.get("trackFrames", 170))
     start_frame = group_manifest.get("renderStartFrame", group_manifest["groupStartFrame"])
     end_frame = start_frame + group_manifest["renderDurationFrames"]
+    segments = group_manifest.get("segments", [])
 
-    # Pre-compute per-segment mouth events lookup
     def _lookup_state(gf: int) -> str:
-        best = "closed"
-        for seg_idx, events in mouth_events_map.items():
-            if not events:
-                continue
-            lo, hi = 0, len(events) - 1
-            while lo <= hi:
-                mid = (lo + hi) // 2
-                ev = events[mid]
-                if ev["frame"] <= gf:
-                    best = ev["state"]
-                    lo = mid + 1
-                else:
-                    hi = mid - 1
-        return best
+        """Tìm mouth state tại global frame gf qua segment chứa nó.
+
+        mouthEvents trong segment dùng frame local (0-based) → so với gf-startFrame.
+        """
+        for seg in segments:
+            s = seg.get("startFrame", 0)
+            e = seg.get("endFrame", 0)
+            if s <= gf < e:
+                events = seg.get("mouthEvents")
+                if not events:
+                    return "closed"
+                local = gf - s
+                best = "closed"
+                lo, hi = 0, len(events) - 1
+                while lo <= hi:
+                    mid = (lo + hi) // 2
+                    if events[mid]["frame"] <= local:
+                        best = events[mid]["state"]
+                        lo = mid + 1
+                    else:
+                        hi = mid - 1
+                return best
+        return "closed"
 
     frame_idx = 0
     for gf in range(start_frame, end_frame):
@@ -392,7 +412,6 @@ def render_and_composite_groups(
     use_prerender: bool = False,
     prerender_dir: Optional[Path] = None,
     prerender_manifest: Optional[Dict[str, Any]] = None,
-    mouth_events_map: Optional[Dict[str, Any]] = None,
 ) -> List[Path]:
     """Render → mỗi group composite/validate/cleanup, retry group fail.
 
@@ -418,6 +437,10 @@ def render_and_composite_groups(
         fps_str = g.manifest.get("fpsStr") or str(g.manifest["fps"])
         offset_x = g.manifest.get("compOffsetX", 0)
         offset_y = g.manifest.get("compOffsetY", 0)
+        # Prerender: overlay frame full-canvas → scale về character box.
+        # Remotion (V1): overlay đã đúng size → không scale.
+        scale_w = g.manifest.get("compWidth") if use_prerender else None
+        scale_h = g.manifest.get("compHeight") if use_prerender else None
 
         attempt = 0
         last_err: Optional[str] = None
@@ -431,7 +454,7 @@ def render_and_composite_groups(
                     status["currentStep"] = st.STEP_RENDERING_OVERLAY
                     st.write_status(g.group_dir, status)
                     _build_prerender_frame_list(
-                        g.manifest, prerender_dir, prerender_manifest, mouth_events_map,
+                        g.manifest, prerender_dir, prerender_manifest,
                     )
                 else:
                     # V1: Remotion render driver
@@ -455,6 +478,7 @@ def render_and_composite_groups(
                 composite_group(
                     base, overlay_dir, out, fps_str,
                     offset_x=offset_x, offset_y=offset_y,
+                    scale_w=scale_w, scale_h=scale_h,
                 )
 
                 status["currentStep"] = st.STEP_VALIDATING
@@ -511,7 +535,6 @@ def render_groups_to_video(
     use_prerender: bool = False,
     prerender_dir: Optional[Path] = None,
     prerender_manifest: Optional[Dict[str, Any]] = None,
-    mouth_events_map: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """High-level: prepare assets → render/composite groups → concat → output_video.
 
@@ -537,7 +560,6 @@ def render_groups_to_video(
         use_prerender=use_prerender,
         prerender_dir=prerender_dir,
         prerender_manifest=prerender_manifest,
-        mouth_events_map=mouth_events_map,
     )
     concat_group_videos(group_videos, output_video, tmp_dir)
     logger.info("Tuber overlay xong → %s", output_video)
@@ -656,7 +678,7 @@ def _auto_run_prerender(config, width: int, height: int) -> Dict[str, Any]:
     Raise TuberOverlayError nếu thiếu asset không thể tự tạo (mouth_dir, mouth_track).
     """
     from sync_engine.tuber_prerender import (
-        prerender_character, compute_character_box, extract_body_transparent,
+        prerender_character, extract_body_transparent,
     )
 
     body_dir = config.body_transparent_dir()
@@ -705,25 +727,12 @@ def _auto_run_prerender(config, width: int, height: int) -> Dict[str, Any]:
         out_dir, len(mouth_states), body_dir,
     )
 
-    # Tính character_box từ config để crop output
-    character_box = None
-    try:
-        import json as _json
-        track = _json.loads(mouth_track_path.read_text(encoding="utf-8"))
-        tw = int(track.get("width", 1920))
-        th = int(track.get("height", 1080))
-        track_aspect = tw / th if th > 0 else 16.0 / 9.0
-        character_box = compute_character_box(config.character, width, height, track_aspect)
-    except Exception as exc:
-        logger.warning("Auto-prerender: không tính được character_box (%s), dùng full size.", exc)
-
     manifest = prerender_character(
         body_dir=body_dir,
         mouth_dir=mouth_dir,
         mouth_track_path=mouth_track_path,
         mouth_states=mouth_states,
         out_dir=out_dir,
-        character_box=character_box,
     )
     logger.info("Auto-prerender hoàn tất: %d frames xuất ra %s", manifest.get("outputCount", 0), out_dir)
     return manifest
@@ -806,6 +815,8 @@ def run_tuber_flow_all_in(
         )
 
     # Phase F + H: groups + base + manifest
+    # Prerender mode: overlay frame full-canvas → composite scale về character
+    # box (compWidth×compHeight) rồi đặt tại (compOffsetX, compOffsetY).
     jobs = prepare_groups_and_base(
         config=config, video_path=video_path, timeline=timeline,
         fps_float=fps_float, fps_str=fps_str, width=width, height=height,
@@ -840,15 +851,6 @@ def run_tuber_flow_all_in(
     )
     write_run_manifest(run_manifest, config.tuber_root)
 
-    # V2: build mouth events map for prerender
-    mouth_events_map: Dict[str, Any] = {}
-    if use_prerender and config.mouth_mode != "cue":
-        for j in jobs:
-            for seg in j.manifest.get("segments", []):
-                ev = seg.get("mouthEvents")
-                if ev:
-                    mouth_events_map[str(seg.get("segmentIndex"))] = ev
-
     # Phase I-P: render + composite + concat
     return render_groups_to_video(
         project_dir=config.remotion_project_dir(),
@@ -866,5 +868,4 @@ def run_tuber_flow_all_in(
         use_prerender=use_prerender,
         prerender_dir=prerender_dir,
         prerender_manifest=prerender_manifest,
-        mouth_events_map=mouth_events_map if mouth_events_map else None,
     )

@@ -38,7 +38,6 @@ from sync_engine.tuber_prerender import (
     apply_mouth_calibration,
     get_prerender_frame,
     _invert_affine,
-    _lookup_mouth_state,
 )
 
 
@@ -247,29 +246,6 @@ class TestLayer1_GetPrerenderFrame:
         assert p == Path("/prerendered") / "frame-169_open.png"
 
 
-class TestLayer1_LookupMouthState:
-    """Unit: _lookup_mouth_state."""
-
-    def test_lookup_returns_closed_for_empty(self):
-        state = _lookup_mouth_state(50, {})
-        assert state == "closed"
-
-    def test_lookup_segment_events(self):
-        events_map = {
-            "0": [
-                {"frame": 0, "state": "closed"},
-                {"frame": 10, "state": "open"},
-                {"frame": 30, "state": "closed"},
-            ],
-        }
-        at_5 = _lookup_mouth_state(5, events_map)
-        assert at_5 == "closed"
-        at_15 = _lookup_mouth_state(15, events_map)
-        assert at_15 == "open"
-        at_50 = _lookup_mouth_state(50, events_map)
-        assert at_50 == "closed"
-
-
 # ══════════════════════════════════════════════════════════════════════════
 # LAYER 2 — Component tests (cần PIL)
 # ══════════════════════════════════════════════════════════════════════════
@@ -333,10 +309,11 @@ class TestLayer3_PrerenderIntegration:
                 body_dir, mouth_dir, track_path,
                 ["closed", "half", "open"],
                 out,
-                character_box={"compWidth": 512, "compHeight": 288,
-                                "compOffsetX": 1280, "compOffsetY": 360},
             )
             assert manifest["outputCount"] > 0
+            # Output luôn full canvas (track size), không crop
+            assert manifest["outputWidth"] == manifest["trackWidth"]
+            assert manifest["outputHeight"] == manifest["trackHeight"]
             # Kiểm tra 1 output file
             assert (out / "frame-000_closed.png").exists()
             assert (out / "frame-000_open.png").exists()
@@ -362,26 +339,3 @@ class TestLayer3_PrerenderIntegration:
             assert manifest["outputWidth"] > 0
             assert manifest["outputHeight"] > 0
             assert manifest["framePattern"] == "frame-{trackIdx:03d}_{state}.png"
-
-    def test_build_prerender_frame_sequence(self):
-        from sync_engine.tuber_prerender import (
-            prerender_character, build_prerender_frame_sequence,
-        )
-
-        body_dir = self.ASSET_DIR / "body-transparent"
-        mouth_dir = self.ASSET_DIR / "mouth"
-        track_path = self.ASSET_DIR / "mouth_track.json"
-
-        if not body_dir.exists():
-            pytest.skip("Chạy prepare-assets trước")
-
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            pm = prerender_character(body_dir, mouth_dir, track_path, ["closed", "half", "open"], out)
-
-            frames = build_prerender_frame_sequence(
-                0, 50, 30, 30, 170, out, pm, {"0": [{"frame": 0, "state": "half"}]},
-            )
-            assert len(frames) == 50
-            for fp in frames:
-                assert fp.exists(), f"Thiếu frame: {fp}"
