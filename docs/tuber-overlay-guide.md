@@ -247,33 +247,6 @@ tuber-output/<job>/tuber/
 
 ---
 
-## Test full flow tuber overlay trên Colab
-
-## Layer 1 + 2 — không cần GPU, chạy trước để kiểm tra cơ bản
-
-cd /content/Charenjizukan
-python -m pytest tests/sync_engine/test_tuber_overlay_pipeline.py -v -k "Layer1 or Layer2"
-python -m pytest tests/sync_engine/test_tuber_remotion_validation.py -v -k "Layer1 or Layer2"
-
-## Layer 3 — composite cần HEVC NVENC, skip nếu không có GPU
-
-python -m pytest tests/sync_engine/test_tuber_overlay_pipeline.py -v -k "Layer3"
-
-## Layer 4 — Remotion thật (cần npm install trước + GPU cho composite)
-
-REMOTION_TUBER_E2E=1 python -m pytest tests/sync_engine/test_tuber_remotion_validation.py -v -k "Layer4"
-
-## End-to-end smoke test với video thật 30-60s
-
-uv run sync-video \
- --video /path/to/video_30s.mp4 \
- --subtitle /path/to/subtitle.srt \
- --tuber-config assets/tuber_overlay_config.json \
- --no-tts \
- --output-name tuber_smoke_test
-
----
-
 ## CLI `tuber-repair`
 
 Sau khi `sync-video` chạy với `artifactPolicy.mode=repairable` và tuber fail → fallback render non-tuber,

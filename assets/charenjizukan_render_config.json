@@ -1,20 +1,20 @@
 {
-  "project_id": "TheArmoryLog",
-  "description": "Default render configuration for vertical video format",
+  "project_id": "CharenjiZukan",
+  "description": "Default render configuration for CharenjiZukan",
   "resolution": {
     "bypass_scale": false,
-    "width": 1080,
-    "height": 1920
+    "width": 1920,
+    "height": 1080
   },
   "watermark_img": {
     "enabled": true,
-    "path": "/content/assets/TheArmoryLog20-watermark.png",
+    "path": "/content/assets/CharenjiZukan-watermark.png",
     "x": "main_w-overlay_w",
     "y": "main_h-overlay_h"
   },
   "watermark_text": {
     "enabled": true,
-    "text": "@TheArmoryLog",
+    "text": "@CharenjiZukan",
     "font_path": "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
     "fontsize": 46,
     "color": "white",
@@ -23,12 +23,13 @@
     "y": "h-th-10"
   },
   "audio_mix": {
-    "non_voicevox_tts_volume": 1.75,
-    "bgm_volume": 0.5
+    "mute_audio_volume": 1.0,
+    "ambient_volume": 0.03,
+    "bgm_volume": 0
   },
   "audio_policies": {
     "global_bgm": "off",
-    "mute_audio": "original",
+    "mute_audio": "vocals",
     "ambient": "exclude_mute"
   },
   "audio_separator": {
@@ -50,21 +51,11 @@
     "note": "sync_video forces FFmpeg video render with -c:v hevc_nvenc -preset p4 -tune hq -cq 28"
   },
   "llm_metadata": {
-    "enabled": true,
-    "task_config": "config/llm_tasks/seo_metadata.yaml",
-    "input": {
-      "write_debug_input": true,
-      "debug_input_filename_template": "{video_stem}_metadata_input.txt"
-    },
-    "output": {
-      "directory_policy": "/",
-      "filename_template": "metadata.md"
-    },
-    "fail_policy": "warn"
+    "enabled": false
   },
   "forced_alignment_subtitle": {
     "enabled": true,
-    "language": "English",
+    "language": "Japanese",
     "max_chars": 42,
     "min_chars": 0,
     "split_on_comma": true,

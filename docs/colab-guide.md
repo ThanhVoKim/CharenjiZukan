@@ -1161,29 +1161,29 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 
 #### Tham số
 
-| Tham số                | Mô tả                                                                                           | Mặc định                                |
-| ---------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `--task-file`          | File JSON chứa danh sách tasks cho xử lý hàng loạt                                              | (không dùng)                            |
-| `--video`              | File video gốc (`.mp4`, `.mkv`)                                                                 | (bắt buộc khi không dùng `--task-file`) |
-| `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có)                                       | (bắt buộc khi không dùng `--task-file`) |
-| `--tts-provider`       | Provider TTS (`edge`, `voicevox_nemo`, `voicevox`, `qwen`)                                      | `edge`                                  |
-| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox/Voicevox Nemo (ghi đè YAML)                         | (lấy từ `tts_config.yaml`)              |
-| `--tts-config`         | File YAML cấu hình TTS (dùng cho `edge`, `voicevox_nemo`, `voicevox`, `qwen`)                   | `config/tts_config.yaml`                |
-| `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                                                    | (không dùng)                            |
-| `--note-overlay-ass`   | File ASS text cho note overlay                                                                  | (không dùng)                            |
-| `--image-overlay-srt`  | File SRT điều khiển static image overlay; text block là basename không có extension             | (không dùng)                            |
-| `--image-overlay-dir`  | Thư mục chứa static image overlay                                                               | (không dùng)                            |
-| `--render-config`      | File JSON cấu hình render (style, resolution, dải đen, watermark...)                            | `assets/default_render_config.json`     |
-| `--ambient`            | Nhạc nền ambient cho toàn bộ video                                                              | `assets/ambient.mp3`                    |
-| `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)                                               | `0.5`                                   |
-| `--output-dir`         | Thư mục output                                                                                  | `./sync_output/`                        |
-| `--output-name`        | Tên base cho tất cả file output                                                                 | `video_synced`                          |
-| `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap                                               | (tắt)                                   |
-| `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video                                           | `4`                                     |
-| `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)                                        | `100`                                   |
-| `--no-gpu`             | Tùy chọn tương thích cũ; video render vẫn bắt buộc dùng `hevc_nvenc -preset p4 -tune hq -cq 28` | (tắt)                                   |
-| `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                                              | (tắt)                                   |
-| `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                                                 | `0`                                     |
+| Tham số                | Mô tả                                                                                                | Mặc định                                |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `--task-file`          | File JSON chứa danh sách tasks cho xử lý hàng loạt                                                   | (không dùng)                            |
+| `--video`              | File video gốc (`.mp4`, `.mkv`)                                                                      | (bắt buộc khi không dùng `--task-file`) |
+| `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có)                                            | (bắt buộc khi không dùng `--task-file`) |
+| `--tts-provider`       | Provider TTS (`edge`, `voicevox_nemo`, `voicevox`, `qwen`)                                           | `edge`                                  |
+| `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox/Voicevox Nemo (ghi đè YAML)                              | (lấy từ `tts_config.yaml`)              |
+| `--tts-config`         | File YAML cấu hình TTS (dùng cho `edge`, `voicevox_nemo`, `voicevox`, `qwen`)                        | `config/tts_config.yaml`                |
+| `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                                                         | (không dùng)                            |
+| `--note-overlay-ass`   | File ASS text cho note overlay                                                                       | (không dùng)                            |
+| `--image-overlay-srt`  | File SRT điều khiển static image overlay; text block là basename không có extension                  | (không dùng)                            |
+| `--image-overlay-dir`  | Thư mục chứa static image overlay                                                                    | (không dùng)                            |
+| `--render-config`      | File JSON cấu hình render (style, resolution, dải đen, watermark...)                                 | `assets/default_render_config.json`     |
+| `--ambient`            | Nhạc nền ambient cho toàn bộ video                                                                   | `assets/ambient.mp3`                    |
+| `--slow-cap`           | Giới hạn tốc độ video thấp nhất (cap cho stretch)                                                    | `0.5`                                   |
+| `--output-dir`         | Thư mục output                                                                                       | `./sync_output/`                        |
+| `--output-name`        | Tên base cho tất cả file output                                                                      | `video_synced`                          |
+| `--no-hardsub`         | Bỏ render MP4 hardsub, chỉ xuất các file đã remap                                                    | (tắt)                                   |
+| `--workers`            | Số worker FFmpeg chạy song song khi xử lý chunk video                                                | `4`                                     |
+| `--batch-size`         | Số segments mỗi batch Filter Complex (giảm = ít RAM hơn)                                             | `100`                                   |
+| `--no-gpu`             | Tùy chọn tương thích cũ; video render vẫn bắt buộc dùng `hevc_nvenc -preset p4 -tune hq -cq 28`      | (tắt)                                   |
+| `--keep-tmp`           | Giữ lại thư mục tạm chứa các chunks video để debug                                                   | (tắt)                                   |
+| `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                                                      | `0`                                     |
 | `--tuber-config`       | File JSON cấu hình tuber overlay (bỏ trống = tắt). Xem [Tuber Overlay Guide](tuber-overlay-guide.md) | (không dùng)                            |
 
 > **Lưu ý về Tuber Overlay:** Khi bật `--tuber-config`, pipeline sẽ render overlay nhân vật PNGTuber qua Remotion lên video trước khi final render.
@@ -1259,6 +1259,22 @@ Thêm overlay nhân vật ảo PNGTuber (MotionPNGTuber) vào video output qua R
 #### File cấu hình `assets/tuber_overlay_config.json`
 
 Các key chính: `enabled` (bật/tắt), `remotion` (project dir/composition), `asset` (PNGTuber + chromakey), `character` (vị trí/kích thước — width ưu tiên giữ tỉ lệ), `mouth.mode=cue` (V1), `retry.retryAttempts`, `artifactPolicy.mode=repairable`. Xem [Tuber Overlay Guide](tuber-overlay-guide.md) để biết đầy đủ tham số.
+
+#### Test full flow tuber overlay trên Colab
+
+##### Layer 1 + 2 — không cần GPU, chạy trước để kiểm tra cơ bản
+
+cd /content/Charenjizukan
+python -m pytest tests/sync_engine/test_tuber_overlay_pipeline.py -v -k "Layer1 or Layer2"
+python -m pytest tests/sync_engine/test_tuber_remotion_validation.py -v -k "Layer1 or Layer2"
+
+##### Layer 3 — composite cần HEVC NVENC, skip nếu không có GPU
+
+python -m pytest tests/sync_engine/test_tuber_overlay_pipeline.py -v -k "Layer3"
+
+##### Layer 4 — Remotion thật (cần npm install trước + GPU cho composite)
+
+REMOTION_TUBER_E2E=1 python -m pytest tests/sync_engine/test_tuber_remotion_validation.py -v -k "Layer4"
 
 ---
 
