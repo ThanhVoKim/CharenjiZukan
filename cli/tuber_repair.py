@@ -59,6 +59,18 @@ def run_repair(tuber_root: Path, output_path: str = None) -> str:
         if not p.exists():
             raise FileNotFoundError(f"Repair thiếu artifact bắt buộc: {p}")
 
+    # Resolve prerender manifest (V3)
+    prerender_manifest = None
+    prerender_dir = None
+    pm_path = run_manifest.get("prerenderManifest")
+    if pm_path and Path(pm_path).exists():
+        try:
+            prerender_manifest = json.loads(Path(pm_path).read_text(encoding="utf-8"))
+            prerender_dir = Path(pm_path).parent
+        except (json.JSONDecodeError, OSError):
+            prerender_manifest = None
+    use_prerender = prerender_manifest is not None
+
     # Render tuber overlay muộn (group base.mp4 đã sẵn từ all-in run)
     remotion = run_manifest["remotion"]
     asset = run_manifest["asset"]
@@ -69,7 +81,7 @@ def run_repair(tuber_root: Path, output_path: str = None) -> str:
     video_with_tuber = Path(run_manifest["videoWithTuber"])
     render_groups_to_video(
         project_dir=Path(remotion["projectDir"]),
-        asset_id=asset.get("assetId", "nike_loop_fix"),
+        asset_id=asset["assetId"],
         asset_dir=Path(asset["assetDir"]),
         chromakey=cfg.chromakey,
         groups=jobs,
@@ -78,6 +90,13 @@ def run_repair(tuber_root: Path, output_path: str = None) -> str:
         logs_dir=logs_dir,
         retry_attempts=cfg.retry_attempts,
         artifact_policy=ap,
+        use_prerender=use_prerender,
+        prerender_dir=prerender_dir,
+        prerender_manifest=prerender_manifest,
+        do_prepare_assets=not use_prerender,
+        stretched_video=base_video,
+        max_workers=cfg.max_workers,
+        skip_done=cfg.resume_skip_done,
     )
 
     # Final render từ base đã có tuber + final_render_inputs

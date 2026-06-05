@@ -41,7 +41,7 @@
     "paddingSec": 0
   },
   "mouth": {
-    "mode": "amplitude",
+    "mode": "hybrid",
     "silenceDb": -40.0,
     "minSilenceMs": 200,
     "cadenceMs": 150,
@@ -60,5 +60,17 @@
   "retry": {
     "retryAttempts": 3,
     "onExhausted": "render_without_tuber"
+  },
+  "performance": {
+    "maxWorkers": 4
+  },
+  "resume": {
+    "skipDone": true
+  },
+  "debug": {
+    "frameOutput": {
+      "enabled": false,
+      "marginFrames": 3
+    }
   }
 }

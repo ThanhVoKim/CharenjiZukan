@@ -497,6 +497,7 @@ def prerender_character(
     sprite_dir: Optional[Path] = None,  # fallback mouth sprite dir
     character_box: Optional[Dict[str, int]] = None,
     supersample: int = 1,
+    max_workers: int = 1,  # NEW: parallel workers cho loop body×state
 ) -> Dict[str, Any]:
     """Pre-render toàn bộ body×mouth combinations → PNG files + manifest.
 
@@ -561,51 +562,53 @@ def prerender_character(
                 num_body_frames, len(mouth_states), num_body_frames * len(mouth_states),
                 out_dir)
 
-    # Pre-render loop
+    # Pre-render loop — eager load body + sprite caches, then parallel or sequential
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     rendered = 0
-    sprites_cache: Dict[str, Image] = {}
-    body_cache: Dict[int, Image] = {}
+    body_cache: Dict[int, Image] = {
+        i: Image.open(body_files[i]).convert("RGBA") for i in range(num_body_frames)
+    }
+    sprites_cache: Dict[str, Image] = {
+        s: Image.open(mouth_sprite_paths[s]).convert("RGBA") for s in mouth_states
+    }
 
-    for body_idx in range(num_body_frames):
-        # Load body frame (with caching)
-        if body_idx not in body_cache:
-            body_img = Image.open(body_files[body_idx]).convert("RGBA")
-            body_cache[body_idx] = body_img
-        else:
-            body_img = body_cache[body_idx]
+    total = num_body_frames * len(mouth_states)
 
-        for state in mouth_states:
-            if state not in sprites_cache:
-                sprites_cache[state] = Image.open(mouth_sprite_paths[state]).convert("RGBA")
-
-            sprite = sprites_cache[state]
-            quad = track["frames"][body_idx]["quad"]
-            calibrated = apply_mouth_calibration(quad, track)
-
-            canvas = warp_sprite_to_quad(
-                body_img, sprite, calibrated,
-                canvas_size=(track_width, track_height),
-                supersample=supersample,
+    def _render_one(body_idx: int, state: str) -> None:
+        """Worker: warp mouth lên body, scale, save PNG."""
+        body_img = body_cache[body_idx]
+        sprite = sprites_cache[state]
+        quad = track["frames"][body_idx]["quad"]
+        calibrated = apply_mouth_calibration(quad, track)
+        canvas = warp_sprite_to_quad(
+            body_img, sprite, calibrated,
+            canvas_size=(track_width, track_height),
+            supersample=supersample,
+        )
+        if character_box:
+            canvas = canvas.resize(
+                (character_box["compWidth"], character_box["compHeight"]), Image.LANCZOS
             )
+        out_name = f"frame-{body_idx:03d}_{state}.png"
+        canvas.save(str(out_dir / out_name), "PNG")
 
-            # Scale canvas full → character box (giống Remotion: body scale vừa box,
-            # KHÔNG crop. compute_character_box đảm bảo aspect box = aspect track nên
-            # resize không méo). FFmpeg overlay đặt tại (compOffsetX, compOffsetY).
-            if character_box:
-                cb = character_box
-                canvas = canvas.resize(
-                    (cb["compWidth"], cb["compHeight"]), Image.LANCZOS
-                )
-
-            out_name = f"frame-{body_idx:03d}_{state}.png"
-            canvas.save(str(out_dir / out_name), "PNG")
+    tasks = [(bi, s) for bi in range(num_body_frames) for s in mouth_states]
+    if max_workers > 1:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(_render_one, bi, s): (bi, s) for bi, s in tasks}
+            for _f in as_completed(futures):
+                rendered += 1
+                if rendered % 100 == 0:
+                    logger.info("  pre-rendered %d / %d ...", rendered, total)
+    else:
+        for bi, s in tasks:
+            _render_one(bi, s)
             rendered += 1
-
             if rendered % 100 == 0:
-                logger.info("  pre-rendered %d / %d ...", rendered,
-                            num_body_frames * len(mouth_states))
+                logger.info("  pre-rendered %d / %d ...", rendered, total)
 
-    # Clean large caches
+    # Clean caches
     body_cache.clear()
     sprites_cache.clear()
 

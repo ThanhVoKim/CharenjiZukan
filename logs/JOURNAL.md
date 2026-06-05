@@ -1,5 +1,47 @@
 # Project Journal
 
+## 2026-06-05: V3 — Tối ưu hiệu năng + Resume cho pre-render pipeline
+
+### Tóm tắt
+V3 không thêm tính năng người dùng mới, tập trung vào hiệu năng, resume skip-done, sửa bug repair cho V2 prerender.
+
+### Thay đổi chính
+
+1. **Composite-seek (bỏ build_group_base):** Thay `build_group_base(video_gốc, trim+stretch lại)` bằng `composite_group_from_stretched(seek vào video_stretched.mp4, trim-by-frame, overlay 1 lần)`. Giảm từ 8 encode còn 5 encode (N=3 groups). Không thay đổi `render_final_video`.
+
+2. **Fix tuber_repair.py cho V2 prerender:** Đọc `prerenderManifest` từ `run_manifest`, truyền `use_prerender`/`prerender_dir`/`prerender_manifest` xuống `render_groups_to_video`, bỏ hardcode `asset_id`/`nike_loop_fix`. Repair V2 không còn gọi npm/Remotion.
+
+3. **Parallel prerender_character (`max_workers`):** `prerender_character()` nhận `max_workers: int`. Khi >1 dùng `ThreadPoolExecutor` cho loop body×mouth (170×3=510 frame độc lập). Body cache + sprite cache load trước ở main thread (read-only).
+
+4. **Parallel groups (`max_workers`):** Vòng `for g in groups` trong `render_and_composite_groups` được bọc `ThreadPoolExecutor`. Retry per-group vẫn hoạt động. Sort kết quả theo group index. Mặc định 2 worker.
+
+5. **Hash + skipDone (`resume.skipDone`):** `compute_group_input_hash()` = SHA-256(segments, renderStartFrame, renderDurationFrames, compOffsets, prerender outputSize, stretched_video mtime+size). Lưu vào `status.json["inputHash"]`. Khi `skipDone=true` + hash khớp + output validate OK → skip group (status=Skipped). Khi `skipDone=false` → xóa sạch groups/ + prerendered/ và dựng lại.
+
+6. **Mode hybrid (mouth):** `analyze_tts_amplitude` nhận `mode` param. Hybrid: RMS gate (nói/im), debounce non-closed transitions bằng `cadenceMs` (half↔open phải chờ đủ cadence_frames). Silence luôn override → closed ngay. Thêm `"mode" key` vào `mouth_opts` chain.
+
+7. **debugFrameOutput:** `debug.frameOutput.{enabled, marginFrames}`. Khi enabled, dump overlay + composited frames quanh boundary (start + end) vào `logs/debug_frames/{group_id}/` + `boundary.json`.
+
+8. **Config mới:** 3 blocks trong `tuber_overlay_config.json`: `performance.maxWorkers`, `resume.skipDone`, `debug.frameOutput.{enabled, marginFrames}`.
+
+### File thay đổi
+- `sync_engine/tuber_overlay.py` — composite-seek (mới), parallel (sửa), skip-done, debug dump
+- `sync_engine/tuber_prerender.py` — parallel prerender_character với max_workers
+- `sync_engine/tuber_status.py` — compute_group_input_hash, inputHash field
+- `sync_engine/tuber_config.py` — accessors: max_workers, resume_skip_done, debug_frame_output_enabled, debug_frame_margin
+- `sync_engine/tuber_mouth_events.py` — mode hybrid debounce
+- `cli/tuber_repair.py` — fix V2 prerender path (prerenderManifest, use_prerender, stretched_video)
+- `assets/tuber_overlay_config.json` — blocks performance, resume, debug
+- `tests/sync_engine/test_tuber_mouth_events.py` — Hybrid Layer 1
+- `tests/sync_engine/test_tuber_overlay_pipeline.py` — CompositeSeek, Performance, Hash Layer 1
+- `tests/sync_engine/test_tuber_repair.py` — MỚI: Repair Layer 1
+- `tests/test_matrix.yaml` — 3 entry mới
+- `docs/tuber-overlay-guide.md` — cập nhật
+
+### Verification
+- 60 Layer 1 tests pass (13 existing + 47 new/expanded)
+
+---
+
 ## 2026-06-04: Bugfix — miệng mở trễ ~1s (bug gộp event _merge_short_silence)
 
 ### Tóm tắt

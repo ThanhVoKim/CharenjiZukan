@@ -145,6 +145,7 @@ def analyze_tts_amplitude(
     min_silence_ms: float = _DEFAULT_MIN_SILENCE_MS,
     cadence_ms: float = _DEFAULT_CADENCE_MS,
     num_mouth_states: int = 3,
+    mode: str = "amplitude",
 ) -> List[Dict[str, Any]]:
     """Phân tích RMS amplitude TTS audio → danh sách {frame, state}.
 
@@ -155,6 +156,7 @@ def analyze_tts_amplitude(
         min_silence_ms: Bỏ qua khoảng silence ngắn hơn (tránh nhấp nháy).
         cadence_ms: Tốc độ cadence khi đang nói (chỉ dùng mode hybrid).
         num_mouth_states: Số mouth states (mặc định 3: closed/half/open).
+        mode: "amplitude" (mặc định) | "hybrid" (debounce bằng cadence_ms).
 
     Returns:
         List[{frame, state}]: mỗi entry = mouth state tại frame đó.
@@ -165,6 +167,8 @@ def analyze_tts_amplitude(
     if not rms_list:
         logger.info("TTS clip rỗng → closed: %s", tts_clip_path.name)
         return [{"frame": 0, "state": "closed"}]
+
+    cadence_frames = max(1, round(cadence_ms / 1000.0 * fps))
 
     # Tính state mỗi frame
     events: List[Dict[str, Any]] = []
@@ -179,6 +183,11 @@ def analyze_tts_amplitude(
             state = _state_from_amplitude(amplitude, num_mouth_states)
 
         if not events or events[-1]["state"] != state:
+            if mode == "hybrid" and state != "closed" and events:
+                # Debounce: không chuyển non-closed state nếu chưa đủ cadence
+                last_ev = events[-1]
+                if last_ev["state"] != "closed" and (frame_idx - last_ev["frame"]) < cadence_frames:
+                    continue
             events.append({"frame": frame_idx, "state": state})
 
     # Đảm bảo có ít nhất 1 event

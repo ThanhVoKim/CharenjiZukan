@@ -555,3 +555,27 @@ tests:
     pytest_args: ["-v", "-s"]
     tags: ["integration", "ffmpeg", "sync_engine"]
     enabled: true
+
+  - name: "Tuber Mouth Events — Layer 1: Unit (Amplitude, Silence Merge, Hybrid)"
+    file: "tests/sync_engine/test_tuber_mouth_events.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit", "sync_engine"]
+    enabled: true
+
+  - name: "Tuber Mouth Events — Layer 2: Component (Real WAV Analysis)"
+    file: "tests/sync_engine/test_tuber_mouth_events.py"
+    keyword: "Layer2"
+    timeout_sec: 60
+    pytest_args: ["-v"]
+    tags: ["integration", "sync_engine"]
+    enabled: false  # cần TTS_CLIP_DIR
+
+  - name: "Tuber Repair — Layer 1: Unit (Resolve Prerender Manifest)"
+    file: "tests/sync_engine/test_tuber_repair.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit", "sync_engine"]
+    enabled: true

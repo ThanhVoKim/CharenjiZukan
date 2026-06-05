@@ -132,6 +132,23 @@ class TuberConfig:
         return list(states) if states else ["closed", "half", "open"]
 
     @property
+    def max_workers(self) -> int:
+        return int(_get_nested(self.raw, "performance.maxWorkers") or 2)
+
+    @property
+    def resume_skip_done(self) -> bool:
+        v = _get_nested(self.raw, "resume.skipDone")
+        return True if v is None else bool(v)
+
+    @property
+    def debug_frame_output_enabled(self) -> bool:
+        return bool(_get_nested(self.raw, "debug.frameOutput.enabled") or False)
+
+    @property
+    def debug_frame_margin(self) -> int:
+        return int(_get_nested(self.raw, "debug.frameOutput.marginFrames") or 3)
+
+    @property
     def prerender_character_dir(self) -> Optional[Path]:
         """Path to prerendered character dir (có thể relative). None = chưa pre-render."""
         cd = _get_nested(self.raw, "asset.prerender.characterDir")

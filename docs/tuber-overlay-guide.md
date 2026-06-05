@@ -7,6 +7,10 @@ lên video output.
 (port thuật toán warp từ `remotion_tuber/`). Runtime thuần Python + FFmpeg, nhanh
 hơn Remotion ~100×, phù hợp video dài 2-3h.
 
+**V3 (hiện tại):** Bỏ `build_group_base` — composite seek trực tiếp vào `video_stretched.mp4`
+(giảm 8→5 encode). Song song prerender + group composite (`performance.maxWorkers`).
+Resume skip-done bằng hash (`resume.skipDone`). Mode `"hybrid"` cho miệng mượt hơn.
+
 **V1 — Remotion mode (legacy):** Giữ nguyên code tham khảo `remotion_tuber/`,
 nhưng runtime ưu tiên pre-render.
 
@@ -58,19 +62,25 @@ tuber-output/<job>/tuber/
 ├── groups/
 │   ├── group_0001/
 │   │   ├── group_manifest.json
-│   │   ├── status.json
-│   │   ├── base.mp4
-│   │   ├── overlay_frames/     # (tạm, bị xóa nếu artifactPolicy.overlayFrames=safe)
-│   │   └── video_with_tuber.mp4
+│   │   ├── status.json           # done/failed/skipped + inputHash (V3)
+│   │   ├── overlay_frames/       # (tạm, bị xóa nếu artifactPolicy.overlayFrames=safe)
+│   │   └── video_with_tuber.mp4  # V3: seek từ video_stretched (không còn base.mp4)
 │   └── group_0002/...
-├── final_render_inputs/        # (chỉ khi artifactPolicy.mode=repairable)
+├── final_render_inputs/          # (chỉ khi artifactPolicy.mode=repairable)
 │   ├── final_render_manifest.json
 │   ├── subtitle_synced.srt
 │   ├── render_config.json
 │   └── ...
 └── logs/
     ├── render_driver.log
-    └── prepare_assets.log
+    ├── prepare_assets.log
+    └── debug_frames/             # (chỉ khi debug.frameOutput.enabled=true)
+        └── group_0001/
+            ├── overlay_000000.png     # N frame đầu group
+            ├── overlay_000001.png
+            ├── composited_000000.png  # tương ứng trong video output
+            ├── composited_000001.png
+            └── boundary.json         # metadata: groupStartFrame, fps, margin
 ```
 
 ---
@@ -162,13 +172,21 @@ tuber-output/<job>/tuber/
 
 ### `mouth` — chế độ miệng
 
-| Key            | Kiểu      | Mặc định   | Mô tả                                                                                                    |
-| -------------- | --------- | ---------- | -------------------------------------------------------------------------------------------------------- |
-| `mode`         | `string`  | `"cue"`    | `"cue"` V1 — dùng `hasTts`. `"amplitude"` V2 — phân tích RMS TTS audio → mouthEvents chính xác đến frame. |
-| `silenceDb`    | `number`  | `-40.0`    | Ngưỡng dB coi là im lặng (mode amplitude).                                                               |
-| `minSilenceMs` | `number`  | `200`      | Bỏ qua silence ngắn hơn (tránh miệng nhấp nháy).                                                         |
-| `cadenceMs`    | `number`  | `150`      | Tốc độ cadence khi đang nói (ms/state).                                                                  |
-| `mouthStates`  | `[string]`| `[...3]`   | Danh sách mouth states (mở rộng được).                                                                   |
+| Key            | Kiểu      | Mặc định      | Mô tả                                                                                                                                                                     |
+| -------------- | --------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`         | `string`  | `"cue"`       | `"cue"` V1 — dùng `hasTts`. `"amplitude"` V2 — RMS per frame → state. `"hybrid"` V3 — RMS gate (nói/im) + debounce bằng `cadenceMs` để ổn định trạng thái half↔open. |
+| `silenceDb`    | `number`  | `-40.0`       | Ngưỡng dB coi là im lặng. Dưới ngưỡng → `closed`.                                                                                                                        |
+| `minSilenceMs` | `number`  | `200`         | Bỏ qua khoảng im lặng ngắn hơn (tránh miệng nhấp nháy).                                                                                                                  |
+| `cadenceMs`    | `number`  | `150`         | **Chỉ dùng ở mode `"hybrid"`**: debounce — trạng thái non-closed (half↔open) phải giữ tối thiểu `cadenceMs` ms trước khi chuyển tiếp. Chuyển về `closed` (silence) không bị giới hạn. |
+| `mouthStates`  | `[string]`| `[...3]`      | Danh sách mouth states theo thứ tự từ nhỏ đến lớn (mở rộng được).                                                                                                        |
+
+#### So sánh `mouth.mode`
+
+| Mode          | Cách hoạt động                                                                                             | Khi nào dùng                                                      |
+| ------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `"cue"`       | V1 legacy: `hasTts=true` → miệng mở suốt segment (kể cả silent margin)                                    | Backward compat, không dùng TTS WAV                               |
+| `"amplitude"` | Phân tích RMS per frame → tự do chuyển state mỗi frame; có thể nhấp nháy khi biên độ dao động nhanh       | Khi muốn khẩu hình bám sát audio thật (nhiễu được chấp nhận)     |
+| `"hybrid"`    | RMS gate xác định đoạn nói/im; trong đoạn nói dùng debounce `cadenceMs` → ổn định hơn, ít nhấp nháy hơn  | **Khuyến nghị** cho PNGTuber production; cân bằng tự nhiên/mượt  |
 
 ### `overlay` — format overlay và mode render
 
@@ -208,11 +226,28 @@ tuber-output/<job>/tuber/
 | `retryAttempts` | `number` | `3`                      | Số lần retry mỗi group (render + composite + validate).                                                  |
 | `onExhausted`   | `string` | `"render_without_tuber"` | Hành vi khi hết retry: chỉ hỗ trợ `"render_without_tuber"` — fallback render final video không có tuber. |
 
-### `debug`
+### `performance` — tăng tốc song song (V3)
 
-| Key           | Kiểu      | Mặc định | Mô tả                                           |
-| ------------- | --------- | -------- | ----------------------------------------------- |
-| `debugFrames` | `boolean` | `false`  | **V2** — xuất frame debug quanh group boundary. |
+| Key          | Kiểu     | Mặc định | Mô tả                                                                                          |
+| ------------ | -------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `maxWorkers` | `number` | `2`      | Số worker song song cho prerender_character (bake body×mouth) và composite groups. NVENC thường giới hạn ~2-3 session. |
+
+### `resume` — skip-done / re-render (V3)
+
+| Key        | Kiểu      | Mặc định | Mô tả                                                                                                                                   |
+| ---------- | --------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `skipDone` | `boolean` | `true`   | `true`: so hash input → skip group done + hash khớp + output hợp lệ (resume save). `false`: xóa sạch groups/ + prerendered/, dựng lại. |
+
+### `debug` — debug frame output (V3)
+
+Config: `debug.frameOutput.enabled` / `debug.frameOutput.marginFrames`.
+
+| Key                          | Kiểu      | Mặc định | Mô tả                                                                                         |
+| ---------------------------- | --------- | -------- | --------------------------------------------------------------------------------------------- |
+| `frameOutput.enabled`        | `boolean` | `false`  | Dump overlay + composited frames quanh boundary vào `logs/debug_frames/`. Chi phí 0 khi false. |
+| `frameOutput.marginFrames`   | `number`  | `3`      | Số frame ở **start** và **end** của mỗi group cần dump (tổng = 2 × marginFrames / group).    |
+
+**Output khi enabled:** `logs/debug_frames/{group_id}/overlay_{n}.png`, `composited_{n}.png`, `boundary.json` (groupStartFrame, fps, margin). Dùng để soi lệch frame tại điểm nối giữa các group.
 
 ### `validation`
 
@@ -262,7 +297,7 @@ tuber-output/<job>/tuber/
     "paddingSec": 0
   },
   "mouth": {
-    "mode": "amplitude",
+    "mode": "hybrid",
     "silenceDb": -40.0,
     "minSilenceMs": 200,
     "cadenceMs": 150,
@@ -281,6 +316,18 @@ tuber-output/<job>/tuber/
   "retry": {
     "retryAttempts": 3,
     "onExhausted": "render_without_tuber"
+  },
+  "performance": {
+    "maxWorkers": 2
+  },
+  "resume": {
+    "skipDone": true
+  },
+  "debug": {
+    "frameOutput": {
+      "enabled": false,
+      "marginFrames": 3
+    }
   }
 }
 ```

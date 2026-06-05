@@ -66,6 +66,7 @@ from sync_engine.tuber_overlay import (
     TuberOverlayError,
     GroupJob,
     composite_group,
+    composite_group_from_stretched,
     validate_group_output,
     concat_group_videos,
     _detect_frame_pattern,
@@ -74,6 +75,7 @@ from sync_engine.tuber_overlay import (
     probe_resolution,
     build_group_base,
 )
+from sync_engine.tuber_status import compute_group_input_hash
 
 # ── Skip helpers ─────────────────────────────────────────────────────
 _FFMPEG_OK = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
@@ -338,6 +340,90 @@ class TestLayer1_ImageEventSerialize:
     def test_empty_none(self):
         assert serialize_image_overlay_events(None) == []
         assert serialize_image_overlay_events([]) == []
+
+
+class TestLayer1_CompositeSeekCmd:
+    """Unit: composite_group_from_stretched builds correct FFmpeg command."""
+
+    def test_seek_cmd_has_rough_ss(self):
+        """Verify `-ss` với rough_start được đặt trước `-i`."""
+        from sync_engine.tuber_overlay import composite_group_from_stretched as _s
+        import inspect
+        src = inspect.getsource(_s)
+        assert "rough_start_s" in src
+        assert "trim=start=" in src
+        assert "trim=end_frame=" in src
+
+    def test_seek_cmd_no_restretch(self):
+        """Verify composite_group_from_stretched KHÔNG re-stretch (không build_ffmpeg_batch_cmd)."""
+        from sync_engine.tuber_overlay import composite_group_from_stretched as _s
+        import inspect
+        src = inspect.getsource(_s)
+        assert "build_ffmpeg_batch_cmd" not in src
+        assert "_HEVC_NVENC_VIDEO_ARGS" in src
+        assert "overlay=" in src
+
+
+class TestLayer1_PerformanceDebugConfig:
+    """Unit: config accessors mới (performance, resume, debug)."""
+
+    def test_max_workers_default(self):
+        cfg = TuberConfig(enabled=True, raw={})
+        assert cfg.max_workers == 2
+
+    def test_max_workers_override(self):
+        cfg = TuberConfig(enabled=True, raw={"performance": {"maxWorkers": 4}})
+        assert cfg.max_workers == 4
+
+    def test_resume_skip_done_default(self):
+        cfg = TuberConfig(enabled=True, raw={})
+        assert cfg.resume_skip_done is True
+
+    def test_resume_skip_done_false(self):
+        cfg = TuberConfig(enabled=True, raw={"resume": {"skipDone": False}})
+        assert cfg.resume_skip_done is False
+
+    def test_debug_frame_defaults(self):
+        cfg = TuberConfig(enabled=True, raw={})
+        assert cfg.debug_frame_output_enabled is False
+        assert cfg.debug_frame_margin == 3
+
+    def test_debug_frame_override(self):
+        cfg = TuberConfig(enabled=True, raw={
+            "debug": {"frameOutput": {"enabled": True, "marginFrames": 5}},
+        })
+        assert cfg.debug_frame_output_enabled is True
+        assert cfg.debug_frame_margin == 5
+
+
+class TestLayer1_GroupHash:
+    """Unit: compute_group_input_hash stability and sensitivity."""
+
+    def test_hash_stable(self):
+        mf = {"segments": [{"startFrame": 0, "endFrame": 10}],
+              "renderStartFrame": 0, "renderDurationFrames": 10,
+              "fps": 30.0}
+        vid = Path(__file__)
+        h1 = compute_group_input_hash(mf, {"outputWidth": 512, "outputHeight": 288, "assetId": "x"}, vid)
+        h2 = compute_group_input_hash(mf, {"outputWidth": 512, "outputHeight": 288, "assetId": "x"}, vid)
+        assert h1 == h2
+
+    def test_hash_changes_on_segments(self):
+        mf1 = {"segments": [{"startFrame": 0, "endFrame": 10, "blockType": "tts", "hasTts": True, "mouthEvents": None}],
+               "renderStartFrame": 0, "renderDurationFrames": 10, "fps": 30.0}
+        mf2 = {"segments": [{"startFrame": 0, "endFrame": 20, "blockType": "tts", "hasTts": True, "mouthEvents": None}],
+               "renderStartFrame": 0, "renderDurationFrames": 20, "fps": 30.0}
+        vid = Path(__file__)
+        h1 = compute_group_input_hash(mf1, None, vid)
+        h2 = compute_group_input_hash(mf2, None, vid)
+        assert h1 != h2
+
+    def test_hash_changes_on_prerender_size(self):
+        mf = {"segments": [], "renderStartFrame": 0, "renderDurationFrames": 10, "fps": 30.0}
+        vid = Path(__file__)
+        h1 = compute_group_input_hash(mf, {"outputWidth": 512, "outputHeight": 288, "assetId": "x"}, vid)
+        h2 = compute_group_input_hash(mf, {"outputWidth": 640, "outputHeight": 360, "assetId": "x"}, vid)
+        assert h1 != h2
 
 
 # ═════════════════════════════════════════════════════════════════════

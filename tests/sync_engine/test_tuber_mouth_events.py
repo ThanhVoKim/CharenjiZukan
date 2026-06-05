@@ -134,6 +134,34 @@ class TestLayer1_AmplitudeAnalysis:
         assert ev is None
 
 
+class TestLayer1_HybridMode:
+    """Unit: nhánh hybrid cadence debounce (phân tích source code)."""
+
+    def test_hybrid_accepts_mode_param(self):
+        """analyze_tts_amplitude nhận mode param."""
+        from sync_engine import tuber_mouth_events
+        import inspect
+        sig = inspect.signature(tuber_mouth_events.analyze_tts_amplitude)
+        assert "mode" in sig.parameters
+
+    def test_hybrid_debounce_in_source(self):
+        """Hybrid: source code chứa logic debounce (mode=='hybrid')."""
+        from sync_engine import tuber_mouth_events
+        import inspect
+        src = inspect.getsource(tuber_mouth_events.analyze_tts_amplitude)
+        assert 'mode == "hybrid"' in src, "Source phải chứa hybrid debounce"
+        assert "cadence_frames" in src, "Source phải tính cadence_frames"
+        assert "silence_frames" not in src
+
+    def test_hybrid_source_allows_silence_override(self):
+        """Hybrid source: chuyển sang closed KHÔNG bị debounce."""
+        from sync_engine import tuber_mouth_events
+        import inspect
+        src = inspect.getsource(tuber_mouth_events.analyze_tts_amplitude)
+        # state != "closed" → non-closed mới bị debounce
+        assert 'state != "closed"' in src
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # LAYER 2 — Component tests (cần TTS WAV thật)
 # ══════════════════════════════════════════════════════════════════════════
