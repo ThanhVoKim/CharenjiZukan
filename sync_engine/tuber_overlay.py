@@ -658,10 +658,6 @@ def render_and_composite_groups(
     Trả về list video_with_tuber.mp4 theo thứ tự group. Raise TuberOverlayError nếu
     một group hết retry vẫn fail (caller fallback render_without_tuber — Phase S).
     """
-    # Init status
-    for g in groups:
-        st.write_status(g.group_dir, st.new_status(g.group_id))
-
     overlay_policy = artifact_policy.get("overlayFrames", "safe")
 
     def _process_one_group(g: GroupJob) -> Path:
