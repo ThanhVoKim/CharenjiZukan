@@ -29,6 +29,7 @@ sync_video (Python)
 ```
 
 **V1 (Remotion) — fallback khi chưa pre-render:**
+
 ```
   → prepare_assets (npm chromakey body)
   → render-groups (npm bundle Remotion → renderFrames → PNG)
@@ -87,6 +88,159 @@ tuber-output/<job>/tuber/
 
 ---
 
+## Workflow toàn bộ pipeline (V4 — prerender + direct mode)
+
+### Sơ đồ tổng quan (một lần chạy `sync-video --tuber-config`)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 0 — SETUP (chạy 1 lần, kết quả cache cho các lần sau)               │
+│                                                                             │
+│  bodySource.mp4 (green screen)                                              │
+│       │ FFmpeg chromakey                                                    │
+│       ▼                                                                     │
+│  body-transparent/frame-000.png … frame-N.png    (body frames không nền)   │
+│       │                                                                     │
+│       │ + mouth/closed.png, half.png, open.png                             │
+│       │ + mouth_track.json (quad per frame)                                │
+│       │ PIL affine warp × (N body × 3 states)                              │
+│       ▼                                                                     │
+│  prerendered/frame-000_closed.png                                           │
+│             /frame-000_half.png                  ← cache 1 lần             │
+│             /frame-000_open.png                    (skipDone=true giữ lại)  │
+│             /frame-001_closed.png … (N×3 files)                            │
+│             /prerender_manifest.json                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 1 — SYNC VIDEO (pipeline chính, song song với tuber)                │
+│                                                                             │
+│  video.mp4 + subtitle.srt + TTS clips                                      │
+│       │ process_video_chunks_parallel (FFmpeg NVENC)                       │
+│       ▼                                                                     │
+│  video_stretched.mp4    ← video đã time-stretch khớp TTS                  │
+│  final_audio_mixed.wav  ← TTS + original audio + ambient + BGM             │
+│                                                                             │
+│  → promote vào tuber-output/<job>/tuber/media/                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 2 — BUILD GROUPS (chia video thành N group ≤ maxGroupSec giây)      │
+│                                                                             │
+│  timeline (SubBlock list)                                                   │
+│       │ build_render_groups()                                               │
+│       ▼                                                                     │
+│  group_0001: frame 0    → 9000   (300s @ 30fps)                            │
+│  group_0002: frame 9000 → 18000                                            │
+│  ...                                                                        │
+│                                                                             │
+│  Với mỗi group:                                                             │
+│    → analyze TTS WAV amplitude → mouthEvents (closed/half/open per frame)  │
+│       [mode=hybrid: RMS gate + cadenceMs debounce → trạng thái mượt hơn]   │
+│    → build_group_manifest.json  (renderStartFrame, renderDurationFrames,   │
+│       compOffsetX/Y/W/H, segments, mouthEvents)                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 3 — COMPOSITE (parallel, maxWorkers groups cùng lúc)                │
+│                                                                             │
+│  Với mỗi group (worker độc lập):                                           │
+│                                                                             │
+│  ┌──────────── format="direct" (default) ─────────────────────────────┐   │
+│  │                                                                      │   │
+│  │  Python vòng lặp M frame:                                           │   │
+│  │    for gf in (renderStart, renderStart + renderDuration):           │   │
+│  │      track_idx  = compute_track_frame_index(gf)  ← looping body    │   │
+│  │      mouth_state = lookup mouthEvents(gf)         ← closed/half/open│   │
+│  │      img = open(prerendered/frame-{track_idx}_{state}.png)          │   │
+│  │      stdin.write(img.tobytes())  ← raw RGBA, không ghi file         │   │
+│  │                    │                                                 │   │
+│  │                    │ pipe (RAM, 0 file trung gian)                   │   │
+│  │                    ▼                                                 │   │
+│  │  FFmpeg [0:v] = video_stretched.mp4 (hybrid seek -ss + trim exact)  │   │
+│  │  FFmpeg [1:v] = rawvideo stdin (RGBA W×H)                           │   │
+│  │       filter_complex: trim → fps → overlay → [outv]                 │   │
+│  │       encode: hevc_nvenc -preset p4 -cq 28                          │   │
+│  │                    │                                                 │   │
+│  │                    ▼                                                 │   │
+│  │  groups/group_0001/video_with_tuber.mp4                             │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌──────────── format="png_sequence" (debug) ─────────────────────────┐   │
+│  │  Python copy M frame PNG → overlay_frames/frame_%06d.png           │   │
+│  │  FFmpeg -i overlay_frames/frame_%06d.png (file-based)              │   │
+│  │  → groups/group_0001/video_with_tuber.mp4                          │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  Sau composite: validate (duration ±0.1s, size > 1KB)                     │
+│  Nếu fail → retry (tối đa retryAttempts lần)                               │
+│  Hết retry → fallback render_without_tuber (pipeline tiếp tục không tuber) │
+│                                                                             │
+│  skipDone=true: đọc status.json + so inputHash → skip nếu đã done          │
+└─────────────────────────────────────────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 4 — CONCAT + FINAL RENDER                                           │
+│                                                                             │
+│  group_0001/video_with_tuber.mp4 ┐                                         │
+│  group_0002/video_with_tuber.mp4 ├─ FFmpeg concat -c copy                 │
+│  group_000N/video_with_tuber.mp4 ┘                                         │
+│                    │                                                        │
+│                    ▼                                                        │
+│  media/video_stretched_with_tuber.mp4                                      │
+│                    │                                                        │
+│                    │ + final_audio_mixed.wav                               │
+│                    │ + subtitle_synced.srt / note_overlay.ass              │
+│                    │ render_final_video() [hardsub + watermark]            │
+│                    ▼                                                        │
+│  sync_output/<job>/video_synced.mp4  ← file output cuối cùng              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Resume flow (Colab chết giữa chừng → chạy lại)
+
+```
+Lần chạy lại:
+
+  group_0001: status.json = "done", inputHash khớp, video_with_tuber.mp4 hợp lệ
+                    │
+                    ▼ SKIP (không render lại)
+
+  group_0002: status.json = "failed" (Colab chết đây)
+                    │
+                    ▼ RENDER lại từ đầu
+
+  group_0003: chưa tồn tại
+                    │
+                    ▼ RENDER mới
+
+→ Chỉ group 2 và 3 tốn thời gian render lại
+→ inputHash đảm bảo đổi config (width, mouth mode...) → hash đổi → re-render đúng group cần
+```
+
+### Repair flow (fallback non-tuber → render tuber muộn)
+
+```
+sync-video lần 1:
+  group_0001 fail hết retry → fallback render_without_tuber
+  → sync_output/<job>/video_synced.mp4  (không có tuber)
+  → tuber-output/<job>/tuber/final_render_inputs/ được giữ lại (artifactPolicy=repairable)
+
+uv run tuber-repair --tuber-root tuber-output/<job>/tuber:
+  → đọc run_manifest.json + prerender_manifest.json
+  → render lại chỉ phần tuber (groups → composite → concat)
+  → render_final_video() với video_stretched_with_tuber.mp4
+  → sync_output/<job>/video_synced_with_tuber.mp4
+```
+
+---
+
 ## Tham số JSON config (`tuber_overlay_config.json`)
 
 ### `enabled`
@@ -106,12 +260,12 @@ tuber-output/<job>/tuber/
 > **Chỉ bắt buộc khi `overlay.mode` = `"remotion"` hoặc `"auto"`.**
 > Khi `overlay.mode = "prerender"`, section này có thể bỏ qua.
 
-| Key             | Kiểu     | Mặc định                     | Mô tả                                                    |
-| --------------- | -------- | ---------------------------- | -------------------------------------------------------- |
+| Key             | Kiểu     | Mặc định                     | Mô tả                                                        |
+| --------------- | -------- | ---------------------------- | ------------------------------------------------------------ |
 | `projectDir`    | `string` | `"remotion_tuber"`           | Đường dẫn subproject Remotion. Bắt buộc (nếu dùng Remotion). |
-| `compositionId` | `string` | `"TuberOverlay"`             | Composition ID trong Root.tsx.                           |
-| `entryPoint`    | `string` | `"src/index.ts"`             | Entry point cho Remotion bundle.                         |
-| `renderDriver`  | `string` | `"scripts/render-groups.ts"` | Script render driver (bundle once → renderFrames/group). |
+| `compositionId` | `string` | `"TuberOverlay"`             | Composition ID trong Root.tsx.                               |
+| `entryPoint`    | `string` | `"src/index.ts"`             | Entry point cho Remotion bundle.                             |
+| `renderDriver`  | `string` | `"scripts/render-groups.ts"` | Script render driver (bundle once → renderFrames/group).     |
 
 ### `asset` — asset PNGTuber
 
@@ -126,8 +280,8 @@ tuber-output/<job>/tuber/
 
 #### `asset.prerender` — pre-render character frames
 
-| Key            | Kiểu     | Mặc định | Mô tả                                                                                                                      |
-| -------------- | -------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Key            | Kiểu     | Mặc định | Mô tả                                                                                                                       |
+| -------------- | -------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `characterDir` | `string` | `null`   | Thư mục chứa pre-rendered frames + `prerender_manifest.json`. `null` → dùng `assetDir/prerendered` (tạo tự động nếu thiếu). |
 
 #### `asset.chromakey` — tham số chromakey
@@ -174,35 +328,35 @@ tuber-output/<job>/tuber/
 
 ### `mouth` — chế độ miệng
 
-| Key            | Kiểu      | Mặc định      | Mô tả                                                                                                                                                                     |
-| -------------- | --------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mode`         | `string`  | `"cue"`       | `"cue"` V1 — dùng `hasTts`. `"amplitude"` V2 — RMS per frame → state. `"hybrid"` V3 — RMS gate (nói/im) + debounce bằng `cadenceMs` để ổn định trạng thái half↔open. |
-| `silenceDb`    | `number`  | `-40.0`       | Ngưỡng dB coi là im lặng. Dưới ngưỡng → `closed`.                                                                                                                        |
-| `minSilenceMs` | `number`  | `200`         | Bỏ qua khoảng im lặng ngắn hơn (tránh miệng nhấp nháy).                                                                                                                  |
-| `cadenceMs`    | `number`  | `150`         | **Chỉ dùng ở mode `"hybrid"`**: debounce — trạng thái non-closed (half↔open) phải giữ tối thiểu `cadenceMs` ms trước khi chuyển tiếp. Chuyển về `closed` (silence) không bị giới hạn. |
-| `mouthStates`  | `[string]`| `[...3]`      | Danh sách mouth states theo thứ tự từ nhỏ đến lớn (mở rộng được).                                                                                                        |
+| Key            | Kiểu       | Mặc định | Mô tả                                                                                                                                                                                 |
+| -------------- | ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`         | `string`   | `"cue"`  | `"cue"` V1 — dùng `hasTts`. `"amplitude"` V2 — RMS per frame → state. `"hybrid"` V3 — RMS gate (nói/im) + debounce bằng `cadenceMs` để ổn định trạng thái half↔open.                  |
+| `silenceDb`    | `number`   | `-40.0`  | Ngưỡng dB coi là im lặng. Dưới ngưỡng → `closed`.                                                                                                                                     |
+| `minSilenceMs` | `number`   | `200`    | Bỏ qua khoảng im lặng ngắn hơn (tránh miệng nhấp nháy).                                                                                                                               |
+| `cadenceMs`    | `number`   | `150`    | **Chỉ dùng ở mode `"hybrid"`**: debounce — trạng thái non-closed (half↔open) phải giữ tối thiểu `cadenceMs` ms trước khi chuyển tiếp. Chuyển về `closed` (silence) không bị giới hạn. |
+| `mouthStates`  | `[string]` | `[...3]` | Danh sách mouth states theo thứ tự từ nhỏ đến lớn (mở rộng được).                                                                                                                     |
 
 #### So sánh `mouth.mode`
 
-| Mode          | Cách hoạt động                                                                                             | Khi nào dùng                                                      |
-| ------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `"cue"`       | V1 legacy: `hasTts=true` → miệng mở suốt segment (kể cả silent margin)                                    | Backward compat, không dùng TTS WAV                               |
-| `"amplitude"` | Phân tích RMS per frame → tự do chuyển state mỗi frame; có thể nhấp nháy khi biên độ dao động nhanh       | Khi muốn khẩu hình bám sát audio thật (nhiễu được chấp nhận)     |
-| `"hybrid"`    | RMS gate xác định đoạn nói/im; trong đoạn nói dùng debounce `cadenceMs` → ổn định hơn, ít nhấp nháy hơn  | **Khuyến nghị** cho PNGTuber production; cân bằng tự nhiên/mượt  |
+| Mode          | Cách hoạt động                                                                                          | Khi nào dùng                                                    |
+| ------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `"cue"`       | V1 legacy: `hasTts=true` → miệng mở suốt segment (kể cả silent margin)                                  | Backward compat, không dùng TTS WAV                             |
+| `"amplitude"` | Phân tích RMS per frame → tự do chuyển state mỗi frame; có thể nhấp nháy khi biên độ dao động nhanh     | Khi muốn khẩu hình bám sát audio thật (nhiễu được chấp nhận)    |
+| `"hybrid"`    | RMS gate xác định đoạn nói/im; trong đoạn nói dùng debounce `cadenceMs` → ổn định hơn, ít nhấp nháy hơn | **Khuyến nghị** cho PNGTuber production; cân bằng tự nhiên/mượt |
 
 ### `overlay` — format overlay và mode render
 
-| Key      | Kiểu     | Mặc định         | Mô tả                                                                                                     |
-| -------- | -------- | ---------------- | --------------------------------------------------------------------------------------------------------- |
-| `format` | `string` | `"direct"` | Transport overlay frame vào FFmpeg. Xem bảng dưới.                                                        |
-| `mode`   | `string` | `"auto"`   | Kiểm soát engine render: `"remotion"` / `"prerender"` / `"auto"`. Xem bảng dưới.                          |
+| Key      | Kiểu     | Mặc định   | Mô tả                                                                            |
+| -------- | -------- | ---------- | -------------------------------------------------------------------------------- |
+| `format` | `string` | `"direct"` | Transport overlay frame vào FFmpeg. Xem bảng dưới.                               |
+| `mode`   | `string` | `"auto"`   | Kiểm soát engine render: `"remotion"` / `"prerender"` / `"auto"`. Xem bảng dưới. |
 
 #### `overlay.format` — cách transport frame overlay
 
-| Giá trị         | Transport                          | File trung gian | Khi nào dùng                                   |
-| --------------- | ---------------------------------- | --------------- | ---------------------------------------------- |
-| `"direct"` ✅   | Raw RGBA pipe → FFmpeg stdin (RAM) | **0 file**      | **Production** (default) — nhanh, lossless     |
-| `"png_sequence"` | Ghi `overlay_frames/*.png` → đọc | M file PNG      | **Debug** — soi từng frame PNG khi nghi lỗi    |
+| Giá trị          | Transport                          | File trung gian | Khi nào dùng                                |
+| ---------------- | ---------------------------------- | --------------- | ------------------------------------------- |
+| `"direct"` ✅    | Raw RGBA pipe → FFmpeg stdin (RAM) | **0 file**      | **Production** (default) — nhanh, lossless  |
+| `"png_sequence"` | Ghi `overlay_frames/*.png` → đọc   | M file PNG      | **Debug** — soi từng frame PNG khi nghi lỗi |
 
 > **Resume không đổi:** cả 2 mode dùng chung `status.json` + `inputHash` + `video_with_tuber.mp4`. Skip-done hoạt động bình thường ở cả 2 mode. Đổi mode giữa các lần chạy vẫn skip đúng group đã done.
 >
@@ -212,11 +366,11 @@ tuber-output/<job>/tuber/
 
 #### `overlay.mode` — lựa chọn engine render
 
-| Giá trị       | Hành vi                                                                                                       |
-| ------------- | ------------------------------------------------------------------------------------------------------------- |
-| `"remotion"`  | Luôn dùng Remotion (Node + Chromium). Section `remotion` **bắt buộc**.                                        |
+| Giá trị       | Hành vi                                                                                                                                              |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"remotion"`  | Luôn dùng Remotion (Node + Chromium). Section `remotion` **bắt buộc**.                                                                               |
 | `"prerender"` | Luôn dùng pre-render Python/PIL. Nếu `prerender_manifest.json` chưa có → **tự động chạy** `prerender_character()`. Section `remotion` **không cần**. |
-| `"auto"`      | Auto-detect: nếu `prerender_manifest.json` tồn tại → pre-render; ngược lại → Remotion.                        |
+| `"auto"`      | Auto-detect: nếu `prerender_manifest.json` tồn tại → pre-render; ngược lại → Remotion.                                                               |
 
 ### `artifactPolicy` — chính sách giữ/xóa artifact
 
@@ -243,24 +397,24 @@ tuber-output/<job>/tuber/
 
 ### `performance` — tăng tốc song song (V3)
 
-| Key          | Kiểu     | Mặc định | Mô tả                                                                                          |
-| ------------ | -------- | -------- | ---------------------------------------------------------------------------------------------- |
+| Key          | Kiểu     | Mặc định | Mô tả                                                                                                                  |
+| ------------ | -------- | -------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `maxWorkers` | `number` | `2`      | Số worker song song cho prerender_character (bake body×mouth) và composite groups. NVENC thường giới hạn ~2-3 session. |
 
 ### `resume` — skip-done / re-render (V3)
 
-| Key        | Kiểu      | Mặc định | Mô tả                                                                                                                                   |
-| ---------- | --------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Key        | Kiểu      | Mặc định | Mô tả                                                                                                                                  |
+| ---------- | --------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `skipDone` | `boolean` | `true`   | `true`: so hash input → skip group done + hash khớp + output hợp lệ (resume save). `false`: xóa sạch groups/ + prerendered/, dựng lại. |
 
 ### `debug` — debug frame output (V3)
 
 Config: `debug.frameOutput.enabled` / `debug.frameOutput.marginFrames`.
 
-| Key                          | Kiểu      | Mặc định | Mô tả                                                                                         |
-| ---------------------------- | --------- | -------- | --------------------------------------------------------------------------------------------- |
-| `frameOutput.enabled`        | `boolean` | `false`  | Dump overlay + composited frames quanh boundary vào `logs/debug_frames/`. Chi phí 0 khi false. |
-| `frameOutput.marginFrames`   | `number`  | `3`      | Số frame ở **start** và **end** của mỗi group cần dump (tổng = 2 × marginFrames / group).    |
+| Key                        | Kiểu      | Mặc định | Mô tả                                                                                          |
+| -------------------------- | --------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `frameOutput.enabled`      | `boolean` | `false`  | Dump overlay + composited frames quanh boundary vào `logs/debug_frames/`. Chi phí 0 khi false. |
+| `frameOutput.marginFrames` | `number`  | `3`      | Số frame ở **start** và **end** của mỗi group cần dump (tổng = 2 × marginFrames / group).      |
 
 **Output khi enabled:** `logs/debug_frames/{group_id}/overlay_{n}.png`, `composited_{n}.png`, `boundary.json` (groupStartFrame, fps, margin). Dùng để soi lệch frame tại điểm nối giữa các group.
 

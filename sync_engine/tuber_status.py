@@ -58,12 +58,17 @@ def read_status(group_dir: Path) -> Optional[Dict[str, Any]]:
 def compute_group_input_hash(
     group_manifest: dict,
     prerender_manifest: Optional[dict],
-    stretched_video: Path,
+    source_video: Optional[Path],
 ) -> str:
     """SHA-256 hash các yếu tố quyết định output 1 group.
 
     Gồm: segments, renderStartFrame, renderDurationFrames, compOffsetX/Y,
-    prerender assetId + outputWidth/Height, và (mtime_ns, size) của stretched_video.
+    prerender assetId + outputWidth/Height, và (mtime_ns, size) của source_video.
+
+    LƯU Ý: anchor là VIDEO GỐC (--video), KHÔNG phải video_stretched.mp4.
+    sync-video tái tạo video_stretched.mp4 mỗi lần chạy (mtime mới) → nếu hash
+    theo stretched thì resume luôn miss. Video gốc ổn định giữa các lần chạy nên
+    là anchor đúng; mọi yếu tố stretch/mouth đã nằm trong group_manifest.
 
     Returns:
         Hex digest string.
@@ -95,9 +100,10 @@ def compute_group_input_hash(
     h = hashlib.sha256(
         json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
     )
-    try:
-        st = Path(stretched_video).stat()
-        h.update(f"vid:{st.st_mtime_ns}:{st.st_size}".encode())
-    except OSError:
-        pass
+    if source_video is not None:
+        try:
+            stt = Path(source_video).stat()
+            h.update(f"vid:{stt.st_mtime_ns}:{stt.st_size}".encode())
+        except OSError:
+            pass
     return h.hexdigest()

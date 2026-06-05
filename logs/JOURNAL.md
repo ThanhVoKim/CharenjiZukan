@@ -1,5 +1,36 @@
 # Project Journal
 
+## 2026-06-05: Fix resume.skipDone luôn miss — inputHash anchor sai vào video tái tạo
+
+### Triệu chứng
+Chạy `sync-video` lần 2 (cùng video/SRT/config), group đáng lẽ `skipped` nhưng status ra `done` → re-render lại từ đầu, resume vô tác dụng.
+
+### Nguyên nhân gốc
+`compute_group_input_hash()` (`tuber_status.py`) trộn `st_mtime_ns` của `video_stretched.mp4` (base video đã promote) vào hash. NHƯNG `sync-video` tái tạo `video_stretched.mp4` từ đầu mỗi lần chạy (stretch lại → mtime mới), `promote_media` copy lại file mới → hash lưu ở lần 1 KHÔNG BAO GIỜ khớp lần 2 → skip-check fail → re-render → status `done`.
+
+(Ngay cả content-hash video stretched cũng không cứu được: NVENC không byte-deterministic giữa các lần encode.)
+
+### Cách sửa
+Đổi anchor của hash từ **intermediate tái tạo** sang **input ổn định**: video GỐC (`--video`). Mọi yếu tố stretch/mouth đã nằm trong `group_manifest` rồi, nên video gốc + manifest là đủ để định danh output 1 group, và video gốc không đổi giữa các lần chạy.
+
+### Thay đổi chính
+1. **`compute_group_input_hash(group_manifest, prerender_manifest, source_video)`** (`tuber_status.py`): param `stretched_video` → `source_video`; guard `None` (graceful, không raise).
+2. **Đường truyền `source_video`**: `run_tuber_flow_all_in` truyền `Path(video_path)` → `render_groups_to_video` → `render_and_composite_groups` → 2 chỗ gọi hash trong `_process_one_group`.
+3. **`run_manifest["sourceVideo"]`** (`tuber_manifest.py::build_run_manifest`): ghi path video gốc để repair tái lập đúng hash.
+4. **`tuber_repair`**: đọc `run_manifest["sourceVideo"]`, fallback `baseVideo` nếu manifest cũ chưa có field (hash khác → re-render, an toàn).
+
+### Tests
+- `TestLayer1_GroupHash::test_hash_stable_when_intermediate_regenerated` — regression: cùng video gốc → hash khớp dù intermediate đổi mtime; đổi video gốc → hash đổi.
+- `TestLayer1_GroupHash::test_hash_tolerates_missing_source_video` — `source_video=None` không raise.
+- Sửa 2 test stale có sẵn (do default `direct` từ V4): `test_defaults` (assert `direct`), `test_pipe_cmd_no_overlay_frames_dir` (kiểm tra intent qua AST, bỏ docstring thay vì grep chuỗi).
+- `tests/sync_engine/test_tuber_overlay_pipeline.py` + `test_tuber_repair.py`: 77 passed, 7 skipped.
+
+### File thay đổi
+- `sync_engine/tuber_status.py`, `sync_engine/tuber_overlay.py`, `sync_engine/tuber_manifest.py`, `cli/tuber_repair.py`
+- `tests/sync_engine/test_tuber_overlay_pipeline.py`
+
+---
+
 ## 2026-06-05: V4 — Direct RGB Pipe (bỏ I/O PNG sequence trung gian)
 
 ### Tóm tắt

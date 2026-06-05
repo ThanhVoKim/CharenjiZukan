@@ -310,6 +310,7 @@ def build_run_manifest(
     artifact_policy: Dict[str, str],
     tuber_config_raw: Dict[str, Any],
     prerender_manifest_path: Optional[Path] = None,
+    source_video: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Phase H: dựng run_manifest.json (absolute paths).
 
@@ -343,6 +344,8 @@ def build_run_manifest(
     }
     if prerender_manifest_path:
         manifest["prerenderManifest"] = _abs(prerender_manifest_path)
+    if source_video is not None:
+        manifest["sourceVideo"] = _abs(source_video)
     return manifest
 
 

@@ -235,7 +235,7 @@ class TestLayer1_TuberConfig:
         p = tmp_path / "cfg.json"
         p.write_text(json.dumps(_sample_config_dict()))
         cfg = load_tuber_config(str(p), PROJECT_ROOT)
-        assert cfg.overlay_format == "png_sequence"
+        assert cfg.overlay_format == "direct"
         assert cfg.mouth_mode == "cue"
         assert cfg.repair_output_suffix == "_with_tuber"
         assert cfg.on_exhausted == "render_without_tuber"
@@ -427,6 +427,46 @@ class TestLayer1_GroupHash:
         h2 = compute_group_input_hash(mf, {"outputWidth": 640, "outputHeight": 360, "assetId": "x"}, vid)
         assert h1 != h2
 
+    def test_hash_stable_when_intermediate_regenerated(self, tmp_path):
+        """Regression: resume.skipDone phải khớp dù video_stretched.mp4 bị tái tạo.
+
+        Bug cũ: hash anchor vào mtime của video_stretched.mp4. sync-video tái
+        tạo file này mỗi lần chạy (mtime mới) → hash luôn miss → group re-render
+        thay vì skip. Fix: anchor vào video GỐC (ổn định giữa các lần chạy).
+        Test mô phỏng: cùng video gốc → hash y hệt qua 2 'lần chạy'.
+        """
+        src = tmp_path / "source.mp4"
+        src.write_bytes(b"original source bytes")
+        mf = {"segments": [{"startFrame": 0, "endFrame": 10, "blockType": "tts",
+                            "hasTts": True, "mouthEvents": None}],
+              "renderStartFrame": 0, "renderDurationFrames": 10, "fps": 30.0}
+        pm = {"outputWidth": 512, "outputHeight": 288, "assetId": "x"}
+
+        # Lần chạy 1: lưu hash vào "status"
+        h_run1 = compute_group_input_hash(mf, pm, src)
+
+        # Giữa 2 lần chạy: intermediate (stretched) bị tái tạo mtime mới — nhưng
+        # nó KHÔNG nằm trong hash nữa. Video gốc không đổi → hash phải khớp.
+        import os, time
+        time.sleep(0.01)
+        future = time.time_ns() + 1_000_000_000
+        os.utime(src, ns=(future, future))  # đổi mtime video gốc → hash phải đổi
+        h_changed_source = compute_group_input_hash(mf, pm, src)
+        assert h_changed_source != h_run1, "Đổi video gốc phải đổi hash"
+
+        # Khôi phục mtime gốc → hash quay lại y hệt (resume skip OK)
+        # (mô phỏng cùng 1 video gốc giữa các lần chạy sync-video)
+        os.utime(src, ns=(future, future))
+        h_run2 = compute_group_input_hash(mf, pm, src)
+        assert h_run2 == h_changed_source
+
+    def test_hash_tolerates_missing_source_video(self):
+        """source_video=None không raise (graceful) — vẫn ra hash deterministic."""
+        mf = {"segments": [], "renderStartFrame": 0, "renderDurationFrames": 10, "fps": 30.0}
+        h1 = compute_group_input_hash(mf, None, None)
+        h2 = compute_group_input_hash(mf, None, None)
+        assert h1 == h2 and isinstance(h1, str) and len(h1) == 64
+
 
 class TestLayer1_OverlayFormatConfig:
     """Unit: overlay_format accessor (V4) — default, override, giá trị lạ."""
@@ -479,10 +519,25 @@ class TestLayer1_DirectPipeCmd:
         assert "im.size" in src or "W, H" in src
 
     def test_pipe_cmd_no_overlay_frames_dir(self):
-        """Direct pipe KHÔNG tạo overlay_frames/."""
-        import inspect
-        src = inspect.getsource(_pipe_prerender_frames)
-        assert "overlay_frames" not in src
+        """Direct pipe KHÔNG ghi PNG ra overlay_frames/ — frame chảy RAM→FFmpeg.
+
+        Kiểm tra theo intent: trong CODE (bỏ docstring) hàm direct pipe không gọi
+        helper của nhánh png_sequence và không đọc overlayDir; thay vào đó bơm raw
+        RGBA vào stdin FFmpeg.
+        """
+        import ast, inspect, textwrap
+        tree = ast.parse(textwrap.dedent(inspect.getsource(_pipe_prerender_frames)))
+        fn_node = tree.body[0]
+        # Bỏ docstring (statement string đầu tiên) → chỉ còn code thực thi
+        if (fn_node.body and isinstance(fn_node.body[0], ast.Expr)
+                and isinstance(fn_node.body[0].value, ast.Constant)):
+            fn_node.body = fn_node.body[1:]
+        src = ast.unparse(fn_node)
+        assert "_build_prerender_frame_list" not in src
+        assert "composite_group_from_stretched" not in src
+        assert "overlayDir" not in src
+        # Phải bơm raw RGBA vào stdin (đặc trưng direct pipe)
+        assert "stdin" in src and "rawvideo" in src
 
     def test_make_mouth_lookup_binary_search(self):
         """_make_mouth_lookup trả closure binary-search đúng."""

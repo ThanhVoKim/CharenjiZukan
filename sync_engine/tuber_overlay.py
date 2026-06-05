@@ -642,6 +642,7 @@ def render_and_composite_groups(
     prerender_dir: Optional[Path] = None,
     prerender_manifest: Optional[Dict[str, Any]] = None,
     stretched_video: Optional[Path] = None,  # NEW: required for prerender (seek)
+    source_video: Optional[Path] = None,  # NEW: stable anchor cho inputHash (resume)
     max_workers: int = 1,
     skip_done: bool = True,
     debug_frame_enabled: bool = False,
@@ -677,7 +678,7 @@ def render_and_composite_groups(
             if old_st and old_st.get("status") == st.STATUS_DONE:
                 old_hash = old_st.get("inputHash")
                 if old_hash and str(old_hash) == compute_group_input_hash(
-                    g.manifest, prerender_manifest, stretched_video,
+                    g.manifest, prerender_manifest, source_video,
                 ):
                     try:
                         validate_group_output(
@@ -788,7 +789,7 @@ def render_and_composite_groups(
 
         # done + cleanup overlay frames theo policy
         status["inputHash"] = compute_group_input_hash(
-            g.manifest, prerender_manifest, stretched_video,
+            g.manifest, prerender_manifest, source_video,
         )
         status["status"] = st.STATUS_DONE
         status["currentStep"] = st.STEP_CLEANUP
@@ -858,6 +859,7 @@ def render_groups_to_video(
     prerender_dir: Optional[Path] = None,
     prerender_manifest: Optional[Dict[str, Any]] = None,
     stretched_video: Optional[Path] = None,
+    source_video: Optional[Path] = None,  # NEW: stable anchor cho inputHash (resume)
     max_workers: int = 1,
     skip_done: bool = True,
     debug_frame_enabled: bool = False,
@@ -891,6 +893,7 @@ def render_groups_to_video(
         prerender_dir=prerender_dir,
         prerender_manifest=prerender_manifest,
         stretched_video=stretched_video,
+        source_video=source_video,
         max_workers=max_workers,
         skip_done=skip_done,
         debug_frame_enabled=debug_frame_enabled,
@@ -1210,6 +1213,7 @@ def run_tuber_flow_all_in(
         group_manifest_paths=[j.manifest_path for j in jobs],
         artifact_policy=ap, tuber_config_raw=config.raw,
         prerender_manifest_path=prerender_dir / "prerender_manifest.json" if prerender_dir else None,
+        source_video=Path(video_path),
     )
     write_run_manifest(run_manifest, config.tuber_root)
 
@@ -1231,6 +1235,7 @@ def run_tuber_flow_all_in(
         prerender_dir=prerender_dir,
         prerender_manifest=prerender_manifest,
         stretched_video=config.media_dir / BASE_VIDEO_NAME,
+        source_video=Path(video_path),
         max_workers=config.max_workers,
         skip_done=config.resume_skip_done,
         debug_frame_enabled=config.debug_frame_output_enabled,
