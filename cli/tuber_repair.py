@@ -71,6 +71,9 @@ def run_repair(tuber_root: Path, output_path: str = None) -> str:
             prerender_manifest = None
     use_prerender = prerender_manifest is not None
 
+    # Resolve overlay_format: đọc từ run_manifest (ghi lúc all-in), fallback config (V4)
+    overlay_format = run_manifest.get("overlayFormat") or cfg.overlay_format
+
     # Render tuber overlay muộn (group base.mp4 đã sẵn từ all-in run)
     remotion = run_manifest["remotion"]
     asset = run_manifest["asset"]
@@ -97,6 +100,7 @@ def run_repair(tuber_root: Path, output_path: str = None) -> str:
         stretched_video=base_video,
         max_workers=cfg.max_workers,
         skip_done=cfg.resume_skip_done,
+        overlay_format=overlay_format,
     )
 
     # Final render từ base đã có tuber + final_render_inputs

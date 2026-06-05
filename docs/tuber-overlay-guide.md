@@ -7,9 +7,11 @@ lên video output.
 (port thuật toán warp từ `remotion_tuber/`). Runtime thuần Python + FFmpeg, nhanh
 hơn Remotion ~100×, phù hợp video dài 2-3h.
 
-**V3 (hiện tại):** Bỏ `build_group_base` — composite seek trực tiếp vào `video_stretched.mp4`
+**V3:** Bỏ `build_group_base` — composite seek trực tiếp vào `video_stretched.mp4`
 (giảm 8→5 encode). Song song prerender + group composite (`performance.maxWorkers`).
 Resume skip-done bằng hash (`resume.skipDone`). Mode `"hybrid"` cho miệng mượt hơn.
+
+**V4 (hiện tại):** `overlay.format: "direct"` (default) — pipe raw RGBA thẳng RAM→FFmpeg, bỏ hoàn toàn `overlay_frames/*.png` trung gian (0 file I/O vụn, vẫn 1 lần encode HEVC, lossless). Giữ `"png_sequence"` làm chế độ debug khi cần soi từng frame PNG.
 
 **V1 — Remotion mode (legacy):** Giữ nguyên code tham khảo `remotion_tuber/`,
 nhưng runtime ưu tiên pre-render.
@@ -22,7 +24,7 @@ sync_video (Python)
   → tuber_manifest: build render groups từ timeline, export manifest + mouthEvents
   → tuber_prerender: pre-render body×mouth frames (1 lần, offline)
   → tuber_mouth_events: analyze TTS audio → mouthEvents per segment
-  → tuber_overlay: copy pre-rendered frames → composite overlay (FFmpeg) → concat
+  → tuber_overlay: pipe raw RGBA → composite overlay (FFmpeg) → concat  (V4: direct mode, không copy PNG)
   → render_final_video (với video đã có tuber overlay)
 ```
 
@@ -63,7 +65,7 @@ tuber-output/<job>/tuber/
 │   ├── group_0001/
 │   │   ├── group_manifest.json
 │   │   ├── status.json           # done/failed/skipped + inputHash (V3)
-│   │   ├── overlay_frames/       # (tạm, bị xóa nếu artifactPolicy.overlayFrames=safe)
+│   │   ├── overlay_frames/       # (chỉ tồn tại khi format="png_sequence"; direct mode không tạo)
 │   │   └── video_with_tuber.mp4  # V3: seek từ video_stretched (không còn base.mp4)
 │   └── group_0002/...
 ├── final_render_inputs/          # (chỉ khi artifactPolicy.mode=repairable)
@@ -192,8 +194,21 @@ tuber-output/<job>/tuber/
 
 | Key      | Kiểu     | Mặc định         | Mô tả                                                                                                     |
 | -------- | -------- | ---------------- | --------------------------------------------------------------------------------------------------------- |
-| `format` | `string` | `"png_sequence"` | `"png_sequence"` — PNG alpha sequence từng frame.                                                         |
-| `mode`   | `string` | `"auto"`         | Kiểm soát engine render: `"remotion"` / `"prerender"` / `"auto"`. Xem bảng dưới.                          |
+| `format` | `string` | `"direct"` | Transport overlay frame vào FFmpeg. Xem bảng dưới.                                                        |
+| `mode`   | `string` | `"auto"`   | Kiểm soát engine render: `"remotion"` / `"prerender"` / `"auto"`. Xem bảng dưới.                          |
+
+#### `overlay.format` — cách transport frame overlay
+
+| Giá trị         | Transport                          | File trung gian | Khi nào dùng                                   |
+| --------------- | ---------------------------------- | --------------- | ---------------------------------------------- |
+| `"direct"` ✅   | Raw RGBA pipe → FFmpeg stdin (RAM) | **0 file**      | **Production** (default) — nhanh, lossless     |
+| `"png_sequence"` | Ghi `overlay_frames/*.png` → đọc | M file PNG      | **Debug** — soi từng frame PNG khi nghi lỗi    |
+
+> **Resume không đổi:** cả 2 mode dùng chung `status.json` + `inputHash` + `video_with_tuber.mp4`. Skip-done hoạt động bình thường ở cả 2 mode. Đổi mode giữa các lần chạy vẫn skip đúng group đã done.
+>
+> **Fallback tự động:** nếu `"direct"` fail hết `retryAttempts` → tự động thử `"png_sequence"` 1 lần cuối trước khi fallback `render_without_tuber`.
+>
+> **Debug workflow:** miệng lệch / nghi lỗi composite → đổi `"format": "png_sequence"` → chạy lại → mở `groups/group_xxxx/overlay_frames/*.png` để soi từng frame.
 
 #### `overlay.mode` — lựa chọn engine render
 
@@ -304,7 +319,7 @@ Config: `debug.frameOutput.enabled` / `debug.frameOutput.marginFrames`.
     "mouthStates": ["closed", "half", "open"]
   },
   "overlay": {
-    "format": "png_sequence",
+    "format": "direct",
     "mode": "prerender"
   },
   "artifactPolicy": {

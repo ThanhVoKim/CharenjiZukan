@@ -579,3 +579,19 @@ tests:
     pytest_args: ["-v"]
     tags: ["unit", "sync_engine"]
     enabled: true
+
+  - name: "Tuber Overlay Pipeline — Layer 1: V4 Direct RGB Pipe (Config, Cmd, Lookup)"
+    file: "tests/sync_engine/test_tuber_overlay_pipeline.py"
+    keyword: "TestLayer1_OverlayFormatConfig or TestLayer1_DirectPipeCmd"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit", "sync_engine"]
+    enabled: true
+
+  - name: "Tuber Repair — Layer 1: V4 Resolve Overlay Format"
+    file: "tests/sync_engine/test_tuber_repair.py"
+    keyword: "TestLayer1_RepairResolveFormat"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit", "sync_engine"]
+    enabled: true

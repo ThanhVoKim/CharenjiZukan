@@ -63,3 +63,30 @@ class TestLayer1_RepairResolvePrerender:
         rm = {"prerenderManifest": "/nonexistent/prerender_manifest.json"}
         p = Path(rm["prerenderManifest"])
         assert not p.exists()
+
+
+class TestLayer1_RepairResolveFormat:
+    """Unit: repair resolve overlay_format từ run_manifest (V4)."""
+
+    def test_repair_uses_overlay_format_from_run_manifest(self):
+        """run_manifest có overlayFormat → source inspection kiểm tra dùng run_manifest key."""
+        import inspect
+        from cli import tuber_repair
+        src = inspect.getsource(tuber_repair.run_repair)
+        assert "overlayFormat" in src
+        assert "overlay_format" in src
+
+    def test_repair_fallback_config_when_no_key(self):
+        """Khi run_manifest thiếu overlayFormat → fallback cfg.overlay_format."""
+        import inspect
+        from cli import tuber_repair
+        src = inspect.getsource(tuber_repair.run_repair)
+        # Phải có pattern: run_manifest.get("overlayFormat") or cfg.overlay_format
+        assert "cfg.overlay_format" in src
+
+    def test_repair_passes_overlay_format_to_render(self):
+        """render_groups_to_video phải được gọi với overlay_format kwarg."""
+        import inspect
+        from cli import tuber_repair
+        src = inspect.getsource(tuber_repair.run_repair)
+        assert "overlay_format=overlay_format" in src

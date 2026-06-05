@@ -95,7 +95,11 @@ class TuberConfig:
 
     @property
     def overlay_format(self) -> str:
-        return _get_nested(self.raw, "overlay.format") or "png_sequence"
+        fmt = _get_nested(self.raw, "overlay.format") or "direct"
+        if fmt not in ("direct", "png_sequence"):
+            logger.warning("overlay.format=%r không hợp lệ → dùng 'direct'.", fmt)
+            return "direct"
+        return fmt
 
     @property
     def overlay_mode(self) -> str:

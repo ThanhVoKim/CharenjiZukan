@@ -2,7 +2,7 @@
   "enabled": true,
   "outputDir": "tuber-output",
   "overlay": {
-    "format": "png_sequence",
+    "format": "direct",
     "mode": "prerender"
   },
   "remotion": {

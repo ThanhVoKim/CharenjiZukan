@@ -433,6 +433,149 @@ def _expected_group_duration_s(manifest: Dict[str, Any]) -> float:
     return manifest["renderDurationFrames"] / float(manifest["fps"])
 
 
+def _make_mouth_lookup(group_manifest: Dict[str, Any]):
+    """Trả về hàm lookup(gf: int) -> state str cho group manifest đã cho.
+
+    Binary-search qua mouthEvents từng segment. Dùng chung cho cả
+    _build_prerender_frame_list (png_sequence) và _pipe_prerender_frames (direct).
+    """
+    segments = group_manifest.get("segments", [])
+
+    def lookup(gf: int) -> str:
+        best = "closed"
+        for seg in segments:
+            events = seg.get("mouthEvents")
+            if not events:
+                continue
+            lo, hi = 0, len(events) - 1
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                ev = events[mid]
+                if ev["frame"] <= gf:
+                    best = ev["state"]
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
+        return best
+
+    return lookup
+
+
+def _pipe_prerender_frames(
+    stretched_video: Path,
+    output: Path,
+    group_manifest: Dict[str, Any],
+    prerender_dir: Path,
+    prerender_manifest: Dict[str, Any],
+    fps_str: str,
+    fps_float: float,
+    *,
+    offset_x: int = 0,
+    offset_y: int = 0,
+    log_path: Optional[Path] = None,
+) -> Path:
+    """Direct RGB pipe: đọc prerender PNG → raw RGBA stdin → overlay seek → output.
+
+    Thay _build_prerender_frame_list (copy PNG) + composite_group_from_stretched
+    (đọc PNG sequence) bằng 1 FFmpeg process: [0:v]=video seek, [1:v]=rawvideo
+    từ stdin. Không tạo overlay_frames/ — frame chảy RAM→FFmpeg.
+
+    stderr FFmpeg ghi ra log_path (không PIPE) để tránh deadlock buffer.
+    """
+    try:
+        from PIL import Image as _Image
+    except ImportError as exc:
+        raise TuberOverlayError("Direct pipe yêu cầu Pillow (PIL). Hãy cài: pip install Pillow") from exc
+
+    from sync_engine.tuber_prerender import compute_track_frame_index, get_prerender_frame
+
+    render_start_frame = group_manifest.get("renderStartFrame",
+                                            group_manifest["groupStartFrame"])
+    render_duration_frames = group_manifest["renderDurationFrames"]
+    track_fps = float(prerender_manifest.get("trackFps", 30))
+    track_frames = int(prerender_manifest.get("trackFrames", 170))
+
+    # (1) Đọc kích thước THẬT từ frame prerender đầu tiên (Q4 plan)
+    probe_gf = render_start_frame
+    probe_idx = compute_track_frame_index(probe_gf, fps_float, track_fps, track_frames)
+    probe_src = get_prerender_frame(probe_idx, "closed", prerender_dir, prerender_manifest)
+    if not probe_src.exists():
+        raise TuberOverlayError(f"Direct pipe: frame prerender không có: {probe_src}")
+    with _Image.open(probe_src) as _im:
+        W, H = _im.size
+
+    # (2) Hybrid seek — y hệt composite_group_from_stretched
+    start_s = render_start_frame / fps_float
+    rough_start_s = max(0.0, start_s - 2.0)
+    exact_offset_s = start_s - rough_start_s
+    safe_start_s = max(0.0, exact_offset_s - (0.5 / fps_float))
+
+    filter_complex = (
+        f"[0:v]trim=start={safe_start_s:.6f},setpts=PTS-STARTPTS,"
+        f"fps={fps_str}:eof_action=pass,"
+        f"trim=end_frame={render_duration_frames}[vb];"
+        f"[vb][1:v]overlay=x={offset_x}:y={offset_y}:format=auto:shortest=1[outv]"
+    )
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", f"{rough_start_s:.6f}", "-i", str(stretched_video),
+        "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{W}x{H}",
+        "-framerate", fps_str, "-i", "pipe:0",
+        "-filter_complex", filter_complex,
+        "-map", "[outv]", "-an",
+        *_HEVC_NVENC_VIDEO_ARGS,
+        "-video_track_timescale", "90000",
+        str(output),
+    ]
+
+    # (3) Mở stderr ra file log (không PIPE) để tránh deadlock khi buffer stderr đầy
+    log_fh = None
+    if log_path:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_fh = open(log_path, "wb")  # noqa: SIM115
+
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=log_fh or subprocess.DEVNULL)
+
+        lookup = _make_mouth_lookup(group_manifest)
+        end_frame = render_start_frame + render_duration_frames
+        try:
+            for gf in range(render_start_frame, end_frame):
+                track_idx = compute_track_frame_index(gf, fps_float, track_fps, track_frames)
+                state = lookup(gf)
+                src = get_prerender_frame(track_idx, state, prerender_dir, prerender_manifest)
+                if not src.exists():
+                    src = get_prerender_frame(track_idx, "closed", prerender_dir,
+                                              prerender_manifest)
+                with _Image.open(src) as im:
+                    if im.mode != "RGBA":
+                        im = im.convert("RGBA")
+                    if im.size != (W, H):
+                        raise TuberOverlayError(
+                            f"Direct pipe: frame {src.name} size {im.size} != ({W},{H})"
+                        )
+                    proc.stdin.write(im.tobytes())  # type: ignore[union-attr]
+            proc.stdin.close()  # type: ignore[union-attr]
+        except BrokenPipeError:
+            pass  # FFmpeg đã chết — lấy returncode bên dưới
+        proc.wait()
+    finally:
+        if log_fh:
+            log_fh.close()
+
+    if proc.returncode != 0 or not output.exists() or output.stat().st_size == 0:
+        err_tail = ""
+        if log_path and log_path.exists():
+            try:
+                err_tail = log_path.read_bytes()[-1200:].decode("utf-8", "replace")
+            except OSError:
+                pass
+        raise TuberOverlayError(
+            f"Direct pipe composite fail ({output}). stderr tail:\n{err_tail}"
+        )
+    return output
+
+
 def _build_prerender_frame_list(
     group_manifest: Dict[str, Any],
     prerender_dir: Path,
@@ -467,30 +610,12 @@ def _build_prerender_frame_list(
     start_frame = group_manifest.get("renderStartFrame", group_manifest["groupStartFrame"])
     end_frame = start_frame + group_manifest["renderDurationFrames"]
 
-    # Pre-compute per-segment mouth events lookup
-    # Đọc trực tiếp từ group_manifest["segments"] — events đã có global frame
-    # nhờ global_start_frame trong build_group_manifest.
-    def _lookup_state(gf: int) -> str:
-        best = "closed"
-        for seg in group_manifest.get("segments", []):
-            events = seg.get("mouthEvents")
-            if not events:
-                continue
-            lo, hi = 0, len(events) - 1
-            while lo <= hi:
-                mid = (lo + hi) // 2
-                ev = events[mid]
-                if ev["frame"] <= gf:
-                    best = ev["state"]
-                    lo = mid + 1
-                else:
-                    hi = mid - 1
-        return best
+    lookup = _make_mouth_lookup(group_manifest)
 
     frame_idx = 0
     for gf in range(start_frame, end_frame):
         track_idx = compute_track_frame_index(gf, fps, track_fps, track_frames)
-        mouth_state = _lookup_state(gf)
+        mouth_state = lookup(gf)
         src = get_prerender_frame(track_idx, mouth_state, prerender_dir, prerender_manifest)
         if not src.exists():
             # Fallback to closed
@@ -521,11 +646,13 @@ def render_and_composite_groups(
     skip_done: bool = True,
     debug_frame_enabled: bool = False,
     debug_frame_margin_frames: int = 3,
+    overlay_format: str = "direct",
 ) -> List[Path]:
     """Render → mỗi group composite/validate/cleanup, retry group fail.
 
     V1 (use_prerender=False): bundle Remotion once, render overlay, composite.
-    V2 (use_prerender=True):  copy pre-rendered frames vào overlay_frames/, composite.
+    V2 (use_prerender=True, overlay_format="direct"):  pipe raw RGBA → FFmpeg stdin.
+    V2 (use_prerender=True, overlay_format="png_sequence"):  copy PNG → overlay_frames.
     Khi max_workers > 1: xử lý groups song song (ThreadPoolExecutor).
 
     Trả về list video_with_tuber.mp4 theo thứ tự group. Raise TuberOverlayError nếu
@@ -580,21 +707,43 @@ def render_and_composite_groups(
             status["attempts"] = attempt
             try:
                 if use_prerender:
-                    # V2: build overlay frames → composite seek (bỏ base.mp4)
-                    status["currentStep"] = st.STEP_RENDERING_OVERLAY
-                    st.write_status(g.group_dir, status)
-                    _build_prerender_frame_list(
-                        g.manifest, prerender_dir, prerender_manifest,
-                    )
+                    # V2: direct pipe hoặc png_sequence theo overlay_format
+                    # Ở attempt cuối, nếu direct đã fail → fallback png_sequence (Q5)
+                    is_last_attempt = (attempt == retry_attempts)
+                    fmt = overlay_format
+                    if fmt == "direct" and is_last_attempt and last_err is not None:
+                        logger.warning(
+                            "Group %s: direct pipe fail → fallback png_sequence (last attempt).",
+                            g.group_id,
+                        )
+                        fmt = "png_sequence"
+
                     status["currentStep"] = st.STEP_COMPOSITING
                     st.write_status(g.group_dir, status)
-                    composite_group_from_stretched(
-                        stretched_video,  # type: ignore[arg-type]
-                        overlay_dir, out, fps_str, fps_float,
-                        render_start_frame=g.manifest["renderStartFrame"],
-                        render_duration_frames=g.manifest["renderDurationFrames"],
-                        offset_x=offset_x, offset_y=offset_y,
-                    )
+                    if fmt == "direct":
+                        _pipe_prerender_frames(
+                            stretched_video,  # type: ignore[arg-type]
+                            out, g.manifest, prerender_dir, prerender_manifest,  # type: ignore[arg-type]
+                            fps_str, fps_float,
+                            offset_x=offset_x, offset_y=offset_y,
+                            log_path=logs_dir / f"direct_pipe_{g.group_id}.log",
+                        )
+                    else:
+                        # png_sequence path (debug / fallback)
+                        status["currentStep"] = st.STEP_RENDERING_OVERLAY
+                        st.write_status(g.group_dir, status)
+                        _build_prerender_frame_list(
+                            g.manifest, prerender_dir, prerender_manifest,  # type: ignore[arg-type]
+                        )
+                        status["currentStep"] = st.STEP_COMPOSITING
+                        st.write_status(g.group_dir, status)
+                        composite_group_from_stretched(
+                            stretched_video,  # type: ignore[arg-type]
+                            overlay_dir, out, fps_str, fps_float,
+                            render_start_frame=g.manifest["renderStartFrame"],
+                            render_duration_frames=g.manifest["renderDurationFrames"],
+                            offset_x=offset_x, offset_y=offset_y,
+                        )
                 else:
                     # V1: Remotion render → composite base
                     base = Path(g.manifest["base"])
@@ -668,12 +817,13 @@ def render_and_composite_groups(
         results: List[Tuple[int, Path]] = []
         errors: List[str] = []
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            fut_map = {pool.submit(_process_one_group, g): g for g in groups}
+            fut_map = {pool.submit(_process_one_group, g): idx for idx, g in enumerate(groups)}
             for f in as_completed(fut_map):
-                g = fut_map[f]
+                idx = fut_map[f]
+                g = groups[idx]
                 try:
                     out = f.result()
-                    results.append((g.index, out))
+                    results.append((idx, out))
                 except TuberOverlayError as exc:
                     errors.append(str(exc))
                 except Exception as exc:
@@ -716,11 +866,14 @@ def render_groups_to_video(
     skip_done: bool = True,
     debug_frame_enabled: bool = False,
     debug_frame_margin_frames: int = 3,
+    overlay_format: str = "direct",
 ) -> Path:
     """High-level: prepare assets → render/composite groups → concat → output_video.
 
     V1: Remotion render + composite (use_prerender=False).
-    V2: Pre-rendered frames + composite (use_prerender=True, bỏ Node/Chromium).
+    V2: Pre-rendered frames + composite (use_prerender=True).
+      overlay_format="direct"       → raw RGBA pipe (production, không file trung gian).
+      overlay_format="png_sequence" → ghi PNG overlay_frames (debug).
     Raise TuberOverlayError nếu fail (caller fallback).
     """
     if not use_prerender and do_prepare_assets:
@@ -746,6 +899,7 @@ def render_groups_to_video(
         skip_done=skip_done,
         debug_frame_enabled=debug_frame_enabled,
         debug_frame_margin_frames=debug_frame_margin_frames,
+        overlay_format=overlay_format,
     )
     concat_group_videos(group_videos, output_video, tmp_dir)
     logger.info("Tuber overlay xong → %s", output_video)
@@ -1085,4 +1239,5 @@ def run_tuber_flow_all_in(
         skip_done=config.resume_skip_done,
         debug_frame_enabled=config.debug_frame_output_enabled,
         debug_frame_margin_frames=config.debug_frame_margin,
+        overlay_format=config.overlay_format,
     )

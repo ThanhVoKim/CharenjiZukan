@@ -1262,20 +1262,6 @@ Các key chính: `enabled` (bật/tắt), `remotion` (project dir/composition), 
 
 #### Test full flow tuber overlay trên Colab
 
-##### Layer 1 + 2 — không cần GPU, chạy trước để kiểm tra cơ bản
-
-cd /content/Charenjizukan
-python -m pytest tests/sync_engine/test_tuber_overlay_pipeline.py -v -k "Layer1 or Layer2"
-python -m pytest tests/sync_engine/test_tuber_remotion_validation.py -v -k "Layer1 or Layer2"
-
-##### Layer 3 — composite cần HEVC NVENC, skip nếu không có GPU
-
-python -m pytest tests/sync_engine/test_tuber_overlay_pipeline.py -v -k "Layer3"
-
-##### Layer 4 — Remotion thật (cần npm install trước + GPU cho composite)
-
-REMOTION_TUBER_E2E=1 python -m pytest tests/sync_engine/test_tuber_remotion_validation.py -v -k "Layer4"
-
 ---
 
 ### 2.13. Pre-cut Video (pre-cut-video)

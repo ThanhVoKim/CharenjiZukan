@@ -74,6 +74,8 @@ from sync_engine.tuber_overlay import (
     render_and_composite_groups,
     probe_resolution,
     build_group_base,
+    _make_mouth_lookup,
+    _pipe_prerender_frames,
 )
 from sync_engine.tuber_status import compute_group_input_hash
 
@@ -131,7 +133,7 @@ def _sample_config_dict() -> dict:
             "bodySource": "loop.mp4",
         },
         "grouping": {"maxGroupSec": 3},
-        "overlay": {"format": "png_sequence"},
+        "overlay": {"format": "direct"},
         "retry": {"retryAttempts": 2, "onExhausted": "render_without_tuber"},
     }
 
@@ -424,6 +426,91 @@ class TestLayer1_GroupHash:
         h1 = compute_group_input_hash(mf, {"outputWidth": 512, "outputHeight": 288, "assetId": "x"}, vid)
         h2 = compute_group_input_hash(mf, {"outputWidth": 640, "outputHeight": 360, "assetId": "x"}, vid)
         assert h1 != h2
+
+
+class TestLayer1_OverlayFormatConfig:
+    """Unit: overlay_format accessor (V4) — default, override, giá trị lạ."""
+
+    def test_overlay_format_default_is_direct(self):
+        cfg = TuberConfig(enabled=True, raw={})
+        assert cfg.overlay_format == "direct"
+
+    def test_overlay_format_png_sequence(self):
+        cfg = TuberConfig(enabled=True, raw={"overlay": {"format": "png_sequence"}})
+        assert cfg.overlay_format == "png_sequence"
+
+    def test_overlay_format_direct_explicit(self):
+        cfg = TuberConfig(enabled=True, raw={"overlay": {"format": "direct"}})
+        assert cfg.overlay_format == "direct"
+
+    def test_overlay_format_invalid_fallback_direct(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING, logger="sync_video"):
+            cfg = TuberConfig(enabled=True, raw={"overlay": {"format": "split_alpha"}})
+            assert cfg.overlay_format == "direct"
+        assert "không hợp lệ" in caplog.text or "split_alpha" in caplog.text
+
+
+class TestLayer1_DirectPipeCmd:
+    """Unit: _pipe_prerender_frames và _make_mouth_lookup (source inspection)."""
+
+    def test_pipe_cmd_has_rawvideo_pix_fmt(self):
+        import inspect
+        src = inspect.getsource(_pipe_prerender_frames)
+        assert "-f" in src and "rawvideo" in src
+        assert "pix_fmt" in src and "rgba" in src
+
+    def test_pipe_cmd_has_pipe_stdin(self):
+        import inspect
+        src = inspect.getsource(_pipe_prerender_frames)
+        assert "pipe:0" in src or "stdin" in src.lower()
+
+    def test_pipe_cmd_has_hybrid_seek(self):
+        import inspect
+        src = inspect.getsource(_pipe_prerender_frames)
+        assert "rough_start_s" in src
+        assert "trim=start=" in src
+        assert "trim=end_frame=" in src
+
+    def test_pipe_cmd_reads_actual_size(self):
+        """Hàm phải đọc size THẬT từ probe frame (Q4 plan)."""
+        import inspect
+        src = inspect.getsource(_pipe_prerender_frames)
+        assert "im.size" in src or "W, H" in src
+
+    def test_pipe_cmd_no_overlay_frames_dir(self):
+        """Direct pipe KHÔNG tạo overlay_frames/."""
+        import inspect
+        src = inspect.getsource(_pipe_prerender_frames)
+        assert "overlay_frames" not in src
+
+    def test_make_mouth_lookup_binary_search(self):
+        """_make_mouth_lookup trả closure binary-search đúng."""
+        mf = {
+            "segments": [{
+                "mouthEvents": [
+                    {"frame": 0, "state": "closed"},
+                    {"frame": 10, "state": "open"},
+                    {"frame": 20, "state": "closed"},
+                ]
+            }]
+        }
+        lk = _make_mouth_lookup(mf)
+        assert lk(0) == "closed"
+        assert lk(5) == "closed"
+        assert lk(10) == "open"
+        assert lk(15) == "open"
+        assert lk(20) == "closed"
+
+    def test_make_mouth_lookup_empty_segments(self):
+        lk = _make_mouth_lookup({"segments": []})
+        assert lk(999) == "closed"
+
+    def test_pipe_uses_make_mouth_lookup(self):
+        """_pipe_prerender_frames phải dùng _make_mouth_lookup (DRY)."""
+        import inspect
+        src = inspect.getsource(_pipe_prerender_frames)
+        assert "_make_mouth_lookup" in src
 
 
 # ═════════════════════════════════════════════════════════════════════

@@ -1,5 +1,37 @@
 # Project Journal
 
+## 2026-06-05: V4 — Direct RGB Pipe (bỏ I/O PNG sequence trung gian)
+
+### Tóm tắt
+V4 thêm `overlay.format: "direct"` (default) — pipe raw RGBA từ `prerendered/` cache thẳng vào FFmpeg stdin, bỏ hoàn toàn `overlay_frames/*.png` trung gian. Giữ `"png_sequence"` làm debug mode. Resume/skipDone không thay đổi.
+
+### Thay đổi chính
+
+1. **`overlay.format: "direct"` (default mới):** Thêm giá trị `"direct"` vào `overlay.format` accessor (`tuber_config.py`). Default đổi từ `"png_sequence"` → `"direct"`. Giá trị lạ → fallback `"direct"` + warning. Đã bỏ `pipeMode` riêng — gộp chung vào `format` để tránh 2 field cùng mô tả 1 thứ.
+
+2. **`_pipe_prerender_frames()`** (`tuber_overlay.py`): Hàm mới thay `_build_prerender_frame_list` + `composite_group_from_stretched`. Đọc kích thước THẬT từ frame probe đầu tiên (PIL `.size`), dùng hybrid seek y hệt V3, bơm raw RGBA tuần tự vào `process.stdin`. Stderr ghi ra file log (không PIPE) để tránh deadlock buffer.
+
+3. **`_make_mouth_lookup()`** (`tuber_overlay.py`): Tách hàm binary-search lookup mouth state ra module-level để dùng chung cho cả direct pipe và png_sequence path (DRY).
+
+4. **Rẽ nhánh trong `_process_one_group()`**: Khi `use_prerender=True`, kiểm tra `overlay_format` → `"direct"` gọi `_pipe_prerender_frames`, `"png_sequence"` gọi `_build_prerender_frame_list` + `composite_group_from_stretched`. Fallback tự động: direct fail hết retry → thử png_sequence 1 lần cuối.
+
+5. **Đường truyền `overlay_format`**: `run_tuber_flow_all_in` lấy `config.overlay_format` → `render_groups_to_video` → `render_and_composite_groups`. `tuber_repair` đọc `run_manifest["overlayFormat"]` (đã được ghi lúc all-in) với fallback `cfg.overlay_format`.
+
+6. **Tests Layer 1 mới**: `TestLayer1_OverlayFormatConfig` (config accessor), `TestLayer1_DirectPipeCmd` (source inspection cmd + `_make_mouth_lookup`), `TestLayer1_RepairResolveFormat` (`test_tuber_repair.py`).
+
+7. **Docs**: `tuber-overlay-guide.md` — thêm V4 summary, bảng `overlay.format` với 2 giá trị + debug workflow, note `overlay_frames/` chỉ tồn tại ở `png_sequence`. Sample config đổi sang `"direct"`.
+
+### Đã bác bỏ
+- **Split Alpha (2 HEVC video)**: 3 generation HEVC loss làm hỏng viền alpha. Không phù hợp production pipeline. Direct pipe đạt cùng lợi ích I/O mà lossless và 1 encode.
+
+### File thay đổi
+- `sync_engine/tuber_config.py`, `sync_engine/tuber_overlay.py`, `cli/tuber_repair.py`
+- `assets/tuber_overlay_config.json`
+- `tests/sync_engine/test_tuber_overlay_pipeline.py`, `tests/sync_engine/test_tuber_repair.py`, `tests/test_matrix.yaml`
+- `docs/tuber-overlay-guide.md`
+
+---
+
 ## 2026-06-05: V3 — Tối ưu hiệu năng + Resume cho pre-render pipeline
 
 ### Tóm tắt
