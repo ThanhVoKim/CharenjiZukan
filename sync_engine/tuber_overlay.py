@@ -937,6 +937,13 @@ def prepare_groups_and_base(
             "cadence_ms": config.mouth_cadence_ms,
             "num_mouth_states": len(config.mouth_states),
             "mode": mouth_mode,
+            # Tầng 2 — vowel selection (spectral centroid); chỉ kích hoạt khi
+            # mouth_states có "e"/"u". 3-state cũ → analyze bỏ qua, hành vi như cũ.
+            "mouth_states": config.mouth_states,
+            "peak_margin": config.mouth_peak_margin,
+            "min_vowel_interval_ms": config.mouth_min_vowel_interval_ms,
+            "vowel_low_percentile": config.mouth_vowel_low_pct,
+            "vowel_high_percentile": config.mouth_vowel_high_pct,
         }
 
     jobs: List[GroupJob] = []
@@ -1005,6 +1012,19 @@ def _load_prerender_manifest(config) -> Optional[Dict[str, Any]]:
     except Exception:
         pass
     return None
+
+
+def _prerender_is_stale(prerender_manifest: Dict[str, Any], config) -> bool:
+    """True nếu prerender hiện có thiếu mouthStates mà config yêu cầu.
+
+    Khi user thêm 'e'/'u' vào mouthStates nhưng prerendered/ cũ chỉ có
+    closed/half/open → frame ``frame-NNN_e.png``/``_u.png`` thiếu → composite
+    fallback 'closed' → nguyên âm không hiện. Trả True để caller bake lại (bổ sung
+    frame nguyên âm) thay vì buộc user xoá tay bằng resume.skipDone=false.
+    """
+    have = set(prerender_manifest.get("mouthStates") or [])
+    want = set(config.mouth_states)
+    return not want.issubset(have)
 
 
 def _auto_run_prerender(config, width: int, height: int) -> Dict[str, Any]:
@@ -1130,13 +1150,16 @@ def run_tuber_flow_all_in(
 
     if overlay_mode == "prerender":
         prerender_manifest = _load_prerender_manifest(config)
-        if prerender_manifest is None:
+        if prerender_manifest is None or _prerender_is_stale(prerender_manifest, config):
             prerender_manifest = _auto_run_prerender(config, width, height)
         use_prerender = True
     elif overlay_mode == "remotion":
         pass  # use_prerender = False, không load prerender
     else:  # "auto"
         prerender_manifest = _load_prerender_manifest(config)
+        if prerender_manifest is not None and _prerender_is_stale(prerender_manifest, config):
+            logger.info("Prerender manifest thiếu mouthStates mới (e/u) → bake lại.")
+            prerender_manifest = _auto_run_prerender(config, width, height)
         use_prerender = prerender_manifest is not None
 
     prerender_dir = config.prerender_character_dir if use_prerender else None

@@ -37,6 +37,9 @@ from sync_engine.tuber_mouth_events import (
     _rms_to_db,
     _state_from_amplitude,
     _merge_short_silence,
+    _select_vowel_shapes,
+    _percentile,
+    _apply_vowel_selection,
 )
 
 
@@ -162,6 +165,91 @@ class TestLayer1_HybridMode:
         assert 'state != "closed"' in src
 
 
+class TestLayer1_VowelSelection:
+    """Unit: Tầng 2 — _percentile, _select_vowel_shapes, _apply_vowel_selection.
+
+    Spectral centroid → u/e/open (port ③ライブ実行). Không I/O với WAV thật.
+    """
+
+    def test_percentile_basic(self):
+        vals = [0.0, 1.0, 2.0, 3.0, 4.0]
+        assert _percentile(vals, 0) == 0.0
+        assert _percentile(vals, 100) == 4.0
+        assert _percentile(vals, 50) == 2.0
+        # nội suy tuyến tính: idx = 4*0.25 = 1.0 → đúng phần tử
+        assert _percentile(vals, 25) == 1.0
+
+    def test_percentile_empty_and_single(self):
+        assert _percentile([], 50) == 0.0
+        assert _percentile([7.0], 50) == 7.0
+
+    def test_low_centroid_selects_u(self):
+        """Centroid thấp tại đỉnh sóng → 'u'."""
+        levels = ["open"] * 5
+        env = [0.2, 0.6, 1.0, 0.6, 0.2]   # đỉnh ở index 2 → phát hiện tại i=3
+        centroids = [0.05] * 5
+        out = _select_vowel_shapes(
+            levels, centroids, env,
+            u_th=0.2, e_th=0.5, peak_margin=0.02, min_vowel_frames=1,
+        )
+        assert "u" in out, out
+        assert "e" not in out
+
+    def test_high_centroid_selects_e(self):
+        """Centroid cao tại đỉnh sóng → 'e'."""
+        levels = ["open"] * 5
+        env = [0.2, 0.6, 1.0, 0.6, 0.2]
+        centroids = [0.8] * 5
+        out = _select_vowel_shapes(
+            levels, centroids, env,
+            u_th=0.2, e_th=0.5, peak_margin=0.02, min_vowel_frames=1,
+        )
+        assert "e" in out, out
+        assert "u" not in out
+
+    def test_no_peak_keeps_open(self):
+        """Env phẳng (không có đỉnh) → không đổi khẩu hình, giữ 'open'."""
+        levels = ["open"] * 6
+        env = [1.0] * 6
+        centroids = [0.05] * 6
+        out = _select_vowel_shapes(
+            levels, centroids, env,
+            u_th=0.2, e_th=0.5, peak_margin=0.02, min_vowel_frames=1,
+        )
+        assert set(out) == {"open"}, out
+
+    def test_closed_resets_shape(self):
+        """Frame 'closed'/'half' không bị ghi thành vowel; closed reset shape."""
+        levels = ["open", "open", "open", "closed", "half"]
+        env = [0.2, 0.6, 1.0, 0.0, 0.5]
+        centroids = [0.05] * 5
+        out = _select_vowel_shapes(
+            levels, centroids, env,
+            u_th=0.2, e_th=0.5, peak_margin=0.02, min_vowel_frames=1,
+        )
+        assert out[3] == "closed"
+        assert out[4] == "half"
+
+    def test_mismatched_lengths_returns_unchanged(self):
+        levels = ["open", "open"]
+        out = _select_vowel_shapes(
+            levels, [0.1], [0.5, 0.6],
+            u_th=0.2, e_th=0.5, peak_margin=0.02, min_vowel_frames=1,
+        )
+        assert out == levels
+
+    def test_apply_vowel_selection_disabled_without_eu(self):
+        """mouthStates không có e/u → trả levels nguyên (không đọc WAV)."""
+        levels = ["closed", "open", "half"]
+        out = _apply_vowel_selection(
+            levels, [0.0, 1.0, 0.5], Path("does_not_exist.wav"), 30,
+            mouth_states=["closed", "half", "open"],
+            peak_margin=0.02, min_vowel_interval_ms=120,
+            vowel_low_percentile=20, vowel_high_percentile=80,
+        )
+        assert out == levels
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # LAYER 2 — Component tests (cần TTS WAV thật)
 # ══════════════════════════════════════════════════════════════════════════
@@ -201,6 +289,83 @@ class TestLayer2_RealAudio:
         # Với ngưỡng thấp -60dB, hầu hết các phần sẽ có state không phải closed
         open_states = [e for e in events if e["state"] != "closed"]
         assert len(open_states) > 0, "Audio > -60dB phải tạo được non-closed state"
+
+
+class TestLayer2_VowelFromWav:
+    """Component: spectral-centroid vowel selection từ WAV tổng hợp (numpy)."""
+
+    @staticmethod
+    def _write_wav(path: Path, freqs, amps, *, framerate=24000, fps=30):
+        """Ghi WAV mono pcm_s16le: mỗi 'frame' (1/fps giây) 1 tần số + biên độ."""
+        import numpy as np
+        import wave
+
+        win = round(framerate / fps)
+        phase = 0.0
+        segs = []
+        for f, a in zip(freqs, amps):
+            tt = np.arange(win) / framerate
+            segs.append(a * np.sin(2 * np.pi * f * tt + phase))
+            phase += 2 * np.pi * f * (win / framerate)
+        sig = np.clip(np.concatenate(segs), -1.0, 1.0) * 32767.0
+        pcm = sig.astype("<i2")
+        with wave.open(str(path), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(framerate)
+            wf.writeframes(pcm.tobytes())
+
+    @pytest.fixture()
+    def chirp_wav(self, tmp_path: Path) -> Path:
+        """Quét tần số 100→6000Hz, biên độ điều chế (tạo đỉnh) → centroid trải rộng."""
+        np = pytest.importorskip("numpy")
+        n = 60
+        freqs = np.linspace(100, 6000, n)
+        amps = 0.8 * (0.6 + 0.4 * np.abs(np.sin(2 * np.pi * np.arange(n) / 5.0)))
+        path = tmp_path / "chirp.wav"
+        self._write_wav(path, freqs, amps)
+        return path
+
+    @pytest.fixture()
+    def tone_wav(self, tmp_path: Path) -> Path:
+        """Đơn tần 200Hz (centroid đồng nhất) — phân bố suy biến."""
+        np = pytest.importorskip("numpy")
+        n = 40
+        freqs = np.full(n, 200.0)
+        amps = 0.8 * (0.6 + 0.4 * np.abs(np.sin(2 * np.pi * np.arange(n) / 5.0)))
+        path = tmp_path / "tone.wav"
+        self._write_wav(path, freqs, amps)
+        return path
+
+    def test_chirp_produces_vowel(self, chirp_wav: Path):
+        pytest.importorskip("numpy")
+        events = analyze_tts_amplitude(
+            chirp_wav, 30, mode="amplitude", min_silence_ms=0,
+            mouth_states=["closed", "half", "open", "e", "u"],
+        )
+        states = {ev["state"] for ev in events}
+        assert states & {"e", "u"}, f"Chirp phải sinh ít nhất 1 vowel: {states}"
+
+    def test_3state_never_yields_vowel(self, chirp_wav: Path):
+        pytest.importorskip("numpy")
+        events = analyze_tts_amplitude(
+            chirp_wav, 30, mode="amplitude", min_silence_ms=0,
+            mouth_states=["closed", "half", "open"],
+        )
+        states = {ev["state"] for ev in events}
+        assert not (states & {"e", "u"}), f"3-state không được sinh vowel: {states}"
+        assert states <= {"closed", "half", "open"}
+
+    def test_pure_tone_degenerate_no_vowel(self, tone_wav: Path):
+        """Centroid đồng nhất → guard u_th<e_th chặn → không vowel, không crash."""
+        pytest.importorskip("numpy")
+        events = analyze_tts_amplitude(
+            tone_wav, 30, mode="amplitude", min_silence_ms=0,
+            mouth_states=["closed", "half", "open", "e", "u"],
+        )
+        assert len(events) > 0
+        states = {ev["state"] for ev in events}
+        assert not (states & {"e", "u"}), f"Đơn tần không nên sinh vowel: {states}"
 
 
 # ══════════════════════════════════════════════════════════════════════════

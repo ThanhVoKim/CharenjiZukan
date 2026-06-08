@@ -81,3 +81,8 @@ Driver truyền `{ manifest, mouthTrack, assetId }`:
 - **B3/B4** tổng quát res/fps: `calculateMetadata` đọc manifest.
 - **B5** group base do Python dựng; subproject chỉ render overlay, Python composite.
 - **M1** mouth mode `cue` (chưa đọc audio); amplitude/hybrid để V2.
+
+> **Vowel selection (V5 — e/u):** Pipeline Python prerender hỗ trợ chọn khẩu hình nguyên âm `e`/`u` bằng
+> spectral centroid (Tầng 2, port `③ライブ実行`) — xem [`docs/tuber-overlay-guide.md`](../docs/tuber-overlay-guide.md)
+> mục `mouth`. **Path Remotion KHÔNG hỗ trợ** vowel selection: `src/mouthState.ts` chỉ có cadence
+> closed/half/open. Muốn dùng 5 khẩu hình → dùng `overlay.mode = "prerender"`.

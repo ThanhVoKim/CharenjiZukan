@@ -274,7 +274,7 @@ uv run tuber-repair --tuber-root tuber-output/<job>/tuber:
 | `assetDir`     | `string` | `"assets/pngtuber/nike_loop_fix"` | Thư mục asset chứa `mouth_track.json`, mouth sprites, body source. Bắt buộc. |
 | `assetId`      | `string` | (tên thư mục asset)               | ID dùng trong `public/pngtuber/<id>/`. Bỏ trống để lấy từ `assetDir`.        |
 | `mouthTrack`   | `string` | `"mouth_track.json"`              | File tracking mouth quad (theo frame). Bắt buộc.                             |
-| `mouthSprites` | `object` | `{closed, half, open}`            | Path tới 3 sprite mouth PNG (relative từ `assetDir`). Bắt buộc.              |
+| `mouthSprites` | `object` | `{closed, half, open}`            | Path các sprite mouth PNG (relative từ `assetDir`). Bắt buộc. Mở rộng được `e`/`u` cho vowel selection (xem mục `mouth` V5). |
 | `bodySource`   | `string` | `"loop_mouthless_h264.mp4"`       | Video body loop không miệng, nền màu đặc. Bắt buộc.                          |
 | `chromakey`    | `object` | `{}`                              | Tham số chromakey cho body source.                                           |
 
@@ -335,6 +335,54 @@ uv run tuber-repair --tuber-root tuber-output/<job>/tuber:
 | `minSilenceMs` | `number`   | `200`    | Bỏ qua khoảng im lặng ngắn hơn (tránh miệng nhấp nháy).                                                                                                                               |
 | `cadenceMs`    | `number`   | `150`    | **Chỉ dùng ở mode `"hybrid"`**: debounce — trạng thái non-closed (half↔open) phải giữ tối thiểu `cadenceMs` ms trước khi chuyển tiếp. Chuyển về `closed` (silence) không bị giới hạn. |
 | `mouthStates`  | `[string]` | `[...3]` | Danh sách mouth states theo thứ tự từ nhỏ đến lớn (mở rộng được).                                                                                                                     |
+
+#### `mouth` — khẩu hình nguyên âm (V5, e/u — spectral centroid)
+
+PNGTuber chọn miệng theo **2 tầng** (port từ nút `③ライブ実行` của repo gốc MotionPNGTuber):
+
+- **Tầng 1 — biên độ → `closed`/`half`/`open`:** RMS amplitude quyết định độ mở (im → đóng, nói to → mở).
+- **Tầng 2 — spectral centroid → `u`/`e`/`open`:** chỉ khi đang `open` tại **đỉnh sóng**, tính trọng tâm phổ
+  FFT (`centroid = Σ(freq·mag)/Σmag`, chuẩn hoá [0,1]) trung bình `cm`: `cm < U_TH` ⇒ `u` (う, phổ tối/tròn
+  môi), `cm > E_TH` ⇒ `e` (え, phổ sáng), còn lại `open` (あ). `U_TH`/`E_TH` = percentile 20/80 của centroid
+  các frame `open` (tự thích nghi theo clip).
+
+> ⚠️ **Đây KHÔNG phải nhận diện phoneme/formant thật** — chỉ là proxy "độ sáng phổ", nên đôi lúc lệch nguyên
+> âm thật (chấp nhận được). **Chỉ hỗ trợ ở `overlay.mode = "prerender"`**; path Remotion không có Tầng 2.
+
+**Kích hoạt:** thêm `"e"`/`"u"` vào `mouth.mouthStates` **và** đặt file `e.png`/`u.png` trong thư mục mouth.
+Nếu `mouthStates` chỉ có `["closed","half","open"]` → Tầng 2 tự tắt, hành vi y hệt trước (backward-compatible).
+Thiếu numpy / quá ít frame `open` → cũng tự về 3-state (fail mềm).
+
+| Key                    | Kiểu     | Mặc định | Mô tả                                                              |
+| ---------------------- | -------- | -------- | ----------------------------------------------------------------- |
+| `peakMargin`           | `number` | `0.02`   | Ngưỡng phát hiện đỉnh sóng (env chuẩn hoá [0,1]) cho Tầng 2.       |
+| `minVowelIntervalMs`   | `number` | `120`    | Cooldown (ms) tối thiểu giữa 2 lần đổi khẩu hình nguyên âm.        |
+| `vowelLowPercentile`   | `number` | `20`     | Percentile centroid → `U_TH` (thấp = `u`).                         |
+| `vowelHighPercentile`  | `number` | `80`     | Percentile centroid → `E_TH` (cao = `e`).                          |
+
+> **Resume:** `inputHash` đã băm `mouthEvents`, nên đổi `mouthStates` (thêm/bớt e/u) → group tự re-render.
+> Prerender cũ thiếu frame e/u được **tự bake bổ sung** (không cần `resume.skipDone=false`).
+
+##### Config mẫu 5 khẩu hình (closed/half/open/e/u)
+
+```jsonc
+"asset": {
+  "mouthSprites": {
+    "closed": "mouth/closed.png",
+    "half": "mouth/half.png",
+    "open": "mouth/open.png",
+    "e": "mouth/e.png",
+    "u": "mouth/u.png"
+  }
+},
+"mouth": {
+  "mode": "hybrid",
+  "silenceDb": -40.0,
+  "minSilenceMs": 200,
+  "cadenceMs": 150,
+  "mouthStates": ["closed", "half", "open", "e", "u"]
+}
+```
 
 #### So sánh `mouth.mode`
 

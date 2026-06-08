@@ -131,6 +131,30 @@ class TuberConfig:
         return float(_get_nested(self.raw, "mouth.cadenceMs") or 150.0)
 
     @property
+    def mouth_peak_margin(self) -> float:
+        """Tầng 2 — ngưỡng phát hiện đỉnh sóng (env chuẩn hoá [0,1])."""
+        v = _get_nested(self.raw, "mouth.peakMargin")
+        return float(v) if v is not None else 0.02
+
+    @property
+    def mouth_min_vowel_interval_ms(self) -> float:
+        """Tầng 2 — cooldown (ms) giữa 2 lần đổi khẩu hình nguyên âm."""
+        v = _get_nested(self.raw, "mouth.minVowelIntervalMs")
+        return float(v) if v is not None else 120.0
+
+    @property
+    def mouth_vowel_low_pct(self) -> float:
+        """Tầng 2 — percentile centroid → U_TH (thấp = 'u'/う)."""
+        v = _get_nested(self.raw, "mouth.vowelLowPercentile")
+        return float(v) if v is not None else 20.0
+
+    @property
+    def mouth_vowel_high_pct(self) -> float:
+        """Tầng 2 — percentile centroid → E_TH (cao = 'e'/え)."""
+        v = _get_nested(self.raw, "mouth.vowelHighPercentile")
+        return float(v) if v is not None else 80.0
+
+    @property
     def mouth_states(self) -> list:
         states = _get_nested(self.raw, "mouth.mouthStates")
         return list(states) if states else ["closed", "half", "open"]

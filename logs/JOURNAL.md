@@ -1,5 +1,41 @@
 # Project Journal
 
+## 2026-06-08: V5 — Mouth vowel selection (spectral centroid, port ③ライブ実行)
+
+### Tóm tắt
+PNGTuber chọn khẩu hình chỉ theo biên độ (closed/half/open) nên 2 khẩu hình nguyên âm `e.png` (え) / `u.png` (う) không bao giờ được chọn. Port **Tầng 2** từ nút `③ライブ実行` của repo gốc [MotionPNGTuber](https://github.com/rotejin/MotionPNGTuber): chọn `e`/`u` bằng **spectral centroid** (FFT brightness) tại đỉnh sóng khi đang `open`. Đây là proxy độ sáng phổ (KHÔNG phải nhận diện phoneme thật): centroid thấp → `u`, cao → `e`.
+
+### Thiết kế (offline, 2 tầng)
+- **Tầng 1** (như cũ): RMS amplitude → per-frame level closed/half/open.
+- **Tầng 2** (mới): tính centroid mỗi frame (`numpy.fft.rfft`, chuẩn hoá [0,1] theo Nyquist), ngưỡng `U_TH`/`E_TH` = percentile 20/80 của centroid các frame `open` trên toàn clip (offline → ổn định hơn live adaptive). Tại đỉnh sóng + cooldown → cập nhật khẩu hình sticky.
+- **Backward-compatible tuyệt đối:** chỉ kích hoạt khi `mouth.mouthStates` có `e`/`u`. Cấu hình 3-state cũ, thiếu numpy, hoặc quá ít frame `open` → tự bỏ qua Tầng 2 (fail mềm), hành vi y hệt trước.
+
+### Thay đổi chính
+1. **`tuber_mouth_events.py`**: tách `_read_wav_samples`/`_samples_to_rms` (giữ `_read_wav_rms`); thêm `_frame_centroids` (numpy lazy+guarded), `_percentile`, `_select_vowel_shapes`, `_apply_vowel_selection`. `analyze_tts_amplitude` tái cấu trúc 3 bước (levels → vowel rewrite → collapse events) + nhận `mouth_states`, `peak_margin`, `min_vowel_interval_ms`, `vowel_low/high_percentile`.
+2. **`tuber_config.py`**: accessor `mouth_peak_margin`, `mouth_min_vowel_interval_ms`, `mouth_vowel_low_pct`, `mouth_vowel_high_pct`.
+3. **`tuber_overlay.py`**: `mouth_opts` truyền thêm `mouth_states` + vowel knobs; thêm `_prerender_is_stale()` → tự bake bổ sung frame `e`/`u` khi prerendered/ cũ thiếu state (không cần `resume.skipDone=false`).
+4. **`pyproject.toml`**: khai báo tường minh `numpy>=1.24` (trước chỉ có gián tiếp qua imagehash/torch).
+5. **Docs sync**: `docs/tuber-overlay-guide.md` (bảng `mouth` V5 + config mẫu 5 state + ghi rõ prerender-only) và `remotion_tuber/README.md` (Remotion path không hỗ trợ vowel).
+
+### Resume / Hash
+`compute_group_input_hash` đã băm `mouthEvents` → state e/u đổi → group tự re-render. Prerender staleness fix lo phần bake frame nguyên âm. Không sửa hash.
+
+### Lưu ý
+- Centroid là proxy thô → e/u đôi lúc lệch nguyên âm thật (đúng kỳ vọng, giống bản gốc).
+- **Chỉ hỗ trợ ở `overlay.mode="prerender"`**; path Remotion (`mouthState.ts`) chưa có Tầng 2.
+- Config mặc định `assets/tuber_overlay_config.json` GIỮ 3-state (asset `nike_loop_fix` chỉ có 3 sprite); ví dụ 5-state nằm trong docs.
+
+### Tests
+- `tests/sync_engine/test_tuber_mouth_events.py`: `TestLayer1_VowelSelection` (`_select_vowel_shapes`, `_percentile`, backward-compat 3-state), `TestLayer2_VowelFromWav` (WAV sin tần thấp→`u`/cao→`e`).
+- `tests/test_matrix.yaml`: thêm entry Layer1/Layer2 vowel.
+
+### File thay đổi
+- `sync_engine/tuber_mouth_events.py`, `sync_engine/tuber_config.py`, `sync_engine/tuber_overlay.py`
+- `pyproject.toml`, `docs/tuber-overlay-guide.md`, `remotion_tuber/README.md`
+- `tests/sync_engine/test_tuber_mouth_events.py`, `tests/test_matrix.yaml`
+
+---
+
 ## 2026-06-05: Fix resume.skipDone luôn miss — inputHash anchor sai vào video tái tạo
 
 ### Triệu chứng

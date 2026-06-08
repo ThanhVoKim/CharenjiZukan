@@ -12,13 +12,15 @@
     "renderDriver": "scripts/render-groups.ts"
   },
   "asset": {
-    "assetDir": "assets/pngtuber/nike_loop_fix",
-    "assetId": "nike_loop_fix",
+    "assetDir": "/content/assets/pngtuber/charenji",
+    "assetId": "charenji",
     "mouthTrack": "mouth_track.json",
     "mouthSprites": {
       "closed": "mouth/closed.png",
       "half": "mouth/half.png",
-      "open": "mouth/open.png"
+      "open": "mouth/open.png",
+      "e": "mouth/e.png",
+      "u": "mouth/u.png"
     },
     "bodySource": "loop_mouthless_h264.mp4",
     "chromakey": {
@@ -48,7 +50,9 @@
     "mouthStates": [
       "closed",
       "half",
-      "open"
+      "open",
+      "e",
+      "u"
     ]
   },
   "artifactPolicy": {
