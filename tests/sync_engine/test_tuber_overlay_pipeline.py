@@ -285,6 +285,25 @@ class TestLayer1_TuberConfig:
         assert cfg.chromakey["color"] == "0x08A702"
         assert cfg.chromakey["similarity"] == 0.12
 
+    def test_chromakey_enabled_default_none(self):
+        # Không khai báo → None (auto: dò alpha của nguồn)
+        cfg = parse_tuber_config_dict(_sample_config_dict())
+        assert cfg.chromakey_enabled is None
+
+    def test_chromakey_enabled_false(self):
+        # Nguồn .mov/.webm đã trong suốt → tắt chromakey tường minh
+        d = _sample_config_dict()
+        d["asset"]["chromakey"] = {"enabled": False}
+        cfg = parse_tuber_config_dict(d)
+        assert cfg.chromakey_enabled is False
+
+    def test_chromakey_enabled_true(self):
+        d = _sample_config_dict()
+        d["asset"]["chromakey"] = {"enabled": True, "color": "0x00FF00"}
+        cfg = parse_tuber_config_dict(d)
+        assert cfg.chromakey_enabled is True
+        assert cfg.chromakey["color"] == "0x00FF00"
+
     def test_config_not_found_raises(self):
         with pytest.raises(TuberConfigError, match="Không tìm thấy"):
             load_tuber_config("/nonexistent_12345.json", PROJECT_ROOT)

@@ -1,5 +1,34 @@
 # Project Journal
 
+## 2026-06-08: Fix chromakey — bỏ qua key khi bodySource đã có alpha sẵn
+
+### Vấn đề
+Body tuber overlay hiện ra bán trong suốt ("như ẩn như hiện", chỉ rõ mouth) dù user KHÔNG khai báo `chromakey` trong config. Hai nguyên nhân:
+1. **Code luôn chromakey**: `extract_body_transparent()` không có đường tắt — khi `chroma_color=None` nó *auto-detect* màu 4 góc rồi vẫn `chromakey=...`. Với nguồn đã trong suốt (hoặc H264 nền bị nướng đen), chromakey key luôn cả vùng tối của body → bán trong suốt.
+2. **Hiểu nhầm H264**: `loop_mouthless_h264.mp4` không thể trong suốt thật — H264/.mp4 không mang kênh alpha. Muốn nền trong suốt phải dùng ProRes4444 `.mov` / VP9 `.webm` / PNG sequence.
+
+### Thay đổi
+1. `sync_engine/tuber_prerender.py`:
+   - Thêm `_source_has_alpha()` (ffprobe pix_fmt → nhận diện yuva*/rgba/...).
+   - `extract_body_transparent()` thêm tham số `chromakey_enabled: Optional[bool]`. Tri-state: None=auto (bỏ qua chromakey nếu nguồn có alpha), False=luôn giữ alpha gốc (`vf=format=rgba`), True=luôn chromakey. Cảnh báo khi tắt chromakey nhưng nguồn không alpha (sẽ ra frame đặc).
+2. `sync_engine/tuber_config.py`: property `chromakey_enabled` đọc `asset.chromakey.enabled` (tri-state).
+3. `sync_engine/tuber_overlay.py`: `_auto_run_prerender()` truyền `config.chromakey_enabled` xuống.
+4. `tests/sync_engine/test_tuber_overlay_pipeline.py`: 3 unit test cho `chromakey_enabled` (None/False/True).
+
+### Hành động cho user
+- Re-export body sang `.mov` (ProRes4444) / `.webm` (VP9 alpha) / PNG seq → code TỰ nhận alpha và bỏ qua chromakey. Hoặc đặt `asset.chromakey.enabled=false` để tắt tường minh.
+- Còn dùng H264 green-screen thì khai `asset.chromakey.color` (vd `0x00FF00`) thay vì để auto-detect màu đen.
+
+### Lưu ý còn lại
+- Đường Remotion (`remotion_tuber/scripts/prepare-assets.ts`, mode `remotion`/`direct`) vẫn luôn chromakey — chưa sửa vì config hiện dùng `overlay.mode=prerender`. Cần port logic skip-alpha tương tự nếu sau này dùng Remotion với nguồn alpha.
+- Chưa verify FFmpeg thật trên nguồn .mov/.webm (máy dev không có asset); cần chạy lại pipeline trên Colab để xác nhận frame body đặc/trong suốt đúng.
+
+### File thay đổi
+- `sync_engine/tuber_prerender.py`, `sync_engine/tuber_config.py`, `sync_engine/tuber_overlay.py`, `tests/sync_engine/test_tuber_overlay_pipeline.py`
+- `docs/tuber-overlay-guide.md` (doc: key `asset.chromakey.enabled`, cảnh báo H264 không alpha, Phase 0 diagram)
+
+---
+
 ## 2026-06-08: Prerender song song thật — ThreadPool → ProcessPoolExecutor (vượt GIL)
 
 ### Vấn đề

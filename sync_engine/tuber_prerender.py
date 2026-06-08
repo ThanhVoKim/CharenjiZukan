@@ -494,6 +494,36 @@ def _auto_detect_chroma_color(video_path: Path) -> str:
     return color
 
 
+def _source_has_alpha(video_path: Path) -> bool:
+    """True nếu stream video của nguồn đã có kênh alpha sẵn.
+
+    Dùng ffprobe đọc pix_fmt. H264/.mp4 KHÔNG mang alpha → False.
+    Định dạng có alpha: ProRes 4444 (.mov, yuva444p10le), VP9/VP8 alpha
+    (.webm, yuva420p), PNG sequence (rgba)... → True.
+    """
+    import subprocess
+
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=pix_fmt",
+            "-of", "default=nw=1:nk=1",
+            str(video_path),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        pix_fmt = result.stdout.strip().lower()
+    except Exception as exc:
+        logger.warning("ffprobe pix_fmt thất bại cho %s (%s) → coi như không alpha", video_path, exc)
+        return False
+
+    if not pix_fmt:
+        return False
+    # Các pix_fmt mang alpha: yuva*, rgba/argb/abgr/bgra, gbrap*, ya8/ya16
+    alpha_markers = ("yuva", "rgba", "argb", "abgr", "bgra", "gbrap", "ya8", "ya16", "ayuv")
+    return any(tok in pix_fmt for tok in alpha_markers)
+
+
 def extract_body_transparent(
     body_source: Path,
     out_dir: Path,
@@ -501,17 +531,26 @@ def extract_body_transparent(
     chroma_color: Optional[str] = None,
     similarity: float = 0.10,
     blend: float = 0.10,
+    chromakey_enabled: Optional[bool] = None,
 ) -> Path:
-    """Extract body frames từ video source với chromakey → RGBA PNG sequence.
+    """Extract body frames từ video source → RGBA PNG sequence.
 
-    Port từ remotion_tuber/scripts/prepare-assets.ts.
+    Hai chế độ:
+      - chromakey (nguồn nền màu đặc, vd green screen H264): xóa nền theo màu.
+      - giữ-alpha (nguồn .mov/.webm/PNG đã trong suốt): KHÔNG chromakey, chỉ
+        convert sang rgba để giữ nguyên alpha gốc → tránh body bị key nhầm,
+        bán trong suốt ("như ẩn như hiện").
 
     Args:
-        body_source: Path tới video body loop (nền màu đặc, vd green).
+        body_source: Path tới video body loop.
         out_dir: Output dir cho frame-NNN.png (tạo tự động nếu chưa có).
         chroma_color: Màu nền dạng '0xRRGGBB'. None → auto-detect từ 4 góc.
         similarity: FFmpeg chromakey similarity (0–1). Default 0.10.
         blend: FFmpeg chromakey blend (0–1). Default 0.10.
+        chromakey_enabled: Tri-state điều khiển có chromakey hay không.
+            None  → auto: bỏ qua chromakey nếu nguồn đã có alpha, ngược lại key.
+            False → luôn bỏ qua chromakey (giữ alpha gốc).
+            True  → luôn chromakey kể cả khi nguồn đã có alpha.
 
     Returns:
         out_dir path.
@@ -527,14 +566,37 @@ def extract_body_transparent(
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if chroma_color is None:
-        chroma_color = _auto_detect_chroma_color(body_source)
+    has_alpha = _source_has_alpha(body_source)
+    if chromakey_enabled is False:
+        do_chromakey, reason = False, "config tắt (chromakey.enabled=false)"
+    elif chromakey_enabled is True:
+        do_chromakey, reason = True, "config bật (chromakey.enabled=true)"
+    else:
+        do_chromakey = not has_alpha
+        reason = "auto: nguồn có alpha" if has_alpha else "auto: nguồn không có alpha"
 
-    # Normalize: '0xRRGGBB' → '0xRRGGBB' (FFmpeg dùng 0x prefix)
-    color_ffmpeg = chroma_color.replace("#", "0x")
-
-    vf = f"chromakey={color_ffmpeg}:{similarity}:{blend},format=rgba"
     out_pattern = str(out_dir / "frame-%03d.png")
+
+    if not do_chromakey:
+        if not has_alpha:
+            logger.warning(
+                "extract_body_transparent: bỏ qua chromakey (%s) nhưng nguồn %s KHÔNG "
+                "có kênh alpha (vd H264/.mp4) → frame xuất ra sẽ ĐẶC, không trong suốt. "
+                "Dùng ProRes4444 .mov / VP9 .webm / PNG sequence nếu cần nền trong suốt.",
+                reason, body_source.name,
+            )
+        vf = "format=rgba"
+        logger.info("extract_body_transparent: giữ alpha gốc (%s) → %s", reason, out_dir)
+    else:
+        if chroma_color is None:
+            chroma_color = _auto_detect_chroma_color(body_source)
+        # Normalize: '#RRGGBB' / '0xRRGGBB' → '0xRRGGBB' (FFmpeg dùng 0x prefix)
+        color_ffmpeg = chroma_color.replace("#", "0x")
+        vf = f"chromakey={color_ffmpeg}:{similarity}:{blend},format=rgba"
+        logger.info(
+            "extract_body_transparent: chromakey %s sim=%.2f blend=%.2f (%s) → %s",
+            color_ffmpeg, similarity, blend, reason, out_dir,
+        )
 
     cmd = [
         "ffmpeg", "-y",
@@ -545,10 +607,6 @@ def extract_body_transparent(
         out_pattern,
     ]
 
-    logger.info(
-        "extract_body_transparent: chromakey %s sim=%.2f blend=%.2f → %s",
-        color_ffmpeg, similarity, blend, out_dir,
-    )
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(

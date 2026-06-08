@@ -205,6 +205,22 @@ class TuberConfig:
     def chromakey(self) -> Dict[str, Any]:
         return dict(_get_nested(self.raw, "asset.chromakey") or {})
 
+    @property
+    def chromakey_enabled(self) -> Optional[bool]:
+        """Tri-state bật/tắt chromakey khi bodySource đã có alpha sẵn.
+
+        Đọc từ `asset.chromakey.enabled`:
+          - None (key vắng) → auto: extract_body_transparent tự dò alpha của
+            nguồn; có alpha thì BỎ QUA chromakey để giữ nguyên nền trong suốt.
+          - False → luôn bỏ qua chromakey (nguồn .mov/.webm/PNG đã trong suốt).
+          - True  → luôn chromakey kể cả khi nguồn đã có alpha.
+
+        Lưu ý: H264/.mp4 KHÔNG mang được alpha — nếu đặt False cho nguồn H264,
+        frame xuất ra sẽ đặc (không trong suốt). Xem extract_body_transparent.
+        """
+        v = _get_nested(self.raw, "asset.chromakey.enabled")
+        return None if v is None else bool(v)
+
     def artifact_policy(self) -> Dict[str, str]:
         """Resolve artifactPolicy thành dict đầy đủ các sub-key.
 

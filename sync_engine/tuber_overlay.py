@@ -1056,7 +1056,8 @@ def _auto_run_prerender(config, width: int, height: int) -> Dict[str, Any]:
             )
         ck = config.chromakey
         logger.info(
-            "Auto-chromakey: body-transparent/ chưa có → extract từ %s", body_source.name
+            "Auto body-transparent: chưa có → extract từ %s (chromakey_enabled=%s)",
+            body_source.name, config.chromakey_enabled,
         )
         try:
             extract_body_transparent(
@@ -1065,6 +1066,7 @@ def _auto_run_prerender(config, width: int, height: int) -> Dict[str, Any]:
                 chroma_color=ck.get("color") or None,
                 similarity=float(ck.get("similarity", 0.10)),
                 blend=float(ck.get("blend", 0.10)),
+                chromakey_enabled=config.chromakey_enabled,
             )
         except Exception as exc:
             raise TuberOverlayError(f"Auto-chromakey thất bại: {exc}") from exc

@@ -23,6 +23,11 @@
       "u": "mouth/u.png"
     },
     "bodySource": "loop_mouthless.mp4",
+    "chromakey": {
+      "color": "0x009E3F",
+      "similarity": 0.12,
+      "blend": 0.1
+    },
     "prerender": {
       "characterDir": null
     }

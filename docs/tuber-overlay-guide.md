@@ -96,8 +96,8 @@ tuber-output/<job>/tuber/
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  PHASE 0 — SETUP (chạy 1 lần, kết quả cache cho các lần sau)               │
 │                                                                             │
-│  bodySource.mp4 (green screen)                                              │
-│       │ FFmpeg chromakey                                                    │
+│  bodySource (green screen H264  |  .mov/.webm/PNG đã có alpha)              │
+│       │ FFmpeg: chromakey nếu nền màu đặc  |  format=rgba nếu đã có alpha    │
 │       ▼                                                                     │
 │  body-transparent/frame-000.png … frame-N.png    (body frames không nền)   │
 │       │                                                                     │
@@ -275,8 +275,8 @@ uv run tuber-repair --tuber-root tuber-output/<job>/tuber:
 | `assetId`      | `string` | (tên thư mục asset)               | ID dùng trong `public/pngtuber/<id>/`. Bỏ trống để lấy từ `assetDir`.        |
 | `mouthTrack`   | `string` | `"mouth_track.json"`              | File tracking mouth quad (theo frame). Bắt buộc.                             |
 | `mouthSprites` | `object` | `{closed, half, open}`            | Path các sprite mouth PNG (relative từ `assetDir`). Bắt buộc. Mở rộng được `e`/`u` cho vowel selection (xem mục `mouth` V5). |
-| `bodySource`   | `string` | `"loop_mouthless_h264.mp4"`       | Video body loop không miệng, nền màu đặc. Bắt buộc.                          |
-| `chromakey`    | `object` | `{}`                              | Tham số chromakey cho body source.                                           |
+| `bodySource`   | `string` | `"loop_mouthless_h264.mp4"`       | Video body loop không miệng. Bắt buộc. Hoặc nền màu đặc (H264 → cần chromakey), hoặc đã có alpha sẵn (ProRes4444 `.mov` / VP9 `.webm` / PNG seq → bỏ qua chromakey). |
+| `chromakey`    | `object` | `{}`                              | Tham số chromakey cho body source. Bỏ trống → auto theo nguồn (xem `asset.chromakey`). |
 
 #### `asset.prerender` — pre-render character frames
 
@@ -286,13 +286,20 @@ uv run tuber-repair --tuber-root tuber-output/<job>/tuber:
 
 #### `asset.chromakey` — tham số chromakey
 
-| Key          | Kiểu     | Mặc định      | Mô tả                                                                            |
-| ------------ | -------- | ------------- | -------------------------------------------------------------------------------- |
-| `color`      | `string` | (auto-detect) | Màu nền cần key, dạng `0xRRGGBB`. Bỏ trống → auto-dò từ 4 góc frame đầu.         |
-| `similarity` | `number` | `0.10`        | FFmpeg `chromakey` similarity (0–1). Tăng để bắt nhiều sắc thái của màu nền hơn. |
-| `blend`      | `number` | `0.10`        | FFmpeg `chromakey` blend (0–1). Tăng để làm mềm viền alpha.                      |
+| Key          | Kiểu      | Mặc định        | Mô tả                                                                            |
+| ------------ | --------- | --------------- | -------------------------------------------------------------------------------- |
+| `enabled`    | `boolean` | (auto theo nguồn) | Bật/tắt chromakey. **Bỏ trống → auto:** tự dò alpha của `bodySource` — nguồn đã có alpha (ProRes4444 `.mov`, VP9 `.webm`, PNG seq) thì **bỏ qua chromakey**, giữ nguyên nền trong suốt; nguồn không alpha (H264 `.mp4`) thì key. `false` → luôn giữ alpha gốc, không key. `true` → luôn key kể cả khi nguồn đã có alpha. |
+| `color`      | `string`  | (auto-detect)   | Màu nền cần key, dạng `0xRRGGBB`. Bỏ trống → auto-dò từ 4 góc frame đầu. Chỉ dùng khi thực sự chromakey. |
+| `similarity` | `number`  | `0.10`          | FFmpeg `chromakey` similarity (0–1). Tăng để bắt nhiều sắc thái của màu nền hơn. |
+| `blend`      | `number`  | `0.10`          | FFmpeg `chromakey` blend (0–1). Tăng để làm mềm viền alpha.                      |
 
 > Máy hiện tại (asset nike_loop_fix): nền green `~0x08A702`, nên đặt `color: "0x08A702"`, `similarity: 0.12`, `blend: 0.1`.
+
+> **⚠️ H264/.mp4 KHÔNG mang được kênh alpha.** File như `loop_mouthless_h264.mp4` không thể trong suốt thật — vùng trong suốt khi export bị nướng thành màu đặc (thường đen). Hệ quả: nếu để auto-detect, chromakey dò trúng màu đen rồi key luôn cả vùng tối của body → **body bán trong suốt ("như ẩn như hiện"), chỉ rõ mouth**. Khắc phục:
+>
+> - **Muốn nền trong suốt thật:** export `bodySource` sang **ProRes 4444 `.mov`** / **VP9 `.webm` (alpha)** / **PNG sequence**. Để `chromakey` trống → pipeline tự nhận alpha và bỏ qua key. (Nếu đã có `body-transparent/` cũ tạo bằng key lỗi, xóa thư mục đó để pipeline extract lại.)
+> - **Vẫn dùng H264 green screen:** khai báo `color` đúng (vd `0x00FF00`) thay vì để auto-dò trúng màu đen.
+> - **Ép tắt key tường minh:** đặt `"chromakey": { "enabled": false }` (chỉ hợp lệ khi nguồn đã có alpha — với H264 sẽ ra frame đặc, không trong suốt).
 
 ### `character` — vị trí & kích thước nhân vật
 
