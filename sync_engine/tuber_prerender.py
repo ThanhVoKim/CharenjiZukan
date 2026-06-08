@@ -23,6 +23,84 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("sync_video")
 
+# ── Parallel prerender worker (ProcessPoolExecutor) ───────────────────────
+# Pre-render là CPU-bound Python+PIL thuần (giữ GIL) → ThreadPoolExecutor không
+# nhanh hơn tuần tự. Dùng process-based parallelism để vượt GIL. Mỗi worker
+# nạp sprite + track 1 lần (qua initializer) rồi nhận body_idx qua submit.
+
+_PRERENDER_CTX: Dict[str, Any] = {}
+
+
+def _prerender_pool_init(
+    track: Dict[str, Any],
+    mouth_sprite_paths: Dict[str, str],
+    mouth_states: List[str],
+    body_files: List[str],
+    track_width: int,
+    track_height: int,
+    supersample: int,
+    character_box: Optional[Dict[str, int]],
+    out_dir: str,
+) -> None:
+    """Chạy 1 lần mỗi worker process: nạp sprite vào memory + lưu tham số.
+
+    Mọi giá trị đều picklable (dict/list/int/str). Sprite được mở ở đây (không
+    pickle ảnh PIL qua biên process) để mỗi worker có bản RGBA riêng.
+    """
+    from PIL import Image
+
+    _PRERENDER_CTX["track"] = track
+    _PRERENDER_CTX["mouth_states"] = list(mouth_states)
+    _PRERENDER_CTX["body_files"] = list(body_files)
+    _PRERENDER_CTX["track_width"] = track_width
+    _PRERENDER_CTX["track_height"] = track_height
+    _PRERENDER_CTX["supersample"] = supersample
+    _PRERENDER_CTX["character_box"] = character_box
+    _PRERENDER_CTX["out_dir"] = Path(out_dir)
+    _PRERENDER_CTX["sprites"] = {
+        s: Image.open(mouth_sprite_paths[s]).convert("RGBA") for s in mouth_states
+    }
+
+
+def _prerender_body_worker(body_idx: int) -> int:
+    """Worker: render tất cả mouth_states cho 1 body frame → trả về số frame ghi.
+
+    Mở body frame 1 lần, tái dùng cho mọi mouth state.
+    """
+    from PIL import Image
+
+    ctx = _PRERENDER_CTX
+    track = ctx["track"]
+    mouth_states = ctx["mouth_states"]
+    body_files = ctx["body_files"]
+    track_width = ctx["track_width"]
+    track_height = ctx["track_height"]
+    supersample = ctx["supersample"]
+    character_box = ctx["character_box"]
+    out_dir: Path = ctx["out_dir"]
+    sprites = ctx["sprites"]
+
+    body_img = Image.open(body_files[body_idx]).convert("RGBA")
+    quad = track["frames"][body_idx]["quad"]
+    calibrated = apply_mouth_calibration(quad, track)
+
+    written = 0
+    for state in mouth_states:
+        canvas = warp_sprite_to_quad(
+            body_img, sprites[state], calibrated,
+            canvas_size=(track_width, track_height),
+            supersample=supersample,
+        )
+        if character_box:
+            canvas = canvas.resize(
+                (character_box["compWidth"], character_box["compHeight"]), Image.LANCZOS
+            )
+        out_name = f"frame-{body_idx:03d}_{state}.png"
+        canvas.save(str(out_dir / out_name), "PNG")
+        written += 1
+    return written
+
+
 # ── Affine math ───────────────────────────────────────────────────────────
 
 Point = Tuple[float, float]
@@ -562,55 +640,69 @@ def prerender_character(
                 num_body_frames, len(mouth_states), num_body_frames * len(mouth_states),
                 out_dir)
 
-    # Pre-render loop — eager load body + sprite caches, then parallel or sequential
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
+    # Pre-render loop — process-based parallel (vượt GIL) hoặc tuần tự.
     rendered = 0
-    body_cache: Dict[int, Image] = {
-        i: Image.open(body_files[i]).convert("RGBA") for i in range(num_body_frames)
-    }
-    sprites_cache: Dict[str, Image] = {
-        s: Image.open(mouth_sprite_paths[s]).convert("RGBA") for s in mouth_states
-    }
-
     total = num_body_frames * len(mouth_states)
 
-    def _render_one(body_idx: int, state: str) -> None:
-        """Worker: warp mouth lên body, scale, save PNG."""
-        body_img = body_cache[body_idx]
-        sprite = sprites_cache[state]
-        quad = track["frames"][body_idx]["quad"]
-        calibrated = apply_mouth_calibration(quad, track)
-        canvas = warp_sprite_to_quad(
-            body_img, sprite, calibrated,
-            canvas_size=(track_width, track_height),
-            supersample=supersample,
-        )
-        if character_box:
-            canvas = canvas.resize(
-                (character_box["compWidth"], character_box["compHeight"]), Image.LANCZOS
-            )
-        out_name = f"frame-{body_idx:03d}_{state}.png"
-        canvas.save(str(out_dir / out_name), "PNG")
-
-    tasks = [(bi, s) for bi in range(num_body_frames) for s in mouth_states]
     if max_workers > 1:
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {pool.submit(_render_one, bi, s): (bi, s) for bi, s in tasks}
-            for _f in as_completed(futures):
+        # ProcessPoolExecutor: warp là CPU-bound Python+PIL nên cần process thật
+        # mới song song được. spawn để an toàn với CUDA của tiến trình cha.
+        import multiprocessing as _mp
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        ctx = _mp.get_context("spawn")
+        next_log = 100
+        with ProcessPoolExecutor(
+            max_workers=max_workers,
+            mp_context=ctx,
+            initializer=_prerender_pool_init,
+            initargs=(
+                track,
+                {s: str(mouth_sprite_paths[s]) for s in mouth_states},
+                list(mouth_states),
+                [str(p) for p in body_files],
+                track_width,
+                track_height,
+                supersample,
+                character_box,
+                str(out_dir),
+            ),
+        ) as pool:
+            futures = [pool.submit(_prerender_body_worker, bi)
+                       for bi in range(num_body_frames)]
+            for f in as_completed(futures):
+                rendered += f.result()
+                while rendered >= next_log and next_log <= total:
+                    logger.info("  pre-rendered %d / %d ...", next_log, total)
+                    next_log += 100
+    else:
+        # Tuần tự — eager load cache 1 lần, dùng lại cho mọi state.
+        body_cache: Dict[int, Image] = {
+            i: Image.open(body_files[i]).convert("RGBA") for i in range(num_body_frames)
+        }
+        sprites_cache: Dict[str, Image] = {
+            s: Image.open(mouth_sprite_paths[s]).convert("RGBA") for s in mouth_states
+        }
+        for bi in range(num_body_frames):
+            quad = track["frames"][bi]["quad"]
+            calibrated = apply_mouth_calibration(quad, track)
+            for state in mouth_states:
+                canvas = warp_sprite_to_quad(
+                    body_cache[bi], sprites_cache[state], calibrated,
+                    canvas_size=(track_width, track_height),
+                    supersample=supersample,
+                )
+                if character_box:
+                    canvas = canvas.resize(
+                        (character_box["compWidth"], character_box["compHeight"]),
+                        Image.LANCZOS,
+                    )
+                canvas.save(str(out_dir / f"frame-{bi:03d}_{state}.png"), "PNG")
                 rendered += 1
                 if rendered % 100 == 0:
                     logger.info("  pre-rendered %d / %d ...", rendered, total)
-    else:
-        for bi, s in tasks:
-            _render_one(bi, s)
-            rendered += 1
-            if rendered % 100 == 0:
-                logger.info("  pre-rendered %d / %d ...", rendered, total)
-
-    # Clean caches
-    body_cache.clear()
-    sprites_cache.clear()
+        body_cache.clear()
+        sprites_cache.clear()
 
     # Build manifest
     manifest = {

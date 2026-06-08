@@ -1,5 +1,28 @@
 # Project Journal
 
+## 2026-06-08: Prerender song song thật — ThreadPool → ProcessPoolExecutor (vượt GIL)
+
+### Vấn đề
+`prerender_character()` (bake body×mouth) đọc đúng `maxWorkers=4`, truyền đúng vào hàm, và *đã* vào nhánh `ThreadPoolExecutor` — nhưng 705 frame vẫn mất ~48s như đơn luồng. **Nguyên nhân:** warp là CPU-bound Python thuần + PIL (`compute_affine`, `_invert_affine`, `apply_mouth_calibration`, dựng mask `ImageDraw.polygon`, `Image.transform/alpha_composite/paste`) → giữ **GIL** → thread không song song. (Thread chỉ hiệu quả ở composite groups / video chunks vì chúng gọi FFmpeg subprocess, nhả GIL.)
+
+### Thay đổi (`sync_engine/tuber_prerender.py`)
+1. Thêm cấp module: `_PRERENDER_CTX` + `_prerender_pool_init()` (nạp sprite + track 1 lần/worker) + `_prerender_body_worker(body_idx)` (render mọi mouth_state cho 1 body frame). Gom task theo **body_idx** → mở ảnh body 705→141 lần, mỗi worker chỉ nhận 1 int qua pickle.
+2. Nhánh `max_workers>1`: đổi sang `ProcessPoolExecutor` với `mp_context=get_context("spawn")` (an toàn khi tiến trình cha `worker_task` đã spawn + init CUDA; child chỉ làm PIL). Tiến độ cộng dồn qua `as_completed` + mốc 100.
+3. Nhánh `max_workers<=1`: giữ tuần tự (eager cache) — hành vi & output không đổi → test integration mặc định (`max_workers=1`) vẫn xanh.
+
+### Lý do thiết kế
+- `initargs` đều picklable (track dict, path str, list, int); worker/init/`warp_sprite_to_quad`/`apply_mouth_calibration` đều module-level → spawn re-import được.
+- `_PRERENDER_CTX` reset trong mỗi child qua initializer → không rò trạng thái.
+
+### Kiểm chứng
+- `pytest tests/sync_engine/test_tuber_prerender.py` → 25 passed, 5 skipped (integration cần body-transparent/ chưa extract local; PIL không có trên máy dev nên nhánh process chỉ chạy thật trên Colab).
+- **Còn phải verify trên Colab:** thời gian prerender giảm rõ + output PNG y hệt nhánh tuần tự (cùng thuật toán warp). Chưa chạy được nhánh process tại local do thiếu PIL.
+
+### File thay đổi
+- `sync_engine/tuber_prerender.py`
+
+---
+
 ## 2026-06-08: V5 — Mouth vowel selection (spectral centroid, port ③ライブ実行)
 
 ### Tóm tắt

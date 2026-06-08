@@ -1,6 +1,6 @@
 {
   "enabled": true,
-  "outputDir": "tuber-output",
+  "outputDir": "charenjizukan-tuber-output",
   "overlay": {
     "format": "direct",
     "mode": "prerender"
@@ -12,20 +12,17 @@
     "renderDriver": "scripts/render-groups.ts"
   },
   "asset": {
-    "assetDir": "assets/pngtuber/nike_loop_fix",
-    "assetId": "nike_loop_fix",
+    "assetDir": "/content/assets/pngtuber/charenji",
+    "assetId": "charenji",
     "mouthTrack": "mouth_track.json",
     "mouthSprites": {
       "closed": "mouth/closed.png",
       "half": "mouth/half.png",
-      "open": "mouth/open.png"
+      "open": "mouth/open.png",
+      "e": "mouth/e.png",
+      "u": "mouth/u.png"
     },
-    "bodySource": "loop_mouthless_h264.mp4",
-    "chromakey": {
-      "color": "0x08A702",
-      "similarity": 0.12,
-      "blend": 0.1
-    },
+    "bodySource": "loop_mouthless.mp4",
     "prerender": {
       "characterDir": null
     }
@@ -48,7 +45,9 @@
     "mouthStates": [
       "closed",
       "half",
-      "open"
+      "open",
+      "e",
+      "u"
     ]
   },
   "artifactPolicy": {
