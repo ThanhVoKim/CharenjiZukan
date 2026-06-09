@@ -203,6 +203,48 @@ class TestLayer1_GroupBuilding:
         with pytest.raises(ValueError):
             build_render_groups([], 30.0, 3.0)
 
+    def test_clamp_last_group_to_real_eof(self):
+        """real_total_frames < lý thuyết vài frame → cắt group cuối khớp EOF thật."""
+        tl = _sample_timeline()
+        theo = sum(segment_output_frames(s, 30.0) for s in tl)
+        groups = build_render_groups(
+            tl, 30.0, max_group_sec=3.0, real_total_frames=theo - 4,
+        )
+        # Group cuối kết thúc đúng frame thật, không còn dư 4 frame lý thuyết
+        assert groups[-1].group_end_frame == theo - 4
+        # Liên tục vẫn giữ
+        for i in range(len(groups) - 1):
+            assert groups[i].group_end_frame == groups[i + 1].group_start_frame
+
+    def test_clamp_drops_groups_past_eof(self):
+        """real_total_frames cắt giữa chừng → bỏ hẳn group nằm sau EOF thật."""
+        tl = _sample_timeline()
+        full = build_render_groups(tl, 30.0, max_group_sec=3.0)
+        # Cắt ngay sau group đầu tiên
+        cut = full[0].group_end_frame + 5
+        groups = build_render_groups(
+            tl, 30.0, max_group_sec=3.0, real_total_frames=cut,
+        )
+        assert groups[-1].group_end_frame == cut
+        assert len(groups) < len(full)
+        assert all(g.group_start_frame < cut for g in groups)
+
+    def test_no_clamp_when_real_ge_theoretical(self):
+        """real >= lý thuyết → giữ nguyên (file thật đủ dài)."""
+        tl = _sample_timeline()
+        theo = sum(segment_output_frames(s, 30.0) for s in tl)
+        groups = build_render_groups(
+            tl, 30.0, max_group_sec=3.0, real_total_frames=theo + 100,
+        )
+        assert groups[-1].group_end_frame == theo
+
+    def test_none_real_frames_keeps_theoretical(self):
+        """real_total_frames=None → hành vi cũ (frame lý thuyết)."""
+        tl = _sample_timeline()
+        theo = sum(segment_output_frames(s, 30.0) for s in tl)
+        groups = build_render_groups(tl, 30.0, max_group_sec=3.0)
+        assert groups[-1].group_end_frame == theo
+
 
 class TestLayer1_TuberConfig:
     """Load/validate TuberConfig + resolve layout (M3 sentinel)."""

@@ -916,6 +916,7 @@ def prepare_groups_and_base(
     height: int,
     track_aspect: Optional[float] = None,
     use_prerender: bool = False,  # NEW: skip build_group_base khi composite-seek
+    real_total_frames: Optional[int] = None,  # NEW: clamp group theo EOF thật
 ) -> List[GroupJob]:
     """Phase F + H: build groups, ghi group_manifest.json mỗi group (V3: bỏ base.mp4)."""
 
@@ -923,7 +924,9 @@ def prepare_groups_and_base(
         build_render_groups, build_group_manifest, write_group_manifest,
     )
 
-    render_groups = build_render_groups(timeline, fps_float, config.max_group_sec)
+    render_groups = build_render_groups(
+        timeline, fps_float, config.max_group_sec, real_total_frames=real_total_frames,
+    )
     asset_id = config.asset_id()
     character = config.character
     mouth_mode = config.mouth_mode
@@ -1001,6 +1004,30 @@ def probe_resolution(video_path: str) -> tuple:
         return int(w), int(h)
     except (ValueError, AttributeError):
         raise TuberOverlayError(f"Không probe được resolution: {video_path}")
+
+
+def probe_frame_count(video_path: str, fps_float: float) -> Optional[int]:
+    """Đếm SỐ FRAME THỰC của video stretched → clamp group theo EOF thật.
+
+    Ưu tiên `nb_frames` trong container (nhanh, chính xác với mp4 từ ffmpeg).
+    Nếu thiếu → fallback round(duration*fps) (sai số ≤ 1 frame, vẫn nằm trong
+    tolerance). KHÔNG dùng -count_frames (decode toàn bộ → chậm với video dài).
+    Trả None nếu không probe được (caller bỏ qua clamp, giữ hành vi cũ).
+    """
+    proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=nb_frames",
+         "-of", "default=nokey=1:noprint_wrappers=1", str(video_path)],
+        capture_output=True, text=True,
+    )
+    val = (proc.stdout or "").strip()
+    if val.isdigit() and int(val) > 0:
+        return int(val)
+    # Fallback: duration * fps (container thiếu nb_frames)
+    dur = _probe_duration_s(Path(video_path))
+    if dur > 0:
+        return round(dur * fps_float)
+    return None
 
 
 def _load_prerender_manifest(config) -> Optional[Dict[str, Any]]:
@@ -1146,6 +1173,10 @@ def run_tuber_flow_all_in(
     # B3: resolution lấy từ base video stretched thật (không hardcode 1080p)
     width, height = probe_resolution(base_video_stretched)
 
+    # Đo SỐ FRAME THỰC của video stretched → clamp group theo EOF thật (tránh
+    # group cuối hụt vài frame so với timeline lý thuyết → fail tolerance).
+    real_total_frames = probe_frame_count(base_video_stretched, fps_float)
+
     # Determine overlay mode (explicit config vs auto-detect)
     overlay_mode = config.overlay_mode  # "remotion" | "prerender" | "auto"
     prerender_manifest = None
@@ -1212,6 +1243,7 @@ def run_tuber_flow_all_in(
         fps_float=fps_float, fps_str=fps_str, width=width, height=height,
         track_aspect=track_aspect,
         use_prerender=use_prerender,
+        real_total_frames=real_total_frames,
     )
 
     # run_manifest.json

@@ -61,11 +61,20 @@ def build_render_groups(
     timeline: List[TimelineSegment],
     fps_float: float,
     max_group_sec: float,
+    real_total_frames: Optional[int] = None,
 ) -> List[RenderGroup]:
     """Phase F: gom timeline thành group theo duration (không cắt giữa segment).
 
     Quy tắc: thêm segment vào group hiện tại; nếu vượt max_group_sec thì đóng
     group cũ và mở group mới. Một segment đơn lẻ dài hơn max vẫn nằm trọn 1 group.
+
+    Args:
+        real_total_frames: số frame THỰC của video_stretched (đã đo bằng ffprobe).
+            Khi truyền, clamp group end/đầu theo EOF thật: `trim=end_frame=N` chỉ
+            chặn-trên nên file thật thường hụt vài frame ở đuôi (segment chạm EOF
+            nguồn) → group cuối lệch tolerance. Clamp khiến renderDurationFrames
+            khớp frame thật → composite trim đủ, validate pass. None = giữ hành vi
+            cũ (frame lý thuyết).
     """
     if not timeline:
         raise ValueError("Timeline rỗng: không thể build render groups.")
@@ -102,7 +111,51 @@ def build_render_groups(
         global_frame += seg_frames
 
     _flush()
+
+    if real_total_frames is not None and groups:
+        groups = _clamp_groups_to_real(groups, real_total_frames, fps_float)
     return groups
+
+
+def _clamp_groups_to_real(
+    groups: List[RenderGroup],
+    real_total_frames: int,
+    fps_float: float,
+) -> List[RenderGroup]:
+    """Clamp group bounds theo số frame THỰC của video_stretched.
+
+    - Group nằm trọn sau EOF thật (group_start_frame >= real) → bỏ (không render).
+    - Group chứa EOF thật → cắt group_end_frame = real.
+    - Deficit lớn (> 2s) → WARNING vì có thể Phase 2 truncate thật (không chỉ
+      rounding đuôi), cần điều tra upstream thay vì âm thầm cắt.
+    """
+    theo_total = groups[-1].group_end_frame
+    if real_total_frames >= theo_total:
+        return groups  # file thật đủ dài (>= lý thuyết) → không cần clamp
+
+    deficit = theo_total - real_total_frames
+    clamped: List[RenderGroup] = []
+    dropped = 0
+    for g in groups:
+        if g.group_start_frame >= real_total_frames:
+            dropped += 1
+            continue
+        if g.group_end_frame > real_total_frames:
+            g.group_end_frame = real_total_frames
+        clamped.append(g)
+
+    msg = (
+        "Clamp group theo frame thực của video_stretched: hụt %d frame (~%.3fs), "
+        "bỏ %d group sau EOF."
+    )
+    if deficit > fps_float * 2:
+        logger.warning(
+            msg + " Hụt LỚN — có thể Phase 2 bị truncate, nên kiểm tra video_stretched.",
+            deficit, deficit / fps_float, dropped,
+        )
+    else:
+        logger.info(msg, deficit, deficit / fps_float, dropped)
+    return clamped
 
 
 def _seg_has_tts(seg: TimelineSegment) -> bool:
