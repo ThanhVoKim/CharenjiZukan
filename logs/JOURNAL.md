@@ -9,17 +9,22 @@ Video dài (1h30–1h40) fail ở Phase 5.0 tuber overlay, **chỉ group cuối*
 Manifest tính `groupStartFrame`/`renderDurationFrames` bằng tổng dồn `segment_output_frames()` (frame **lý thuyết**). Nhưng `build_ffmpeg_batch_cmd` dùng `trim=end_frame=N` — chỉ **chặn-trên**, không đảm bảo đủ N: segment chạm EOF nguồn ra thiếu vài frame. File `video_stretched.mp4` thật vì thế luôn ≤ lý thuyết, phần hụt dồn vào group cuối. Composite seek theo thời gian tuyệt đối → group cuối trim không đủ N → lệch tolerance 0.1s → fail → fallback render KHÔNG tuber.
 
 ### Thay đổi
-1. `sync_engine/tuber_overlay.py`: thêm `probe_frame_count(video, fps)` (ưu tiên `nb_frames`, fallback `duration*fps`, KHÔNG `-count_frames` để tránh decode toàn bộ). `run_tuber_flow_all_in` đo frame thật của base stretched rồi truyền xuống; `prepare_groups_and_base` nhận `real_total_frames`.
-2. `sync_engine/tuber_manifest.py`: `build_render_groups(..., real_total_frames=None)` + helper `_clamp_groups_to_real()` — cắt `group_end_frame` của group chứa EOF, bỏ group nằm hẳn sau EOF. Deficit > 2s → WARNING (nghi Phase 2 truncate thật, vd ca 1h30 hụt ~25 phút), ≤ 2s → INFO (rounding đuôi lành tính).
-3. `tests/sync_engine/test_tuber_overlay_pipeline.py`: 4 unit test mới trong `TestLayer1_GroupBuilding` (clamp đuôi, drop group sau EOF, real≥lý thuyết giữ nguyên, None giữ hành vi cũ).
+**A. Fix gốc ở Phase 2 — pad tail (frame lý thuyết thành nguồn sự thật duy nhất thật sự):**
+- `sync_engine/video_processor.py`: thêm hằng `_TAIL_PAD_SECONDS=2.0` + chèn `tpad=stop_mode=clone:stop_duration=2.0` NGAY TRƯỚC `trim=end_frame=N` trong cả `build_ffmpeg_batch_cmd` (Phase 2 dùng) và `build_ffmpeg_chunk_cmd` (legacy). Segment chạm EOF được clone frame cuối cho đủ N rồi trim chốt đúng N → `video_stretched.mp4` thật == frame lý thuyết == audio == sub. Segment thường (đủ/dư N) bị trim cắt bỏ tpad ngay, không encode, output không đổi → không phá test filter-string hiện có (tpad nằm giữa `fps=` và `trim=end_frame=N[vi]`, mọi substring assert vẫn còn).
+
+**B. Lưới an toàn ở lớp tuber — clamp theo frame thật:**
+1. `sync_engine/tuber_overlay.py`: thêm `probe_frame_count(video, fps)` (ưu tiên `nb_frames`, fallback `duration*fps`, KHÔNG `-count_frames` để tránh decode toàn bộ — đọc metadata header, tức thì, không GPU). `run_tuber_flow_all_in` đo frame thật của base stretched rồi truyền xuống; `prepare_groups_and_base` nhận `real_total_frames`.
+2. `sync_engine/tuber_manifest.py`: `build_render_groups(..., real_total_frames=None)` + helper `_clamp_groups_to_real()` — cắt `group_end_frame` của group chứa EOF, bỏ group nằm hẳn sau EOF. Deficit > 2s → WARNING (nghi Phase 2 truncate thật, vd ca 1h30 hụt ~25 phút), ≤ 2s → INFO.
+3. `tests/sync_engine/test_tuber_overlay_pipeline.py`: 4 unit test mới trong `TestLayer1_GroupBuilding`.
+
+Sau (A), file thật khớp lý thuyết nên (B) hầu như không kích hoạt với rounding đuôi — chỉ còn là lưới bắt truncate bất thường.
 
 ### Lưu ý còn lại
-- Đây là fix ở **lớp tuber**: clamp khớp video thật. Ca 1h30 hụt ~25 phút là **truncate thật ở Phase 2** (một batch ra ngắn) — clamp giúp không crash + cảnh báo, nhưng gốc nằm ở `process_video_chunks_parallel`/`_concat_chunks` (chỉ validate size, không validate frame-count). Nên thêm kiểm tra frame-count sau concat ở Phase 2 (việc riêng).
-- Audio/subtitle vẫn theo timeline lý thuyết; chênh ~0.13s ở đuôi giữa video clamp và audio là không đáng kể (giống path render non-tuber hiện tại).
-- Chưa verify FFmpeg thật trên Colab — cần chạy lại pipeline video 1h40 để xác nhận group cuối pass.
+- Ca 1h30 hụt ~25 phút là **truncate thật ở Phase 2** (một batch ra ngắn). tpad (A) chỉ bù ≤2s nên KHÔNG che được ca này → clamp (B) bắt + WARNING. Gốc vẫn nên thêm validate frame-count sau `_concat_chunks` (chỉ đang validate size) — việc riêng.
+- Chưa verify FFmpeg thật trên Colab — cần chạy lại pipeline video 1h40 để xác nhận group cuối pass và `video_stretched` đủ frame.
 
 ### File thay đổi
-- `sync_engine/tuber_overlay.py`, `sync_engine/tuber_manifest.py`, `tests/sync_engine/test_tuber_overlay_pipeline.py`
+- `sync_engine/video_processor.py`, `sync_engine/tuber_overlay.py`, `sync_engine/tuber_manifest.py`, `tests/sync_engine/test_tuber_overlay_pipeline.py`
 
 ---
 

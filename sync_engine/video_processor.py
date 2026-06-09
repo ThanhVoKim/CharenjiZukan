@@ -14,6 +14,16 @@ from utils.ffmpeg_probe import (
 
 logger = logging.getLogger(__name__)
 
+# Pad đuôi mỗi segment bằng frame clone trước khi chốt `trim=end_frame=N`.
+# `trim=end_frame=N` chỉ CHẶN-TRÊN: segment chạm EOF nguồn (segment cuối) ra
+# thiếu vài frame → file stretched thật ngắn hơn frame lý thuyết → audio/sub/video
+# lệch ở đuôi (group tuber cuối fail tolerance 0.1s). tpad clone frame cuối đủ N,
+# trim chốt đúng N → file thật == lý thuyết (một nguồn sự thật cho cả 3 nhánh).
+# Với segment bình thường (đủ/ dư N frame) tpad bị trim cắt bỏ ngay, không encode,
+# không đổi output. 2s (=60f@30fps) thừa cho rounding/EOF-overshoot đuôi; lệch lớn
+# hơn là truncate bất thường → lưới an toàn clamp ở tuber bắt + cảnh báo.
+_TAIL_PAD_SECONDS = 2.0
+
 
 def query_keyframes(video_path: str) -> List[float]:
     """Lấy PTS (ms) của tất cả keyframe."""
@@ -94,6 +104,7 @@ def build_ffmpeg_chunk_cmd(
         "setpts=PTS-STARTPTS", # Đặt lại PTS về 0 ngay sau khi cắt
         f"setpts={pts_factor:.6f}*PTS", # Stretch video
         f"fps={fps_str}:eof_action=pass", # Đảm bảo constant frame rate, không sinh thêm frame khi EOF
+        f"tpad=stop_mode=clone:stop_duration={_TAIL_PAD_SECONDS:.6f}",  # Clone đuôi để không hụt frame khi chạm EOF
         f"trim=end_frame={expected_output_frames}",  # Chốt cứng số frame đầu ra
     ])
 
@@ -195,6 +206,7 @@ def build_ffmpeg_batch_cmd(
             f"setpts=PTS-STARTPTS,"
             f"setpts={pts_factor:.6f}*PTS,"
             f"fps={fps_str}:eof_action=pass,"
+            f"tpad=stop_mode=clone:stop_duration={_TAIL_PAD_SECONDS:.6f},"
             f"trim=end_frame={expected_output_frames}[v{i}]"
         )
         filter_parts.append(chain)
