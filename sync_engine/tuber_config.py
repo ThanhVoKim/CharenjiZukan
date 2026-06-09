@@ -221,6 +221,12 @@ class TuberConfig:
         v = _get_nested(self.raw, "asset.chromakey.enabled")
         return None if v is None else bool(v)
 
+    @property
+    def chromakey_despill(self) -> Optional[str]:
+        """Despill filter type ('green', 'blue'…). None → không dùng despill."""
+        v = _get_nested(self.raw, "asset.chromakey.despill")
+        return str(v) if v else None
+
     def artifact_policy(self) -> Dict[str, str]:
         """Resolve artifactPolicy thành dict đầy đủ các sub-key.
 

@@ -1067,6 +1067,7 @@ def _auto_run_prerender(config, width: int, height: int) -> Dict[str, Any]:
                 similarity=float(ck.get("similarity", 0.10)),
                 blend=float(ck.get("blend", 0.10)),
                 chromakey_enabled=config.chromakey_enabled,
+                despill=config.chromakey_despill,
             )
         except Exception as exc:
             raise TuberOverlayError(f"Auto-chromakey thất bại: {exc}") from exc

@@ -532,6 +532,7 @@ def extract_body_transparent(
     similarity: float = 0.10,
     blend: float = 0.10,
     chromakey_enabled: Optional[bool] = None,
+    despill: Optional[str] = None,
 ) -> Path:
     """Extract body frames từ video source → RGBA PNG sequence.
 
@@ -551,6 +552,7 @@ def extract_body_transparent(
             None  → auto: bỏ qua chromakey nếu nguồn đã có alpha, ngược lại key.
             False → luôn bỏ qua chromakey (giữ alpha gốc).
             True  → luôn chromakey kể cả khi nguồn đã có alpha.
+        despill: Loại màu spill cần loại bỏ sau chromakey (vd 'green'). None → không dùng despill.
 
     Returns:
         out_dir path.
@@ -592,10 +594,13 @@ def extract_body_transparent(
             chroma_color = _auto_detect_chroma_color(body_source)
         # Normalize: '#RRGGBB' / '0xRRGGBB' → '0xRRGGBB' (FFmpeg dùng 0x prefix)
         color_ffmpeg = chroma_color.replace("#", "0x")
-        vf = f"chromakey={color_ffmpeg}:{similarity}:{blend},format=rgba"
+        vf = f"chromakey={color_ffmpeg}:{similarity}:{blend}"
+        if despill:
+            vf += f",despill={despill}"
+        vf += ",format=rgba"
         logger.info(
-            "extract_body_transparent: chromakey %s sim=%.2f blend=%.2f (%s) → %s",
-            color_ffmpeg, similarity, blend, reason, out_dir,
+            "extract_body_transparent: chromakey %s sim=%.2f blend=%.2f despill=%s (%s) → %s",
+            color_ffmpeg, similarity, blend, despill or "off", reason, out_dir,
         )
 
     cmd = [

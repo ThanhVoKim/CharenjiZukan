@@ -24,9 +24,11 @@
     },
     "bodySource": "loop_mouthless.mp4",
     "chromakey": {
-      "color": "0x009E3F",
-      "similarity": 0.12,
-      "blend": 0.1
+      "enabled": true,
+      "color": "0x00ff18",
+      "similarity": 0.05,
+      "blend": 0.05,
+      "despill": "green"
     },
     "prerender": {
       "characterDir": null

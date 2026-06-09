@@ -292,6 +292,7 @@ uv run tuber-repair --tuber-root tuber-output/<job>/tuber:
 | `color`      | `string`  | (auto-detect)   | Màu nền cần key, dạng `0xRRGGBB`. Bỏ trống → auto-dò từ 4 góc frame đầu. Chỉ dùng khi thực sự chromakey. |
 | `similarity` | `number`  | `0.10`          | FFmpeg `chromakey` similarity (0–1). Tăng để bắt nhiều sắc thái của màu nền hơn. |
 | `blend`      | `number`  | `0.10`          | FFmpeg `chromakey` blend (0–1). Tăng để làm mềm viền alpha.                      |
+| `despill`    | `string`  | `null` (tắt)    | Loại màu spill cần loại bỏ sau chromakey. `"green"` → `despill=green` (khuyên dùng với green screen). `null` / bỏ trống → không dùng despill. |
 
 > Máy hiện tại (asset nike_loop_fix): nền green `~0x08A702`, nên đặt `color: "0x08A702"`, `similarity: 0.12`, `blend: 0.1`.
 

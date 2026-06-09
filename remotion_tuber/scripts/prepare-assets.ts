@@ -5,8 +5,9 @@
 //
 // Dùng:
 //   npm run prepare-assets                                  # auto-dò màu nền (4 góc) rồi key
-//   npm run prepare-assets -- --color 0x08A702 --similarity 0.12 --blend 0.10
+//   npm run prepare-assets -- --color 0x08A702 --similarity 0.12 --blend 0.10 --despill green
 //   npm run prepare-assets -- --no-key                      # không chromakey (asset đã có alpha)
+//   npm run prepare-assets -- --despill ''                  # tắt despill
 //
 // LƯU Ý: body source là nền MÀU ĐẶC (vd loop_mouthless_h264.mp4 nền green ~0x08A702 — không phải
 // green chuẩn 0x00FF00). Mặc định auto-dò màu nền từ 4 góc frame đầu rồi chromakey → alpha.
@@ -42,6 +43,7 @@ const colorExplicit = argv.includes('--color'); // user tự chỉ định màu 
 let keyColor = arg('color', '0x00FF00');
 const similarity = arg('similarity', '0.10');
 const blend = arg('blend', '0.10');
+const despill = arg('despill', 'green'); // mặc định 'green', truyền '' để tắt
 const bodySource = arg('body', resolve(sourceDir, 'loop_mouthless_h264.mp4'));
 
 const mkdirp = (p: string) => mkdirSync(p, {recursive: true});
@@ -111,7 +113,7 @@ if (doKey && !colorExplicit) {
   );
 }
 const vf = doKey
-  ? `chromakey=${keyColor}:${similarity}:${blend},format=rgba`
+  ? `chromakey=${keyColor}:${similarity}:${blend}${despill ? `,despill=${despill}` : ''},format=rgba`
   : `format=rgba`;
 console.log(`[prepare-assets] ffmpeg extract body (vf="${vf}") ...`);
 execFileSync(
