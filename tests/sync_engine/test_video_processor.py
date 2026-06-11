@@ -29,6 +29,7 @@ from sync_engine.models import TimelineSegment
 from sync_engine.video_processor import (
     snap_to_nearest_keyframe,
     build_ffmpeg_chunk_cmd,
+    build_ffmpeg_batch_cmd,
     process_video_chunks_parallel,
 )
 from utils.ffmpeg_probe import detect_hevc_nvenc
@@ -119,6 +120,60 @@ class TestLayer1_VideoProcessorUnit:
         assert "hevc_nvenc" in cmd2
         assert "libx264" not in cmd2
         assert "h264_nvenc" not in cmd2
+
+    def _one_segment(self):
+        return [TimelineSegment(
+            orig_start=0.0, orig_end=1000.0,
+            new_start=0.0, new_end=1000.0,
+            video_speed=1.0, audio_speed=1.0, new_chunk_dur=1000.0,
+            block_type="gap", tts_clip_path=None, tts_duration=0,
+        )]
+
+    def test_batch_cmd_without_strip_unchanged(self):
+        """Không có strip → giữ map [outv], không thêm input loop."""
+        cmd = build_ffmpeg_batch_cmd(
+            "in.mp4", "out.mp4", self._one_segment(), "30/1", 30.0,
+        )
+        assert cmd[cmd.index("-map") + 1] == "[outv]"
+        assert "-loop" not in cmd
+        graph = cmd[cmd.index("-filter_complex") + 1]
+        assert "concat=n=1:v=1:a=0[outv]" in graph
+        assert "overlay" not in graph
+
+    def test_batch_cmd_with_strip_overlays_and_clamps_full_width(self):
+        """Có strip → thêm loop input, overlay sau concat, kẹp full width."""
+        strip = {
+            "path": "assets/black-background.jpg",
+            "scale_width": "1920",   # > video_width 1280 → kẹp về 1280
+            "scale_height": "94",
+            "x": "(W-w)/2",
+            "y": "968",
+        }
+        cmd = build_ffmpeg_batch_cmd(
+            "in.mp4", "out.mp4", self._one_segment(), "30/1", 30.0,
+            strip=strip, video_width=1280,
+        )
+        # input strip được loop nạp
+        assert "-loop" in cmd
+        assert cmd[cmd.index("-loop") + 3] == "assets/black-background.jpg"
+        # map trỏ tới luồng đã overlay strip
+        assert cmd[cmd.index("-map") + 1] == "[v_stripped]"
+        graph = cmd[cmd.index("-filter_complex") + 1]
+        assert "concat=n=1:v=1:a=0[vconcat]" in graph
+        # scale_width 1920 bị kẹp về full width video 1280
+        assert "[1:v]scale=1280:94[strip_s]" in graph
+        assert "[vconcat][strip_s]overlay=x=(W-w)/2:y=968:shortest=1[v_stripped]" in graph
+
+    def test_batch_cmd_strip_keeps_config_width_when_within_video(self):
+        """scale_width <= video_width → giữ giá trị config."""
+        strip = {"path": "s.png", "scale_width": "1000", "scale_height": "94", "y": "968"}
+        cmd = build_ffmpeg_batch_cmd(
+            "in.mp4", "out.mp4", self._one_segment(), "30/1", 30.0,
+            strip=strip, video_width=1280,
+        )
+        graph = cmd[cmd.index("-filter_complex") + 1]
+        assert "[1:v]scale=1000:94[strip_s]" in graph
+
 
 # ═════════════════════════════════════════════════════════════════════
 # LAYER 2 — COMPONENT TESTS

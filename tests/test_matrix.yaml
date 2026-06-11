@@ -165,6 +165,14 @@ tests:
     tags: ["unit", "sync_engine"]
     enabled: true
 
+  - name: "Renderer Layers — Layer 2: watermark width + layer_order + skip_layers"
+    file: "tests/sync_engine/test_renderer_layers.py"
+    keyword: "Layer2"
+    timeout_sec: 60
+    pytest_args: ["-v"]
+    tags: ["unit", "sync_engine"]
+    enabled: true
+
   - name: "Video Cutter — Layer 1: Unit (parse, margin, merge, invert, commands)"
     file: "tests/utils/test_video_cutter.py"
     keyword: "Layer1"

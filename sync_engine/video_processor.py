@@ -1,7 +1,7 @@
 import math
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
@@ -138,6 +138,61 @@ def _run_batch(args: tuple) -> Tuple[int, str, str]:
         logger.error(f"Batch {idx} failed with error: {err_msg}")
         return idx, out_path, err_msg[-2000:]
 
+def _ffmpeg_path(path) -> str:
+    """Chuẩn hóa path cho FFmpeg trên Windows và Unix."""
+    return str(path).replace("\\", "/")
+
+
+def _probe_video_width(video_path: str) -> Optional[int]:
+    """Probe width (px) của video bằng ffprobe. None nếu fail."""
+    proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width", "-of", "default=nokey=1:noprint_wrappers=1",
+         video_path],
+        capture_output=True, text=True,
+    )
+    val = (proc.stdout or "").strip()
+    return int(val) if val.isdigit() and int(val) > 0 else None
+
+
+def _build_strip_overlay(
+    strip: Dict,
+    video_width: Optional[int],
+    base_label: str,
+    strip_input_idx: int,
+) -> Tuple[List[str], str]:
+    """Dựng filter overlay black_strip lên một luồng video đã có nhãn base_label.
+
+    Strip phủ FULL WIDTH video gốc theo mặc định; nếu config scale_width hợp lệ và
+    nhỏ hơn/bằng width video thì dùng giá trị đó, ngược lại kẹp về full width.
+
+    Returns:
+        (filter_parts, out_label) — các đoạn filter cần thêm và nhãn luồng kết quả.
+    """
+    sh = strip.get("scale_height", 94)
+    cfg_sw = strip.get("scale_width")
+    if video_width:
+        sw: object = video_width
+        if cfg_sw is not None:
+            try:
+                cfg_sw_int = int(cfg_sw)
+                if 0 < cfg_sw_int <= int(video_width):
+                    sw = cfg_sw_int
+            except (TypeError, ValueError):
+                pass
+    else:
+        sw = cfg_sw if cfg_sw is not None else "iw"
+
+    x = strip.get("x", "(W-w)/2")
+    y = strip.get("y", "968")
+
+    parts = [
+        f"[{strip_input_idx}:v]scale={sw}:{sh}[strip_s]",
+        f"[{base_label}][strip_s]overlay=x={x}:y={y}:shortest=1[v_stripped]",
+    ]
+    return parts, "v_stripped"
+
+
 def build_ffmpeg_batch_cmd(
     input_path: str,
     output_path: str,
@@ -145,6 +200,8 @@ def build_ffmpeg_batch_cmd(
     fps_str: str,
     fps_float: float,
     use_gpu: bool = True,
+    strip: Optional[Dict] = None,
+    video_width: Optional[int] = None,
 ) -> List[str]:
     """
     Xây dựng lệnh Filter Complex để xử lý nối tiếp nhiều segment trong 1 mẻ (Batching).
@@ -212,9 +269,21 @@ def build_ffmpeg_batch_cmd(
         filter_parts.append(chain)
         stream_labels.append(f"[v{i}]")
 
-    # Gom các luồng lại bằng filter concat
+    # Gom các luồng lại bằng filter concat. Khi nung black_strip, concat ra nhãn
+    # trung gian rồi overlay strip lên (gấp chung vào encode batch, không thêm encode).
     concat_inputs = "".join(stream_labels)
-    filter_parts.append(f"{concat_inputs}concat=n={len(segments)}:v=1:a=0[outv]")
+    extra_inputs: List[str] = []
+    if strip and strip.get("path"):
+        filter_parts.append(f"{concat_inputs}concat=n={len(segments)}:v=1:a=0[vconcat]")
+        strip_parts, out_label = _build_strip_overlay(
+            strip, video_width, base_label="vconcat", strip_input_idx=1,
+        )
+        filter_parts.extend(strip_parts)
+        map_label = f"[{out_label}]"
+        extra_inputs = ["-loop", "1", "-i", _ffmpeg_path(strip["path"])]
+    else:
+        filter_parts.append(f"{concat_inputs}concat=n={len(segments)}:v=1:a=0[outv]")
+        map_label = "[outv]"
 
     filter_complex = ";".join(filter_parts)
 
@@ -224,8 +293,9 @@ def build_ffmpeg_batch_cmd(
         # Hybrid Seek: nhảy thẳng đến vị trí của batch (Fast Seek)
         "-ss", f"{rough_start_s:.6f}",
         "-i", input_path,
+        *extra_inputs,
         "-filter_complex", filter_complex,
-        "-map", "[outv]",
+        "-map", map_label,
         "-an",
         *_HEVC_NVENC_VIDEO_ARGS,
         "-video_track_timescale", "90000",
@@ -249,8 +319,14 @@ def process_video_chunks_parallel(
     fps_str: str = "30/1",
     fps_float: float = 30.0,
     batch_size: int = 100,
+    strip: Optional[Dict] = None,
 ) -> Tuple[str, List[float]]:
-    """Split + stretch + concat sử dụng Filter Complex Batching. Returns (path to video_stretched.mp4, list of actual durations in ms)."""
+    """Split + stretch + concat sử dụng Filter Complex Batching. Returns (path to video_stretched.mp4, list of actual durations in ms).
+
+    `strip`: nếu cho (dict đã resolve path + scale_height + x/y), nung black_strip
+    vào mỗi batch (gấp chung vào encode, không thêm encode). Strip phủ full width
+    video gốc theo mặc định.
+    """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     if not timeline:
@@ -271,16 +347,22 @@ def process_video_chunks_parallel(
             "hevc_nvenc -preset p4 -tune hq -cq 28."
         )
 
+    # Probe width video gốc để strip phủ full width (clamp scale_width nếu vượt)
+    video_width: Optional[int] = None
+    if strip and strip.get("path"):
+        video_width = _probe_video_width(video_path)
+
     # 1. Gom nhóm timeline thành các Batch
     batches = [timeline[i:i + batch_size] for i in range(0, len(timeline), batch_size)]
-    
+
     batch_tasks = []
     for i, batch_segs in enumerate(batches):
         out = str(Path(output_dir) / f"batch_{i:04d}.mp4")
         cmd = build_ffmpeg_batch_cmd(
             video_path, out,
             batch_segs,
-            fps_str, fps_float, use_gpu
+            fps_str, fps_float, use_gpu,
+            strip=strip, video_width=video_width,
         )
         batch_tasks.append((i, cmd, out))
 

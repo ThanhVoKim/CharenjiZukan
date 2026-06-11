@@ -16,6 +16,8 @@ Resume skip-done bằng hash (`resume.skipDone`). Mode `"hybrid"` cho miệng m�
 **V1 — Remotion mode (legacy):** Giữ nguyên code tham khảo `remotion_tuber/`,
 nhưng runtime ưu tiên pre-render.
 
+> **Z-order tuber:** Tuber composite seek vào `video_stretched.mp4` (đã chứa `black_strip` nung sẵn ở Phase 2 của `sync-video`). Vì vậy tuber luôn nằm **trên black_strip + base**, và **dưới** các layer Phase 5 (image overlay / note / watermark / subtitle). Đây là layer baked, **không** nằm trong `render_config.layer_order` — muốn đổi z-order tuber so với image/note/watermark cần tách tuber thành layer alpha độc lập (chi phí mất NVENC + file alpha lớn, xem `docs/sync-video-guide.md`).
+
 ## Kiến trúc (V2 — Pre-render)
 
 ```
@@ -196,6 +198,7 @@ tuber-output/<job>/tuber/
 │                    │ + final_audio_mixed.wav                               │
 │                    │ + subtitle_synced.srt / note_overlay.ass              │
 │                    │ render_final_video() [hardsub + watermark]            │
+│                    │   skip_layers={"black_strip"} (strip đã nung ở stretch)│
 │                    ▼                                                        │
 │  sync_output/<job>/video_synced.mp4  ← file output cuối cùng              │
 └─────────────────────────────────────────────────────────────────────────────┘

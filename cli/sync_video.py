@@ -75,6 +75,31 @@ def _load_tts_config(config_path: str) -> dict:
     return config
 
 
+def _resolve_black_strip(render_config: dict) -> dict | None:
+    """Resolve cấu hình black_strip để nung ở giai đoạn stretch.
+
+    Trả về dict {path (tuyệt đối), scale_width, scale_height, x, y} nếu strip
+    enabled + path tồn tại; None nếu tắt/thiếu file. Strip được nung vào
+    video_stretched.mp4 → nằm DƯỚI tuber, trên base.
+    """
+    strip_cfg = render_config.get("black_strip", {}) or {}
+    if not (strip_cfg.get("enabled", False) and strip_cfg.get("path")):
+        return None
+    strip_path = Path(strip_cfg["path"])
+    if not strip_path.is_absolute():
+        strip_path = PROJECT_ROOT / strip_path
+    if not strip_path.exists():
+        logger.warning("black_strip enabled nhưng không tìm thấy ảnh: %s. Bỏ qua strip.", strip_path)
+        return None
+    return {
+        "path": str(strip_path),
+        "scale_width": strip_cfg.get("scale_width"),
+        "scale_height": strip_cfg.get("scale_height", 94),
+        "x": strip_cfg.get("x", "(W-w)/2"),
+        "y": strip_cfg.get("y", "968"),
+    }
+
+
 def _probe_video_duration(video_path: str) -> float:
     """Đo duration video bằng ffprobe, trả về ms."""
     cmd = [
@@ -285,6 +310,10 @@ def run_sync_pipeline(args):
         logger.info("\n--- PHASE 2: VIDEO PROCESSING ---")
         stretched_video = str(Path(tmp_dir) / "video_stretched.mp4")
         
+        # Nung black_strip ngay ở stretch (gấp chung vào encode batch, 0 encode thêm).
+        # Strip nằm dưới tuber; final render skip layer black_strip.
+        black_strip = _resolve_black_strip(render_config)
+
         stretched_video_chunked, actual_durations = process_video_chunks_parallel(
             video_path=args.video,
             timeline=timeline,
@@ -294,6 +323,7 @@ def run_sync_pipeline(args):
             fps_str=fps_str,
             fps_float=fps_float,
             batch_size=args.batch_size,
+            strip=black_strip,
         )
         
         if not Path(stretched_video_chunked).exists():
@@ -566,6 +596,9 @@ def run_sync_pipeline(args):
                 except Exception as e:  # noqa: BLE001 — tuber không được phá final render
                     logger.exception("Tuber overlay lỗi bất ngờ: %s. Fallback render KHÔNG tuber.", e)
 
+            # black_strip đã nung ở stretch (Phase 2) → skip ở final render.
+            skip_layers = {"black_strip"} if black_strip else None
+
             render_final_video(
                 stretched_video=render_input_video,
                 mixed_audio=mixed_audio,
@@ -577,6 +610,7 @@ def run_sync_pipeline(args):
                 image_overlay_events=image_overlay_events,
                 filter_complex_script_dir=tmp_dir,
                 keep_filter_complex_script=args.keep_tmp,
+                skip_layers=skip_layers,
             )
             logger.info(f"Render hoàn tất: {final_video}")
             if transcript_input_path:

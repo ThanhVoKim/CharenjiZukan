@@ -6,9 +6,18 @@
     "width": 1920,
     "height": 1080
   },
+  "layer_order": [
+    "black_strip",
+    "image_overlay",
+    "note_overlay",
+    "watermark_img",
+    "watermark_text",
+    "subtitles"
+  ],
   "watermark_img": {
     "enabled": true,
     "path": "assets/CharenjiZukan-watermark.png",
+    "width": null,
     "x": "1680",
     "y": "39"
   },

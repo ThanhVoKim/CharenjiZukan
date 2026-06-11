@@ -25,7 +25,7 @@ Phase 0: Auto Generate TTS
     ↓
 Phase 1: Analysis (classify blocks, compute speeds, build timeline)
     ↓
-Phase 2: Video Processing (split + stretch + concat chunks)
+Phase 2: Video Processing (split + stretch + concat chunks; nung black_strip vào video_stretched)
     ↓
 Phase 2.5: Optional Global BGM Extraction (nếu audio_policies.global_bgm là whole_video hoặc exclude_mute)
     ↓
@@ -102,8 +102,15 @@ Phase 4 nếu image_overlay.enabled=true
     └── Truyền ImageOverlayEvent vào renderer
         ↓
 Phase 5 render theo layer order:
-Base video → Image overlay static image → Note overlay → Black strip → Watermark → Subtitle
+Base video → Black strip → [Tuber] → Image overlay static image → Note overlay → Watermark img → Watermark text → Subtitle
 ```
+
+> **Layer order & black_strip (cập nhật):**
+>
+> - `black_strip` **không còn** ghép ở Phase 5 mà được **nung thẳng vào `video_stretched.mp4` ở Phase 2** (gấp chung vào encode batch — **không thêm lần encode nào**). Vì vậy strip luôn nằm **dưới** mọi layer khác, kể cả tuber overlay (tuber composite seek vào `video_stretched.mp4` nên đắp lên trên strip). Final render tự động `skip_layers={"black_strip"}` để tránh nung 2 lần.
+> - Strip phủ **full width video gốc** theo mặc định (probe width source, không hardcode 1920). Nếu `black_strip.scale_width` > width video → tự kẹp về full width. `scale_height` theo config; `x` mặc định căn giữa `(W-w)/2`, `y` theo config.
+> - Thứ tự ghép các layer còn lại trong Phase 5 điều khiển bằng `render_config.layer_order` (xem mục 2.x). Đổi thứ tự = sửa mảng này, không cần đổi code.
+> - **Tuber overlay** là layer baked vào base (xem `docs/tuber-overlay-guide.md`); vị trí z-order của nó cố định **trên black_strip, dưới image/note/watermark/subtitle**, không nằm trong `layer_order`.
 
 ---
 
@@ -127,6 +134,36 @@ File mặc định: `assets/default_render_config.json`
 | `width`  | int  | 1920    | Chiều rộng output video |
 | `height` | int  | 1080    | Chiều cao output video  |
 
+### 2.1b `layer_order`
+
+Mảng điều khiển **thứ tự ghép layer** ở Phase 5 (final render). Render lần lượt từ dưới lên trên theo thứ tự trong mảng (phần tử đầu = dưới cùng, phần tử cuối = trên cùng). Thiếu key này → dùng thứ tự mặc định bên dưới.
+
+```json
+{
+  "layer_order": [
+    "black_strip",
+    "image_overlay",
+    "note_overlay",
+    "watermark_img",
+    "watermark_text",
+    "subtitles"
+  ]
+}
+```
+
+| Giá trị hợp lệ   | Layer                                  |
+| ---------------- | -------------------------------------- |
+| `black_strip`    | Dải đen (đã nung ở Phase 2 — xem ghi chú) |
+| `image_overlay`  | Ảnh tĩnh full-screen theo SRT          |
+| `note_overlay`   | Hộp ghi chú động (ASS box)             |
+| `watermark_img`  | Watermark ảnh                          |
+| `watermark_text` | Watermark chữ (drawtext)              |
+| `subtitles`      | Hard-sub SRT                           |
+
+> - Giá trị lạ trong mảng → log warning và bỏ qua.
+> - `black_strip` thực tế đã nung vào base ở Phase 2 nên Phase 5 tự skip; giữ nó trong `layer_order` chỉ để tài liệu hóa vị trí z-order (dưới cùng). Muốn đổi vị trí strip cần đổi cách nung ở Phase 2, không chỉ sửa `layer_order`.
+> - **Tuber overlay** không nằm trong `layer_order` (baked vào base, luôn trên strip / dưới các layer còn lại).
+
 ### 2.2 `watermark_img`
 
 ```json
@@ -134,18 +171,20 @@ File mặc định: `assets/default_render_config.json`
   "watermark_img": {
     "enabled": false,
     "path": "assets/CharenjiZukan-watermark.png",
-    "position": "top_left",
-    "scale": 0.15
+    "width": null,
+    "x": "1680",
+    "y": "39"
   }
 }
 ```
 
-| Key        | Type  | Default    | Mô tả                                                          |
-| ---------- | ----- | ---------- | -------------------------------------------------------------- |
-| `enabled`  | bool  | false      | Bật/tắt watermark ảnh                                          |
-| `path`     | str   | —          | Đường dẫn tới ảnh watermark                                    |
-| `position` | str   | "top_left" | Vị trí: top_left, top_right, bottom_left, bottom_right, center |
-| `scale`    | float | 0.15       | Tỉ lệ so với chiều rộng video                                  |
+| Key       | Type        | Default | Mô tả                                                                                                                       |
+| --------- | ----------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `enabled` | bool        | false   | Bật/tắt watermark ảnh                                                                                                      |
+| `path`    | str         | —       | Đường dẫn tới ảnh watermark                                                                                                 |
+| `width`   | int \| null | null    | Chiều rộng watermark (px). `null`/bỏ trống/`<=0` → **giữ nguyên width gốc của ảnh**. Số > 0 → scale theo width đó, **height tự suy theo aspect ratio** (FFmpeg `scale=width:-1`) nên không méo. |
+| `x`       | str         | —       | Tọa độ X overlay (biểu thức FFmpeg, vd `1680` hoặc `W-w-40`)                                                                |
+| `y`       | str         | —       | Tọa độ Y overlay (biểu thức FFmpeg)                                                                                         |
 
 ### 2.3 `watermark_text`
 
@@ -166,11 +205,30 @@ File mặc định: `assets/default_render_config.json`
 ```json
 {
   "black_strip": {
-    "enabled": false,
-    "height": 60
+    "enabled": true,
+    "path": "assets/black-background.jpg",
+    "scale_width": "1920",
+    "scale_height": "94",
+    "x": "(main_w-overlay_w)/2",
+    "y": "968"
   }
 }
 ```
+
+| Key            | Type | Default      | Mô tả                                                                                                       |
+| -------------- | ---- | ------------ | ----------------------------------------------------------------------------------------------------------- |
+| `enabled`      | bool | false        | Bật/tắt dải đen                                                                                             |
+| `path`         | str  | —            | Đường dẫn ảnh dải (vd nền đen)                                                                              |
+| `scale_width`  | str  | full width   | Chiều rộng dải. **Mặc định = full width video gốc**; nếu giá trị > width video → tự kẹp về full width.       |
+| `scale_height` | str  | 94           | Chiều cao dải (px)                                                                                          |
+| `x`            | str  | `(W-w)/2`    | Tọa độ X (mặc định căn giữa)                                                                                |
+| `y`            | str  | `968`        | Tọa độ Y                                                                                                    |
+
+> **Quan trọng:** `black_strip` được **nung vào `video_stretched.mp4` ở Phase 2** (gấp chung vào encode batch — không thêm lần encode). Hệ quả:
+>
+> - Strip luôn nằm **dưới** tuber overlay và mọi layer Phase 5.
+> - Strip phủ **full width** bất kể độ phân giải source (probe width video gốc, không hardcode).
+> - Final render (`sync-video` và `tuber-repair`) tự `skip_layers={"black_strip"}` để tránh nung 2 lần.
 
 ### 2.5 `subtitles`
 

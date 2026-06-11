@@ -15,6 +15,9 @@ import string
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 
+# expandable_segments giảm phân mảnh VRAM khi transcribe audio dài; phải set TRƯỚC khi torch khởi tạo CUDA allocator.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -54,6 +57,7 @@ def run_batch_transcribe(
     min_chars: int = 8,
     split_on_comma: bool = False,
     batch_size: int = 32,
+    max_new_tokens: int = 1024,
     offset_seconds: float = 0.24,
     model_path: str = "Qwen/Qwen3-ASR-1.7B",
     aligner_path: str = "Qwen/Qwen3-ForcedAligner-0.6B",
@@ -82,7 +86,7 @@ def run_batch_transcribe(
             device_map=device,
             attn_implementation="flash_attention_2",
             max_inference_batch_size=batch_size,
-            max_new_tokens=4096,
+            max_new_tokens=max_new_tokens,
             forced_aligner=aligner_path,
             forced_aligner_kwargs=dict(
                 dtype=torch.bfloat16,
@@ -201,6 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
     seg.add_argument("--min-chars", type=int, default=8, help="S\u1ed1 k\u00fd t\u1ef1 t\u1ed1i thi\u1ec3u tr\u00ean m\u1ed7i d\u00f2ng ph\u1ee5 \u0111\u1ec1 (m\u1eb7c \u0111\u1ecbnh: 8, \u0111\u1eb7t 0 \u0111\u1ec3 t\u1eaft)")
     seg.add_argument("--split-on-comma", action="store_true", help="D\u00f9ng d\u1ea5u ph\u1ea9y l\u00e0m \u0111i\u1ec3m c\u1eaft block (m\u1eb7c \u0111\u1ecbnh: t\u1eaft)")
     seg.add_argument("--batch-size", type=int, default=32, help="Batch size cho inference (m\u1eb7c \u0111\u1ecbnh: 32)")
+    seg.add_argument("--max-new-tokens", type=int, default=1024, help="S\u1ed1 token t\u1ed1i \u0111a sinh ra m\u1ed7i chunk khi inference (m\u1eb7c \u0111\u1ecbnh: 1024; gi\u1ea3m \u0111\u1ec3 ti\u1ebft ki\u1ec7m VRAM, t\u0103ng n\u1ebfu chunk d\u00e0i b\u1ecb c\u1eaft c\u1ee5t)")
     seg.add_argument("--offset-seconds", type=float, default=0.24, help="\u0110\u1ed9 l\u1ec7ch th\u1eddi gian b\u00f9 tr\u1eeb (gi\u00e2y, m\u1eb7c \u0111\u1ecbnh: 0.24)")
 
     misc = parser.add_argument_group("Misc")
@@ -236,6 +241,7 @@ def main():
             min_chars=args.min_chars,
             split_on_comma=args.split_on_comma,
             batch_size=args.batch_size,
+            max_new_tokens=args.max_new_tokens,
             offset_seconds=args.offset_seconds,
             model_path=args.model_path,
             aligner_path=args.aligner_path,

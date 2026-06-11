@@ -126,6 +126,8 @@ def run_repair(tuber_root: Path, output_path: str = None) -> str:
     if rc_path and Path(rc_path).exists():
         render_config = json.loads(Path(rc_path).read_text(encoding="utf-8"))
 
+    # base_video_stretched (đã promote) chứa black_strip nung sẵn từ stretch của
+    # lần all-in → skip layer black_strip ở final render để tránh nung 2 lần.
     render_final_video(
         stretched_video=str(video_with_tuber),
         mixed_audio=str(final_audio),
@@ -135,6 +137,7 @@ def run_repair(tuber_root: Path, output_path: str = None) -> str:
         render_config=render_config,
         use_gpu=fr_manifest.get("use_gpu", True),
         image_overlay_events=image_events,
+        skip_layers={"black_strip"},
     )
     logger.info("Repair hoàn tất → %s", output_path)
     return output_path

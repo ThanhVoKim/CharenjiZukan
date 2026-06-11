@@ -207,6 +207,7 @@ def render_final_video(
     image_overlay_events: Optional[Sequence[ImageOverlayEvent]] = None,
     filter_complex_script_dir: Optional[str] = None,
     keep_filter_complex_script: bool = False,
+    skip_layers: Optional[set] = None,
 ) -> None:
     if render_config is None:
         render_config = {}
@@ -249,10 +250,17 @@ def render_final_video(
         filter_cx.append(f"{current_v}scale={output_width}:{output_height}[v_base]")
         current_v = "[v_base]"
 
-    # 1. Image Overlay static image full-screen
-    image_cfg = render_config.get("image_overlay", {}) or {}
-    if image_overlay_events:
-        current_v, input_idx = _append_image_overlay_filters(
+    # ── Layer builders: mỗi layer là 1 hàm (current_v, input_idx) -> (current_v, input_idx).
+    # Thứ tự ghép layer điều khiển bằng render_config["layer_order"]; thiếu → DEFAULT.
+    # skip_layers: bỏ qua layer đã được nung ở bước khác (vd black_strip nung ở stretch).
+    skip = set(skip_layers or ())
+    has_strip = False  # track loop-input để quyết định -shortest
+
+    def _layer_image_overlay(current_v, input_idx):
+        image_cfg = render_config.get("image_overlay", {}) or {}
+        if not image_overlay_events:
+            return current_v, input_idx
+        return _append_image_overlay_filters(
             cmd=cmd,
             filter_cx=filter_cx,
             current_v=current_v,
@@ -263,101 +271,127 @@ def render_final_video(
             output_height=output_height,
         )
 
-    # 2. Note Overlay (Dynamic ASS Box)
-    note_cfg = render_config.get("note_overlay", {})
-    has_note = False
-    if note_cfg.get("enabled", False) and note_overlay_synced_ass and Path(note_overlay_synced_ass).exists():
-        has_note = True
-        ass_esc = _ffmpeg_path(note_overlay_synced_ass)
-        filter_cx.append(f"{current_v}ass='{ass_esc}'[v_note]")
-        current_v = "[v_note]"
+    def _layer_note_overlay(current_v, input_idx):
+        note_cfg = render_config.get("note_overlay", {})
+        if note_cfg.get("enabled", False) and note_overlay_synced_ass and Path(note_overlay_synced_ass).exists():
+            ass_esc = _ffmpeg_path(note_overlay_synced_ass)
+            filter_cx.append(f"{current_v}ass='{ass_esc}'[v_note]")
+            current_v = "[v_note]"
+        return current_v, input_idx
 
-    # 3. Black Strip
-    strip_cfg = render_config.get("black_strip", {})
-    has_strip = False
-    if strip_cfg.get("enabled", False) and strip_cfg.get("path"):
+    def _layer_black_strip(current_v, input_idx):
+        nonlocal has_strip
+        strip_cfg = render_config.get("black_strip", {})
+        if not (strip_cfg.get("enabled", False) and strip_cfg.get("path")):
+            return current_v, input_idx
         strip_path = Path(strip_cfg["path"])
         if not strip_path.is_absolute():
             strip_path = project_root / strip_path
+        if not strip_path.exists():
+            return current_v, input_idx
+        strip_path_esc = _ffmpeg_path(strip_path)
+        cmd.extend(["-loop", "1", "-i", strip_path_esc])
+        strip_idx = input_idx
+        input_idx += 1
+        has_strip = True
+        sw = strip_cfg.get("scale_width")
+        sh = strip_cfg.get("scale_height")
+        if sw and sh:
+            filter_cx.append(f"[{strip_idx}:v]scale={sw}:{sh}[bg_scaled]")
+            strip_layer = "[bg_scaled]"
+        else:
+            strip_layer = f"[{strip_idx}:v]"
+        x = strip_cfg.get("x", "(main_w-overlay_w)/2")
+        y = strip_cfg.get("y", "968")
+        filter_cx.append(f"{current_v}{strip_layer}overlay=x={x}:y={y}:shortest=1[v_strip]")
+        return "[v_strip]", input_idx
 
-        if strip_path.exists():
-            strip_path_esc = _ffmpeg_path(strip_path)
-            cmd.extend(["-loop", "1", "-i", strip_path_esc])
-            strip_idx = input_idx
-            input_idx += 1
-            has_strip = True
-
-            sw = strip_cfg.get("scale_width")
-            sh = strip_cfg.get("scale_height")
-            if sw and sh:
-                filter_cx.append(f"[{strip_idx}:v]scale={sw}:{sh}[bg_scaled]")
-                strip_layer = "[bg_scaled]"
-            else:
-                strip_layer = f"[{strip_idx}:v]"
-
-            x = strip_cfg.get("x", "(main_w-overlay_w)/2")
-            y = strip_cfg.get("y", "968")
-
-            filter_cx.append(f"{current_v}{strip_layer}overlay=x={x}:y={y}:shortest=1[v_strip]")
-            current_v = "[v_strip]"
-
-    # 4. Watermark Image
-    wm_img_cfg = render_config.get("watermark_img", {})
-    if wm_img_cfg.get("enabled", False) and wm_img_cfg.get("path"):
+    def _layer_watermark_img(current_v, input_idx):
+        wm_img_cfg = render_config.get("watermark_img", {})
+        if not (wm_img_cfg.get("enabled", False) and wm_img_cfg.get("path")):
+            return current_v, input_idx
         wm_path = Path(wm_img_cfg["path"])
         if not wm_path.is_absolute():
             wm_path = project_root / wm_path
+        if not wm_path.exists():
+            return current_v, input_idx
+        wm_path_esc = _ffmpeg_path(wm_path)
+        cmd.extend(["-i", wm_path_esc])
+        wm_idx = input_idx
+        input_idx += 1
+        x = wm_img_cfg.get("x", "W-w-40")
+        y = wm_img_cfg.get("y", "40")
+        # width optional: số > 0 → scale theo width, height auto (-1) giữ aspect.
+        # null / absent / <=0 → giữ nguyên width gốc của ảnh.
+        wm_width = wm_img_cfg.get("width")
+        wm_layer = f"[{wm_idx}:v]"
+        try:
+            wm_width_int = int(wm_width) if wm_width is not None else 0
+        except (TypeError, ValueError):
+            wm_width_int = 0
+        if wm_width_int > 0:
+            filter_cx.append(f"[{wm_idx}:v]scale={wm_width_int}:-1[wm_scaled]")
+            wm_layer = "[wm_scaled]"
+        filter_cx.append(f"{current_v}{wm_layer}overlay=x={x}:y={y}[v_wm_img]")
+        return "[v_wm_img]", input_idx
 
-        if wm_path.exists():
-            wm_path_esc = _ffmpeg_path(wm_path)
-            cmd.extend(["-i", wm_path_esc])
-            wm_idx = input_idx
-            input_idx += 1
-
-            x = wm_img_cfg.get("x", "W-w-40")
-            y = wm_img_cfg.get("y", "40")
-
-            filter_cx.append(f"{current_v}[{wm_idx}:v]overlay=x={x}:y={y}[v_wm_img]")
-            current_v = "[v_wm_img]"
-
-    # 5. Watermark Text
-    wm_txt_cfg = render_config.get("watermark_text", {})
-    if wm_txt_cfg.get("enabled", False) and wm_txt_cfg.get("text"):
+    def _layer_watermark_text(current_v, input_idx):
+        wm_txt_cfg = render_config.get("watermark_text", {})
+        if not (wm_txt_cfg.get("enabled", False) and wm_txt_cfg.get("text")):
+            return current_v, input_idx
         font_path = Path(wm_txt_cfg.get("font_path", ""))
         if font_path and not font_path.is_absolute():
             font_path = project_root / font_path
-
         font_path_esc = _ffmpeg_path(font_path) if font_path.exists() else ""
-
         text = wm_txt_cfg.get("text", "")
         fontsize = wm_txt_cfg.get("fontsize", 25)
         color = wm_txt_cfg.get("color", "white")
         alpha = wm_txt_cfg.get("alpha", 0.7)
         x = wm_txt_cfg.get("x", "w-text_w-30")
         y = wm_txt_cfg.get("y", "8")
-
         drawtext_parts = [f"text='{text}'", f"fontsize={fontsize}", f"fontcolor={color}", f"alpha={alpha}", f"x={x}", f"y={y}"]
         if font_path_esc:
             drawtext_parts.insert(0, f"fontfile='{font_path_esc}'")
-
         drawtext_str = ":".join(drawtext_parts)
         filter_cx.append(f"{current_v}drawtext={drawtext_str}[v_wm_txt]")
-        current_v = "[v_wm_txt]"
+        return "[v_wm_txt]", input_idx
 
-    # 6. Subtitles (SRT)
-    sub_cfg = render_config.get("subtitles", {})
-    if sub_cfg.get("enabled", False) and sub_cfg.get("burn_hardsub", True):
+    def _layer_subtitles(current_v, input_idx):
+        sub_cfg = render_config.get("subtitles", {})
+        if not (sub_cfg.get("enabled", False) and sub_cfg.get("burn_hardsub", True)):
+            return current_v, input_idx
         style_dict = sub_cfg.get("style", {})
         if style_dict:
             custom_style = ",".join([f"\\,{k}={v}" if i > 0 else f"{k}={v}" for i, (k, v) in enumerate(style_dict.items())])
         else:
             custom_style = ""
-
         if custom_style:
             filter_cx.append(f"{current_v}subtitles='{subtitle_synced_srt_esc}':force_style='{custom_style}'[v_sub]")
         else:
             filter_cx.append(f"{current_v}subtitles='{subtitle_synced_srt_esc}'[v_sub]")
-        current_v = "[v_sub]"
+        return "[v_sub]", input_idx
+
+    layer_builders = {
+        "black_strip": _layer_black_strip,
+        "image_overlay": _layer_image_overlay,
+        "note_overlay": _layer_note_overlay,
+        "watermark_img": _layer_watermark_img,
+        "watermark_text": _layer_watermark_text,
+        "subtitles": _layer_subtitles,
+    }
+    default_order = [
+        "black_strip", "image_overlay", "note_overlay",
+        "watermark_img", "watermark_text", "subtitles",
+    ]
+    layer_order = render_config.get("layer_order") or default_order
+    for layer_name in layer_order:
+        if layer_name in skip:
+            continue
+        builder = layer_builders.get(layer_name)
+        if builder is None:
+            logger.warning("layer_order chứa layer không hợp lệ: %s (bỏ qua).", layer_name)
+            continue
+        current_v, input_idx = builder(current_v, input_idx)
 
     filter_complex_script_path: Optional[Path] = None
     if filter_cx:

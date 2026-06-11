@@ -280,7 +280,8 @@ class TestLayer2_ImageOverlayRenderer:
         assert "-map" in cmd
 
         graph = cmd[cmd.index("-filter_complex") + 1]
-        assert "[2:v]scale=1280:720,format=rgba,colorchannelmixer=aa=0.500[img_0_base]" in graph
+        # layer_order mới: black_strip (input idx 2) trước image_overlay (input idx 3).
+        assert "[3:v]scale=1280:720,format=rgba,colorchannelmixer=aa=0.500[img_0_base]" in graph
         assert "[img_0_base]split=2[img_0_0][img_0_1]" in graph
         assert "enable='between(t,0.000,1.000)'" in graph
         assert "enable='between(t,1.000,2.000)'" in graph
@@ -291,7 +292,8 @@ class TestLayer2_ImageOverlayRenderer:
         watermark_img_pos = graph.index("overlay=x=10:y=20")
         watermark_text_pos = graph.index("drawtext=")
         subtitle_pos = graph.index("subtitles='")
-        assert image_overlay_pos < note_pos < strip_pos < watermark_img_pos < watermark_text_pos < subtitle_pos
+        # Thứ tự mới: black_strip → image_overlay → note → watermark_img → watermark_text → subtitle
+        assert strip_pos < image_overlay_pos < note_pos < watermark_img_pos < watermark_text_pos < subtitle_pos
 
     def test_script_strategy_writes_filter_complex_script_and_keeps_cmd_short(self, tmp_path: Path, monkeypatch):
         renderer = _patch_renderer_process(monkeypatch, captured := {})

@@ -1,5 +1,56 @@
 # Project Journal
 
+## 2026-06-11: qwen3_asr — expandable_segments + `--max-new-tokens` (mặc định 1024) giảm OOM VRAM audio dài
+
+### Bối cảnh
+Trên L4 Colab (22GB), transcribe video ~1h thấy VRAM tăng tịnh tiến gần chạm trần, suýt OOM ở `--batch-size 8` và OOM hẳn ở `16`. Câu hỏi: đây là hành vi mặc định của Qwen3-ASR hay code thiếu clear VRAM.
+
+### Nguyên nhân gốc
+Vì CLI gọi `transcribe(..., return_time_stamps=True)` nên `qwen_asr` ép chunk audio theo `MAX_FORCE_ALIGN_INPUT_SECONDS = 180s` (3 phút) → video 1h ≈ 20 chunk, gom batch theo `max_inference_batch_size` (= `--batch-size`). Thư viện KHÔNG `empty_cache()`/`del` tensor/giải phóng KV-cache giữa các batch; PyTorch giữ lại reserved memory → nhìn `nvidia-smi` thấy leo dần tới đỉnh rồi plateau. **Không phải leak** (text trả về string, timestamp merge bằng list — đều ở CPU); đỉnh VRAM ∝ `batch_size × max_new_tokens`. Batch 16 = 16 chunk×3phút đồng thời → KV-cache gấp đôi → vượt 22GB. `clear_vram()` đặt ở `finally` chỉ chạy SAU cả file, vô dụng trong-file và không chèn được vào vòng lặp chunk nội bộ thư viện.
+
+### Thay đổi
+1. `cli/qwen3_asr.py`:
+   - `os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")` ngay đầu module (TRƯỚC khi torch khởi tạo CUDA allocator) → giảm phân mảnh, trị đúng kiểu "leo tới trần rồi OOM". Dùng `setdefault` để tôn trọng giá trị user set sẵn.
+   - Bỏ hardcode `max_new_tokens=4096` → tham số `--max-new-tokens` (mặc định **1024**), xuyên suốt: chữ ký `run_batch_transcribe` → `from_pretrained` → arg → lời gọi trong `main()`. (Official transformers example dùng 256; chunk 3 phút không cần tới 4096, cap cao chỉ làm trần KV-cache khi 1 chunk lặp/hallucinate.)
+
+### Lưu ý còn lại
+- Chưa verify thật trên Colab L4 — cần chạy lại video 1h xác nhận batch 16 không còn OOM.
+- `batch_size` vẫn là đòn bẩy chính cho đỉnh VRAM; `--max-new-tokens` là cap an toàn — nếu chunk dài bị cắt cụt text thì tăng lên.
+
+### File thay đổi
+- `cli/qwen3_asr.py`
+
+---
+
+## 2026-06-11: Watermark width + layer_order config + nung black_strip ở stretch (dưới tuber)
+
+### Bối cảnh
+Yêu cầu: (1) thêm `width` optional cho watermark_img (height auto theo aspect, mặc định width gốc); (2) sắp lại layer order `Base → Black strip → Tuber → Image → Note → Watermark → Subtitle`; (3) tuber phải nằm TRÊN black_strip. Vấn đề kiến trúc: tuber baked vào base TRƯỚC final render nên vốn là layer dưới cùng (dưới cả strip). Promote tuber thành alpha layer độc lập thì mất NVENC (NVENC không hỗ trợ alpha) + file ProRes/VP9 alpha cực lớn cho video 2-3h.
+
+### Quyết định
+Nung `black_strip` ngay ở **Phase 2 (stretch)** thay vì Phase 5 → gấp chung vào encode batch sẵn có, **0 encode thêm**, và strip tự nằm DƯỚI tuber (tuber composite seek vào `video_stretched.mp4` sau đó). Tuber giữ nguyên cơ chế baked. Các layer Phase 5 còn lại điều khiển thứ tự bằng `render_config.layer_order`.
+
+### Thay đổi
+1. `sync_engine/video_processor.py`: `build_ffmpeg_batch_cmd(..., strip, video_width)` + helper `_build_strip_overlay` (full-width clamp) + `_probe_video_width`. `process_video_chunks_parallel(..., strip)` probe width source rồi overlay strip lên concat trước khi encode. Strip phủ full width video gốc; `scale_width` config > width video → kẹp về full width.
+2. `sync_engine/renderer.py`: refactor 6 layer (black_strip/image_overlay/note_overlay/watermark_img/watermark_text/subtitles) thành builder + dispatch theo `render_config["layer_order"]` (thiếu → default order). Thêm param `skip_layers`. Watermark_img: `width` > 0 → `scale={width}:-1` (height auto giữ aspect); null/absent/<=0 → giữ ảnh gốc.
+3. `cli/sync_video.py`: helper `_resolve_black_strip`; Phase 2 truyền `strip=` vào stretch; Phase 5 `skip_layers={"black_strip"}` khi strip bật.
+4. `cli/tuber_repair.py`: final render `skip_layers={"black_strip"}` (base promote đã chứa strip nung).
+5. `assets/default_render_config.json`: thêm `"width": null` vào watermark_img + mảng `"layer_order"`.
+6. Docs: `sync-video-guide.md` (sơ đồ layer, mục layer_order, watermark_img width, black_strip nung ở Phase 2), `tuber-overlay-guide.md` (z-order tuber trên strip).
+
+### Layer order kết quả
+`Base → Black strip (nung Phase 2) → Tuber (baked) → Image overlay → Note overlay → Watermark img → Watermark text → Subtitle`
+
+### Lưu ý còn lại
+- Resume hash tuber anchor theo video gốc + group_manifest, KHÔNG theo stretched → đổi black_strip config KHÔNG tự re-render tuber group (strip nằm dưới, không đổi hình tuber). Muốn ép thì `resume.skipDone=false`.
+- Chưa verify FFmpeg thật trên Colab GPU — cần chạy pipeline thật để xác nhận strip hiển thị đúng vị trí dưới tuber. Test unit (80 passed) chỉ verify command/filter string + pipeline mock.
+- Muốn tuber xen kẽ z-order tùy ý (vd trên image overlay) → phải tách alpha layer (mất NVENC + disk lớn), chưa làm.
+
+### File thay đổi
+- `sync_engine/video_processor.py`, `sync_engine/renderer.py`, `cli/sync_video.py`, `cli/tuber_repair.py`, `assets/default_render_config.json`, `docs/sync-video-guide.md`, `docs/tuber-overlay-guide.md`
+
+---
+
 ## 2026-06-09: Tuber group cuối fail "Duration lệch" — clamp group theo frame THỰC của video_stretched
 
 ### Vấn đề
