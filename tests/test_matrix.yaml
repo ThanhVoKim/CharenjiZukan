@@ -46,14 +46,6 @@ tests:
     tags: ["unit"]
     enabled: true
 
-  - name: "Demucs CLI — Parser & Hardware Check (No GPU)"
-    file: "tests/cli/test_demucs_audio.py"
-    keyword: "TestBuildParser or TestCheckHardwareRequirements or TestCheckDemucsInstalled or TestGetDevice or TestOutputPath or TestMain"
-    timeout_sec: 30
-    pytest_args: ["-v"]
-    tags: ["unit"]
-    enabled: true
-
   - name: "Media Speed CLI — Parser & Main (No FFmpeg)"
     file: "tests/cli/test_media_speed.py"
     keyword: "TestBuildParser or TestMain"
@@ -215,16 +207,6 @@ tests:
     timeout_sec: 120
     pytest_args: ["-v", "-s"]
     tags: ["integration", "ffmpeg"]
-    enabled: true
-
-  - name: "Demucs — Source Separation (GPU)"
-    file: "tests/cli/test_demucs_audio.py"
-    keyword: "TestSeparateAudio"
-    timeout_sec: 600
-    env:
-      TORCH_CUDNN_V8_API_ENABLED: "1"
-    pytest_args: ["-v", "-s"]
-    tags: ["integration", "gpu"]
     enabled: true
 
   - name: "Media Utils — Rubberband Check"

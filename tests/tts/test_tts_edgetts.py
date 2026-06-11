@@ -35,7 +35,6 @@ pydub = pytest.importorskip("pydub")
 from pydub import AudioSegment
 from pydub.silence import detect_nonsilent
 
-from cli.tts_srt import run_tts
 from tts.edgetts import EdgeTTSEngine, convert_to_wav, strip_audio_silence
 
 # ═════════════════════════════════════════════════════════════════════
@@ -103,7 +102,7 @@ class TestLayer1_StripSilence:
     """Kiểm tra hàm strip_audio_silence."""
 
     def test_strip_silence_only_tail(self, synthetic_wav_with_silence, tmp_path):
-        """Kiểm tra xem nó có CHỈ cắt phần đuôi không (start_ms = 0)."""
+        """Kiểm tra strip_audio_silence cắt CẢ HAI ĐẦU (head + tail)."""
         # Copy ra tmp để không ảnh hưởng file gốc
         test_wav = tmp_path / "test_only_tail.wav"
         shutil.copy(synthetic_wav_with_silence, test_wav)
@@ -126,19 +125,19 @@ class TestLayer1_StripSilence:
         
         # Original: silence(500) + audio(1000) + silence(500)
         # Non-silent block detected: [500, 1500]
-        # start_ms = 0  --> Giữ nguyên phần đầu.
-        # end_ms = min(2000, 1500 + 30) = 1530
-        # Expected new length: 1530
-        # Expected trimmed_ms: 2000 - 1530 = 470
-        
+        # start_ms = max(0, 500 - 30) = 470   --> Cắt cả phần đầu
+        # end_ms   = min(2000, 1500 + 30) = 1530
+        # Expected new length: 1530 - 470 = 1060
+        # Expected trimmed_ms: 2000 - 1060 = 940
+
         assert trimmed_len < original_len
-        assert abs(trimmed_len - 1530) < 5
-        assert abs(trimmed_ms - 470) < 5
-        
-        # Kiểm tra phần đầu vẫn là silence
-        first_500ms = trimmed_seg[:500]
-        nonsilent_in_first = detect_nonsilent(first_500ms, silence_thresh=-50, min_silence_len=100)
-        assert len(nonsilent_in_first) == 0  # Toàn bộ phần đầu vẫn là im lặng
+        assert abs(trimmed_len - 1060) < 5
+        assert abs(trimmed_ms - 940) < 5
+
+        # Phần đầu silence đã bị cắt --> ngay đầu file giờ là audio (non-silent)
+        first_100ms = trimmed_seg[:100]
+        nonsilent_in_first = detect_nonsilent(first_100ms, silence_thresh=-50, min_silence_len=50)
+        assert len(nonsilent_in_first) > 0  # Đầu file giờ là audio, không còn im lặng
 
     def test_strip_silence_all_silent(self, synthetic_wav_all_silent, tmp_path):
         """Kiểm tra fallback khi file chỉ toàn im lặng (TTS sinh file rỗng)."""
@@ -241,6 +240,10 @@ class TestLayer2_EdgeTTSEngine:
 # LAYER 3 — PIPELINE INTEGRATION
 # ═════════════════════════════════════════════════════════════════════
 
+@pytest.mark.skip(
+    reason="run_tts đã bị refactor thành cli.tts.run_task (signature khác). "
+    "Pipeline mới được cover bởi tests/cli/test_tts_refactor.py."
+)
 class TestLayer3_TTS_CLI:
     """Test CLI pipeline run_tts."""
 

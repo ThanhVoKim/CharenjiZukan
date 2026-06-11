@@ -166,9 +166,9 @@ class TestWrapText:
     
     def test_japanese_text_wrap(self):
         """Test Japanese text wrapping."""
-        # 16 chars -> wrap at 14
-        result = wrap_text("サムのギアリストサムの", 14)
-        assert result == "サムのギアリストサ\\Nムの"
+        # 16 ký tự -> wrap tại 14: 14 ký tự đầu + \\N + 2 ký tự còn lại
+        result = wrap_text("ア" * 16, 14)
+        assert result == "ア" * 14 + "\\N" + "ア" * 2
     
     def test_existing_newline_preserved(self):
         """Test existing \\N is preserved."""
@@ -350,8 +350,10 @@ class TestConvertSrtSegmentsToAssDialogues:
             }
         ]
         
-        dialogues = convert_srt_segments_to_ass_dialogues(segments)
-        
+        # mode="off" để bỏ qua layout-key extraction (dòng đầu của block 2 dòng
+        # mặc định bị coi là layout key). Ở đây ta test thuần việc join multiline.
+        dialogues = convert_srt_segments_to_ass_dialogues(segments, mode="off")
+
         assert len(dialogues) == 1
         assert "Line 1\\NLine 2" in dialogues[0]
     

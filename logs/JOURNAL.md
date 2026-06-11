@@ -1,5 +1,27 @@
 # Project Journal
 
+## 2026-06-11: Local testing — venv `uv` cô lập (CPU-only), sửa runner dùng `sys.executable`
+
+### Bối cảnh
+Cần chạy test ở máy local (Windows, Python global 3.13) mà không đụng Python global và không kéo package GPU (chúng được test trên Colab).
+
+### Đã làm
+- Tạo `.venv` bằng `uv venv --python 3.12 .venv` (khớp Colab `requires-python >= 3.12`).
+- Cài CPU-only vào `.venv`: `uv pip install -e .` + `pytest pyyaml pydub numpy`. KHÔNG dùng `--system`, KHÔNG cài group `[qwen-tts]` (torch/flash-attn). Đã verify `Location` trỏ `.venv` và không có package GPU; global Python sạch.
+- **Sửa `run_colab_tests.py::_build_pytest_cmd`**: `["python", ...]` → `[sys.executable, ...]` để subprocess pytest chạy đúng interpreter `.venv` thay vì rơi vào python PATH khác (uv cpython).
+- **Sửa `run_colab_tests.py`**: thêm `_safe_report_name()` (sanitize ký tự Windows-invalid `< > : " / \ | ? *`) → hết crash `OSError [Errno 22]` khi tên report chứa `>`. Thêm `PYTHONIOENCODING=utf-8`/`PYTHONUTF8=1` vào env subprocess → test in emoji/CJK (vd `📄`) không crash cp1252 trên Windows.
+- **Sửa `pyproject.toml`**: thêm `tts*` vào `packages.find.include` (trước đây thiếu → `import tts.edgetts` fail khi không có cwd trên path). Reinstall editable.
+- Sửa các test stale: `test_extractor_config.py` (thêm `importorskip("cv2")`), `test_ass_utils.py` (2 test sai expectation), `test_tts_edgetts.py` (import `cli.tts_srt`→`cli.tts`, skip Layer 3 dùng API `run_tts` cũ, cập nhật `test_strip_silence_only_tail` theo logic "strip cả hai đầu" hiện tại).
+- **Xóa Demucs** (đã bị thay bằng audio-separator): bỏ 2 entry trong `test_matrix.yaml` trỏ file đã xoá `tests/cli/test_demucs_audio.py`; cập nhật wording trong `audio_assembler.py`, `colab-guide.md`, `testing-guide.md`. Giữ nguyên 2 file `plans/` (bản ghi lịch sử, theo yêu cầu user).
+- Cập nhật `docs/testing-guide.md`: thêm **Mục 0** ở đầu file (hướng dẫn `uv` + `.venv`, cấm `--system`, cấm package GPU local) để Agent scan nắm ngay.
+
+### Kết quả
+- `python run_colab_tests.py --tags unit` → **35 passed, 0 failed**, 1 all-skipped (Translation L2 cần API), 3 no-collection (cần `cv2`/opencv — cố ý KHÔNG cài local).
+
+### Next steps đề xuất
+- Khi cần chạy L4/gpu hoặc các test cần `cv2`: chạy trên Colab (venv Colab kế thừa torch/cv2).
+- Cân nhắc viết test thay thế cho audio-separator (chỗ Demucs cũ để trống).
+
 ## 2026-06-11: qwen3_asr — expandable_segments + `--max-new-tokens` (mặc định 1024) giảm OOM VRAM audio dài
 
 ### Bối cảnh

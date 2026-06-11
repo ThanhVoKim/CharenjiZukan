@@ -218,6 +218,7 @@ Qwen3-ASR yêu cầu `transformers` và `flash-attn`. Do `flash-attn` là packag
   --language Chinese \
   --max-chars 15 \
   --batch-size 32 \
+  --max-new-tokens 1024 \
   --offset-seconds 0.24
 ```
 
@@ -257,20 +258,21 @@ Chạy CLI với file JSON:
 
 #### Bảng tham số chính
 
-| Tham số             | Mô tả                                                                        | Mặc định                            |
-| ------------------- | ---------------------------------------------------------------------------- | ----------------------------------- |
-| `--input`, `-i`     | File video hoặc audio đầu vào                                                | (bắt buộc nếu không dùng task-file) |
-| `--task-file`, `-t` | File JSON cấu hình chạy hàng loạt (`{"input": "...", "output": "..."}`)      | (không dùng)                        |
-| `--output`, `-o`    | File .srt hoặc folder đầu ra (chỉ dùng với `--input`)                        | `<input_dir>/<name>.srt`            |
-| `--language`, `-l`  | Ngôn ngữ audio (`Chinese`, `English`, `Japanese`...)                         | `Chinese`                           |
-| `--max-chars`       | Số ký tự tối đa trên mỗi dòng phụ đề (CJK thường 15, Latin 40), đặt 0 để tắt | `15`                                |
-| `--min-chars`       | Số ký tự tối thiểu trên mỗi dòng phụ đề, đặt 0 để tắt                        | `8`                                 |
-| `--batch-size`      | Batch size cho inference (tăng lên 32~64 nếu GPU L4 22GB)                    | `32`                                |
-| `--offset-seconds`  | Độ lệch bù trừ thời gian (giây, ví dụ: 0.24 = 6 frames @ 25fps)              | `0.24`                              |
-| `--model-path`      | Đường dẫn model ASR trên HuggingFace hoặc local                              | `Qwen/Qwen3-ASR-1.7B`               |
-| `--aligner-path`    | Đường dẫn model Forced Aligner                                               | `Qwen/Qwen3-ForcedAligner-0.6B`     |
-| `--device`, `-d`    | Thiết bị chạy (`cuda:0`, `cuda:1`, `cpu`)                                    | `cuda:0`                            |
-| `--verbose`         | Bật log chi tiết                                                             | (tắt)                               |
+| Tham số             | Mô tả                                                                                     | Mặc định                            |
+| ------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------- |
+| `--input`, `-i`     | File video hoặc audio đầu vào                                                             | (bắt buộc nếu không dùng task-file) |
+| `--task-file`, `-t` | File JSON cấu hình chạy hàng loạt (`{"input": "...", "output": "..."}`)                   | (không dùng)                        |
+| `--output`, `-o`    | File .srt hoặc folder đầu ra (chỉ dùng với `--input`)                                     | `<input_dir>/<name>.srt`            |
+| `--language`, `-l`  | Ngôn ngữ audio (`Chinese`, `English`, `Japanese`...)                                      | `Chinese`                           |
+| `--max-chars`       | Số ký tự tối đa trên mỗi dòng phụ đề (CJK thường 15, Latin 40), đặt 0 để tắt              | `15`                                |
+| `--min-chars`       | Số ký tự tối thiểu trên mỗi dòng phụ đề, đặt 0 để tắt                                     | `8`                                 |
+| `--batch-size`      | Batch size cho inference (tăng lên 32~64 nếu GPU L4 22GB)                                 | `32`                                |
+| `--max-new-tokens`  | Số token tối đa sinh ra mỗi chunk (giảm để tiết kiệm VRAM, tăng nếu chunk dài bị cắt cụt) | `1024`                              |
+| `--offset-seconds`  | Độ lệch bù trừ thời gian (giây, ví dụ: 0.24 = 6 frames @ 25fps)                           | `0.24`                              |
+| `--model-path`      | Đường dẫn model ASR trên HuggingFace hoặc local                                           | `Qwen/Qwen3-ASR-1.7B`               |
+| `--aligner-path`    | Đường dẫn model Forced Aligner                                                            | `Qwen/Qwen3-ForcedAligner-0.6B`     |
+| `--device`, `-d`    | Thiết bị chạy (`cuda:0`, `cuda:1`, `cpu`)                                                 | `cuda:0`                            |
+| `--verbose`         | Bật log chi tiết                                                                          | (tắt)                               |
 
 #### Lưu ý quan trọng
 
@@ -278,6 +280,9 @@ Chạy CLI với file JSON:
   ```colab
   !uv pip install flash-attn --no-build-isolation
   ```
+- **VRAM với audio dài (~1h)**: Vì CLI luôn bật timestamp, `qwen_asr` cắt audio thành chunk ~3 phút rồi gom theo `--batch-size`. VRAM sẽ leo dần tới đỉnh rồi plateau (do PyTorch giữ reserved memory — không phải leak); đỉnh tỉ lệ với `batch_size × max_new_tokens`. Trên L4 22GB, `--batch-size 16` dễ OOM. Để khắc phục:
+  - CLI đã tự đặt `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (giảm phân mảnh, dùng `setdefault` nên có thể override bằng env var của bạn).
+  - Hạ `--max-new-tokens` (mặc định 1024) hoặc `--batch-size` nếu vẫn sát trần; tăng `--max-new-tokens` nếu thấy phụ đề cuối chunk bị cắt cụt.
 
 ### 2.1. Mute Audio (mute-srt)
 
@@ -1133,7 +1138,7 @@ Lưu ý vận hành trên Colab:
 
 #### Chạy hàng loạt nhiều video (Batch JSON)
 
-Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. Mỗi task chạy trong **Process riêng biệt** (dùng `multiprocessing` context `spawn`) để đảm bảo giải phóng VRAM hoàn toàn sau khi xử lý QwenTTS/Demucs.
+Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. Mỗi task chạy trong **Process riêng biệt** (dùng `multiprocessing` context `spawn`) để đảm bảo giải phóng VRAM hoàn toàn sau khi xử lý QwenTTS/audio-separator.
 
 **Cấu trúc JSON:**
 

@@ -25,6 +25,7 @@ Cách dùng:
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -183,6 +184,20 @@ def _extract_pytest_summary(stdout: str) -> str:
     return "\n".join(summary_lines) if summary_lines else "(Không tìm thấy dòng summary)"
 
 
+def _safe_report_name(name: str) -> str:
+    """Chuyển 'name' của test thành tên file an toàn trên mọi OS (đặc biệt Windows).
+
+    Windows cấm các ký tự < > : " / \\ | ? * trong tên file. Ta thay toàn bộ
+    ký tự không an toàn bằng '_', gộp '_' liên tiếp và cắt độ dài hợp lý.
+    """
+    safe = name.lower()
+    # Thay mọi ký tự không phải [a-z0-9._-] bằng '_'
+    safe = re.sub(r"[^a-z0-9._-]+", "_", safe)
+    # Gộp '_' liên tiếp và bỏ '_' ở hai đầu
+    safe = re.sub(r"_+", "_", safe).strip("_")
+    return safe[:120] or "report"
+
+
 def generate_markdown_report(
     test_config: Dict,
     cmd: List[str],
@@ -275,7 +290,9 @@ Phân tích lỗi trong file test `{test_config['file']}`.
 
 def _build_pytest_cmd(test_config: Dict) -> List[str]:
     """Tổng hợp lệnh pytest từ config."""
-    cmd = ["python", "-m", "pytest", test_config["file"]]
+    # Dùng sys.executable để pytest chạy đúng trong interpreter hiện tại
+    # (ví dụ .venv), tránh rơi vào python global/PATH khác.
+    cmd = [sys.executable, "-m", "pytest", test_config["file"]]
 
     # Thêm keyword filter nếu có
     keyword = test_config.get("keyword", "").strip()
@@ -393,6 +410,10 @@ def run_all(
 
         # Merge env vars
         current_env = os.environ.copy()
+        # Ép subprocess pytest dùng UTF-8 cho stdout/stderr để test có in emoji/CJK
+        # (vd "📄") không crash trên Windows (console mặc định cp1252).
+        current_env.setdefault("PYTHONIOENCODING", "utf-8")
+        current_env.setdefault("PYTHONUTF8", "1")
         current_env.update(test_config.get("env", {}))
 
         # Build command
@@ -423,7 +444,7 @@ def run_all(
 
         else:
             # Tất cả trường hợp fail: FAILED, ERROR, TIMEOUT, EXIT_*
-            safe_name = name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+            safe_name = _safe_report_name(name)
             report_path = reports_dir / f"failed_{safe_name}.md"
 
             generate_markdown_report(
@@ -466,7 +487,7 @@ def print_summary(results: Dict[str, List[str]], reports_dir: Path) -> None:
         print(f"\n📁 File report lỗi tại thư mục: `{reports_dir_display}`")
         print("   Mở file .md tương ứng và gửi cho AI Agent để phân tích.\n")
         for name in results["failed"]:
-            safe_name = name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+            safe_name = _safe_report_name(name)
             print(f"   → failed_{safe_name}.md")
 
 

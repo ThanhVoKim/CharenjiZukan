@@ -2,9 +2,13 @@ import os
 import argparse
 import pytest
 from unittest.mock import patch, MagicMock
-from cli.video_ocr import parse_args, load_config
 import sys
 import yaml
+
+# cli.video_ocr kéo theo video_subtitle_extractor -> cv2 (chỉ có trên Colab/GPU env).
+# Theo R4, skip cả file nếu cv2 chưa cài (vd máy local CPU-only).
+pytest.importorskip("cv2", reason="cv2 (opencv) chỉ cài trên Colab/GPU env")
+from cli.video_ocr import parse_args, load_config
 
 @pytest.fixture
 def mock_yaml_config(tmp_path):

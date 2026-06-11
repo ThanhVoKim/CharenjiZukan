@@ -1,6 +1,62 @@
 # Hướng dẫn Thiết kế và Viết Test — CharenjiZukan
 
+## 0. Môi trường chạy test cục bộ — BẮT BUỘC dùng `uv` + `.venv`
+
+> **ĐỌC TRƯỚC TIÊN.** Mọi việc chạy test ở local phải nằm trong virtualenv riêng của dự án (`.venv`), tạo bằng `uv`. **TUYỆT ĐỐI KHÔNG** cài package vào Python global, và **KHÔNG** cài package GPU ở local (chúng được test trên Colab).
+
+### 0.1. Nguyên tắc cứng
+
+- **Cô lập tuyệt đối**: Toàn bộ dependency cài vào `.venv` trong thư mục dự án, không bao giờ vào Python hệ thống.
+- **Không bao giờ dùng cờ `--system`** với `uv pip install`. Thiếu cờ này thì `uv` không thể chạm tới Python global.
+- **Không cài package GPU ở local**: `torch`, `flash-attn`, `qwen-tts`, `accelerate`, `transformers`, `cv2`/`opencv`... Các group GPU (vd `[qwen-tts]`) chỉ cài trên Colab. Ở local, test Layer 4 (`gpu`, `gpu_small`) sẽ tự `skip` qua fixture — đúng thiết kế (xem R4, R6, Mục 3.5).
+- **Pin Python 3.12** để khớp Colab (`requires-python >= 3.12`). Không dùng Python global của máy (có thể là 3.13+).
+
+### 0.2. Thiết lập một lần
+
+```bash
+# 1. Tạo venv 3.12 (khớp Colab) ngay trong thư mục dự án
+uv venv --python 3.12 .venv
+
+# 2. Kích hoạt (Windows)
+.venv\Scripts\activate
+#   (macOS/Linux: source .venv/bin/activate)
+
+# 3. Cài CORE deps + tool test (CPU-only, KHÔNG kèm group GPU nào)
+uv pip install -e .
+uv pip install pytest pyyaml pydub numpy
+```
+
+> ⚠️ Chỉ gõ `uv pip install -e .` — KHÔNG bao giờ `uv pip install -e ".[qwen-tts]"` ở local (kéo theo flash-attn/torch GPU).
+
+### 0.3. Xác minh đã cài đúng chỗ (không dính global, không dính GPU)
+
+```bash
+# Location PHẢI trỏ vào .venv\Lib\site-packages, KHÔNG phải Python global
+uv pip show pytest | grep -i location
+
+# Phải KHÔNG in ra gì (không có package GPU)
+uv pip list | grep -iE "torch|flash-attn|qwen-tts|accelerate|transformers|opencv"
+```
+
+### 0.4. Chạy test trong venv
+
+```bash
+# Luôn chạy bằng python của .venv để subprocess pytest dùng đúng interpreter.
+# (run_colab_tests.py dùng sys.executable nên kế thừa đúng .venv)
+.venv\Scripts\python run_colab_tests.py --tags unit
+.venv\Scripts\python run_colab_tests.py --tags unit integration
+
+# Hoặc gọi pytest trực tiếp theo domain:
+.venv\Scripts\python -m pytest tests/utils/ -v
+```
+
+> Trên Colab thì ngược lại: dùng venv của Colab (kế thừa PyTorch sẵn) và bật thêm `--tags gpu` cho Layer 4. Phần `.venv` này chỉ dành cho máy local.
+
+---
+
 ## Mục lục
+
+0. [Môi trường chạy test cục bộ — `uv` + `.venv`](#0-môi-trường-chạy-test-cục-bộ--bắt-buộc-dùng-uv--venv)
 
 1. [Quy tắc cốt lõi & Cấu trúc dự án (TL;DR)](#1-quy-tắc-cốt-lõi--cấu-trúc-dự-án-tldr)
    - [1.1. 10 Rules Bắt Buộc](#11-10-rules-bắt-buộc)
@@ -95,7 +151,7 @@ CharenjiZukan/
 
 Dự án này chọn **Domain-Based** (`tests/<domain>/`) làm mặc định. Tuy nhiên, bạn cần hiểu rõ tiêu chí phân chia để không tạo ra cấu trúc rối khi thêm feature mới.
 
-| Tiêu chí            | Domain-Based (`tests/cli/`)                                                                                                         | Feature-Based (`tests/test_demucs/`)                                         |
+| Tiêu chí            | Domain-Based (`tests/cli/`)                                                                                                         | Feature-Based (`tests/test_video_ocr/`)                                      |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | **Nguyên tắc**      | Mirror cấu trúc source code (`cli/`, `utils/`, `sync_engine/`)                                                                      | Mỗi feature/tool có thư mục riêng                                            |
 | **Khi nào dùng**    | Khi source code đã được tổ chức theo domain rõ ràng                                                                                 | Khi feature phức tạp, span nhiều domain, hoặc có rất nhiều file test         |

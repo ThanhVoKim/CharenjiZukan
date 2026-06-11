@@ -309,7 +309,7 @@ def extract_quoted_audio(
     - Video source (MP4/MKV/...): Dùng 2-pass seek (rough + fine) để bù
       encoder delay của codec nén (AAC/MP3). FFmpeg xử lý edit list trong
       container để bỏ priming samples, nên cần chiến lược này.
-    - PCM WAV source (Demucs output): Dùng single-pass seek trước -i.
+    - PCM WAV source (audio-separator output): Dùng single-pass seek trước -i.
       WAV/PCM không có encoder delay; single-pass seek là sample-accurate
       và KHÔNG bị lệch time reference so với quá trình pre-extract FFmpeg.
 
