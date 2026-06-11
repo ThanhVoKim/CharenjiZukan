@@ -9,18 +9,41 @@
   "watermark_img": {
     "enabled": true,
     "path": "/content/assets/CharenjiZukan-watermark.png",
-    "x": "main_w-overlay_w",
-    "y": "main_h-overlay_h"
+    "x": "main_w-overlay_w-20",
+    "y": "20"
   },
   "watermark_text": {
     "enabled": true,
     "text": "@CharenjiZukan",
     "font_path": "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
-    "fontsize": 46,
+    "fontsize": 40,
     "color": "white",
     "alpha": 0.8,
     "x": "10",
     "y": "h-th-10"
+  },
+  "black_strip": {
+    "enabled": true,
+    "scale_width": "1920",
+    "scale_height": "78",
+    "x": "0",
+    "y": "964"
+  },
+  "subtitles": {
+    "enabled": true,
+    "burn_hardsub": true,
+    "style": {
+      "Fontname": "Noto Sans CJK JP",
+      "Bold": "1",
+      "FontSize": "20",
+      "PrimaryColour": "&H0000FFFF",
+      "OutlineColour": "&H00000000",
+      "Outline": "1",
+      "Shadow": "1.5",
+      "BackColour": "0xE6000000",
+      "Alignment": "2",
+      "MarginV": "12"
+    }
   },
   "audio_mix": {
     "mute_audio_volume": 1.0,
@@ -29,7 +52,7 @@
   },
   "audio_policies": {
     "global_bgm": "off",
-    "mute_audio": "vocals",
+    "mute_audio": "original",
     "ambient": "exclude_mute"
   },
   "audio_separator": {
@@ -54,7 +77,7 @@
     "enabled": false
   },
   "forced_alignment_subtitle": {
-    "enabled": false,
+    "enabled": true,
     "language": "Japanese",
     "max_chars": 42,
     "min_chars": 0,

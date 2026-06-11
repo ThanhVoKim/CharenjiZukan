@@ -20,7 +20,7 @@ capability_flags:
   supports_previous_response_state: false
   supports_compaction: false
   structured_output:
-    supports_prompt_json: true
+    supports_prompt_json: false
     supports_chat_response_format: false
     supports_responses_text_format: false
 
