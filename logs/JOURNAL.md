@@ -1,5 +1,27 @@
 # Project Journal
 
+## 2026-06-12: Phase 1 — Gỡ hoàn toàn path Remotion, prerender là path duy nhất
+
+### Tóm tắt
+Xóa subproject `remotion_tuber/` (Node/Remotion) và toàn bộ code chết liên quan. Path "prerender" (Python/PIL/FFmpeg) trở thành path render duy nhất (TODO dòng 351 DONE ✓).
+
+### Thay đổi
+- **`sync_engine/tuber_overlay.py`**: Xóa `_run_render_driver`, `_which_npm`, `prepare_assets`, `composite_group` (V1), `build_group_base`. Bỏ param `use_prerender`/`project_dir`/`do_prepare_assets` khỏi `render_and_composite_groups`, `render_groups_to_video`, `prepare_groups_and_base`. Đơn giản hóa `run_tuber_flow_all_in` — loại bỏ nhánh `overlay_mode=="remotion"`.
+- **`sync_engine/tuber_config.py`**: Xóa `_REMOTION_REQUIRED_KEYS`, `remotion_project_dir()`. `overlay_mode` giờ luôn trả về `"prerender"`.
+- **`sync_engine/tuber_manifest.py`**: Bỏ param `remotion` + block `"remotion"` khỏi `build_run_manifest`.
+- **`cli/tuber_repair.py`**: Raise `TuberOverlayError` nếu thiếu prerenderManifest (không còn fallback Remotion). Bỏ đọc `run_manifest["remotion"]`.
+- **Config**: Xóa block `"remotion": {...}` khỏi `assets/charenjizukan_tuber_overlay_config.json` và `assets/tuber_overlay_config.json`.
+- **Tests**: Xóa `tests/sync_engine/test_tuber_remotion_validation.py`. Viết lại `TestLayer3_RetryAndCleanup` mock `_pipe_prerender_frames`. Đổi env `REMOTION_TUBER_E2E` → `PRERENDER_E2E` trong `test_tuber_prerender.py`. Xóa 3 entry "Tuber Remotion" khỏi `test_matrix.yaml`.
+- **Docs**: Dọn `docs/tuber-overlay-guide.md` + `docs/colab-guide.md` — bỏ mọi hướng dẫn Remotion/npm.
+- **`remotion_tuber/`**: `git rm -r` (xóa 17 file).
+
+### Trạng thái
+- ✅ Prerender là path duy nhất, không còn dead code Remotion.
+- ✅ `overlay_mode` config cũ `"remotion"`/`"auto"` được coi như `"prerender"` (backward-compat cảnh báo).
+- ⏳ Phase 2: gom `sync_engine/tuber_*.py` → package `sync_engine/tuber/` (commit 2).
+
+---
+
 ## 2026-06-11: Local testing — venv `uv` cô lập (CPU-only), sửa runner dùng `sys.executable`
 
 ### Bối cảnh

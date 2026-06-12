@@ -1191,7 +1191,7 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 | `--subtitle-max-chars` | Số ký tự tối đa mỗi dòng khi wrap text subtitle                                                      | `0`                                     |
 | `--tuber-config`       | File JSON cấu hình tuber overlay (bỏ trống = tắt). Xem [Tuber Overlay Guide](tuber-overlay-guide.md) | (không dùng)                            |
 
-> **Lưu ý về Tuber Overlay:** Khi bật `--tuber-config`, pipeline sẽ render overlay nhân vật PNGTuber qua Remotion lên video trước khi final render.
+> **Lưu ý về Tuber Overlay:** Khi bật `--tuber-config`, pipeline sẽ render overlay nhân vật PNGTuber (Python/PIL + FFmpeg) lên video trước khi final render. Chỉ cần Pillow + FFmpeg (không cần Node.js).
 
 > **Lưu ý về âm lượng (Volume):** Khi cấu hình tách BGM trong `render_config`, bạn có thể điều chỉnh âm lượng của BGM đã tách và ambient thông qua block `audio_mix`:
 >
@@ -1234,15 +1234,7 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 
 ### 2.12. Tuber Overlay (sync-video --tuber-config + tuber-repair)
 
-Thêm overlay nhân vật ảo PNGTuber (MotionPNGTuber) vào video output qua Remotion subproject `remotion_tuber/`. Yêu cầu Node.js + npm trong môi trường Colab. Xem chi tiết tại [Tuber Overlay Guide](tuber-overlay-guide.md).
-
-#### Cài đặt Remotion subproject
-
-```colab
-%cd /content/CharenjiZukan/remotion_tuber
-!npm install
-%cd /content/CharenjiZukan
-```
+Thêm overlay nhân vật ảo PNGTuber vào video output. Pipeline thuần Python/PIL + FFmpeg (không cần Node.js). Xem chi tiết tại [Tuber Overlay Guide](tuber-overlay-guide.md).
 
 #### Chạy sync-video với tuber overlay
 
@@ -1263,7 +1255,7 @@ Thêm overlay nhân vật ảo PNGTuber (MotionPNGTuber) vào video output qua R
 
 #### File cấu hình `assets/tuber_overlay_config.json`
 
-Các key chính: `enabled` (bật/tắt), `remotion` (project dir/composition), `asset` (PNGTuber + chromakey), `character` (vị trí/kích thước — width ưu tiên giữ tỉ lệ), `mouth.mode=cue` (V1), `retry.retryAttempts`, `artifactPolicy.mode=repairable`. Xem [Tuber Overlay Guide](tuber-overlay-guide.md) để biết đầy đủ tham số.
+Các key chính: `enabled` (bật/tắt), `asset` (PNGTuber + chromakey), `character` (vị trí/kích thước — width ưu tiên giữ tỉ lệ), `mouth.mode` (cue/amplitude/hybrid), `retry.retryAttempts`, `artifactPolicy.mode=repairable`. Xem [Tuber Overlay Guide](tuber-overlay-guide.md) để biết đầy đủ tham số.
 
 #### Test full flow tuber overlay trên Colab
 

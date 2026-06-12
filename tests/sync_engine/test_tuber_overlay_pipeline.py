@@ -9,9 +9,9 @@ tuber_artifacts, tuber_status, tuber_overlay orchestration).
 Cấu trúc layers:
   Layer 1 — Unit: frame math, group building, config load/validate, status, serialization
   Layer 2 — Component: manifest export synthetic, artifact promote real files
-  Layer 3 — Pipeline: retry/cleanup/composite-validate với mock render driver + ffmpeg synthetic
+  Layer 3 — Pipeline: retry/cleanup/composite-validate với mock prerender pipe + ffmpeg synthetic
 
-Không cần Remotion/Node (Remotion thật ở test_tuber_remotion_validation.py).
+Pipeline thuần Python/FFmpeg (không Node).
 
 Cách chạy:
     pytest tests/sync_engine/test_tuber_overlay_pipeline.py -v -k "Layer1"
@@ -65,7 +65,6 @@ from sync_engine.tuber_artifacts import (
 from sync_engine.tuber_overlay import (
     TuberOverlayError,
     GroupJob,
-    composite_group,
     composite_group_from_stretched,
     validate_group_output,
     concat_group_videos,
@@ -73,7 +72,6 @@ from sync_engine.tuber_overlay import (
     _expected_group_duration_s,
     render_and_composite_groups,
     probe_resolution,
-    build_group_base,
     _make_mouth_lookup,
     _pipe_prerender_frames,
 )
@@ -81,8 +79,6 @@ from sync_engine.tuber_status import compute_group_input_hash
 
 # ── Skip helpers ─────────────────────────────────────────────────────
 _FFMPEG_OK = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
-_NODE_OK = bool(shutil.which("npm") and shutil.which("node"))
-_NODE_MODULES = (PROJECT_ROOT / "remotion_tuber" / "node_modules").is_dir()
 
 # Dùng chung detect_hevc_nvenc (SSOT từ utils.ffmpeg_probe) — khớp fixture use_gpu
 # trong tests/conftest.py. Composite dùng HEVC NVENC nên cần GPU encoder.
@@ -121,11 +117,6 @@ def _sample_config_dict() -> dict:
     """Dict config tối thiểu (parse thành TuberConfig.enabled=True)."""
     return {
         "enabled": True,
-        "remotion": {
-            "projectDir": "remotion_tuber",
-            "compositionId": "TuberOverlay",
-            "entryPoint": "src/index.ts",
-        },
         "asset": {
             "assetDir": "assets/pngtuber/nike_loop_fix",
             "mouthTrack": "mouth_track.json",
@@ -722,7 +713,6 @@ class TestLayer2_ManifestExport:
             final_audio=tr / "media" / FINAL_AUDIO_NAME,
             video_with_tuber=tr / "media" / "video_stretched_with_tuber.mp4",
             overlay_format="png_sequence",
-            remotion={"projectDir": "rt", "compositionId": "T", "entryPoint": "e"},
             asset={"assetDir": "/a"},
             group_manifest_paths=[],
             artifact_policy={"mode": "repairable"},
@@ -843,24 +833,18 @@ class TestLayer3_CompositeValidate:
         ], capture_output=True, check=True)
         return od
 
-    def test_composite_group(self, synthetic_base, synthetic_overlay_dir, tmp_path: Path):
+    def test_validate_pass(self, synthetic_base, tmp_path: Path):
         out = tmp_path / "composite.mp4"
-        result = composite_group(synthetic_base, synthetic_overlay_dir, out, "25/1")
-        assert result.exists()
-        assert result.stat().st_size > 1024
-
-    def test_validate_pass(self, synthetic_base, synthetic_overlay_dir, tmp_path: Path):
-        out = tmp_path / "composite.mp4"
-        composite_group(synthetic_base, synthetic_overlay_dir, out, "25/1")
+        shutil.copy2(synthetic_base, out)  # base 0.4s làm output hợp lệ
         validate_group_output(out, 0.4, duration_tolerance_s=0.15)  # OK
 
     def test_validate_fail_missing(self, tmp_path: Path):
         with pytest.raises(TuberOverlayError, match="không tồn tại"):
             validate_group_output(tmp_path / "no.mp4", 1.0)
 
-    def test_validate_fail_duration(self, synthetic_base, synthetic_overlay_dir, tmp_path: Path):
+    def test_validate_fail_duration(self, synthetic_base, tmp_path: Path):
         out = tmp_path / "comp2.mp4"
-        composite_group(synthetic_base, synthetic_overlay_dir, out, "25/1")
+        shutil.copy2(synthetic_base, out)
         with pytest.raises(TuberOverlayError, match="Duration lệch"):
             validate_group_output(out, 999.0, duration_tolerance_s=0.01)
 
@@ -891,22 +875,22 @@ def _probe_duration(path: Path) -> float:
 
 @pytest.mark.skipif(not _FFMPEG_OK, reason="Cần ffmpeg + ffprobe trong PATH")
 class TestLayer3_RetryAndCleanup:
-    """Retry group fail + cleanup overlay_frames trong flow mock."""
+    """Retry group fail + cleanup overlay_frames trong flow mock (prerender pipe)."""
 
     @pytest.fixture
     def fake_group(self, tmp_path: Path):
-        """GroupJob + base.mp4 + overlayDir sẵn sàng."""
+        """GroupJob + base.mp4 (dùng làm fake output) + overlayDir sẵn sàng."""
         gd = tmp_path / "group_0001"
         gd.mkdir(parents=True)
         od = gd / "overlay_frames"; od.mkdir()
-        # base nhỏ
+        # base nhỏ — fake output cho _pipe_prerender_frames mock copy ra
         subprocess.run([
             "ffmpeg", "-y", "-f", "lavfi",
             "-i", "color=c=black:s=64x64:d=0.1:r=30",
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
             str(gd / "base.mp4"),
         ], capture_output=True, check=True)
-        # overlay 3 frames
+        # overlay 3 frames (để kiểm tra cleanup)
         subprocess.run([
             "ffmpeg", "-y", "-f", "lavfi",
             "-i", "color=c=0x00000000@0.0:s=64x64:d=0.1:r=30",
@@ -916,7 +900,8 @@ class TestLayer3_RetryAndCleanup:
 
         manifest = {
             "groupId": "group_0001", "fps": 30.0, "fpsStr": "30/1", "width": 64, "height": 64,
-            "renderDurationFrames": 3, "groupStartFrame": 0, "groupEndFrame": 3,
+            "renderDurationFrames": 3, "renderStartFrame": 0,
+            "groupStartFrame": 0, "groupEndFrame": 3,
             "base": str(gd / "base.mp4"),
             "overlayDir": str(od),
             "videoWithTuber": str(gd / "video_with_tuber.mp4"),
@@ -925,139 +910,136 @@ class TestLayer3_RetryAndCleanup:
         mpath.write_text(json.dumps(manifest))
         return GroupJob("group_0001", gd, mpath, manifest)
 
+    @staticmethod
+    def _copy_pipe(stretched_video, output, group_manifest, prerender_dir,
+                   prerender_manifest, fps_str, fps_float, *,
+                   offset_x=0, offset_y=0, log_path=None):
+        """Fake _pipe_prerender_frames: copy base.mp4 → output (không cần NVENC)."""
+        import shutil as _shutil
+        _shutil.copy2(group_manifest["base"], str(output))
+        return Path(output)
+
     def test_render_and_composite_success(self, fake_group, tmp_path: Path):
-        """Mock render driver → composite success → cleanup overlay."""
+        """Mock prerender pipe → output OK → cleanup overlay."""
         import sync_engine.tuber_overlay as to
 
         logs = tmp_path / "logs"; logs.mkdir()
-        orig_run = getattr(to, "_run_render_driver", None)
-        orig_comp = getattr(to, "composite_group", None)
+        orig = to._pipe_prerender_frames
         try:
-            to._run_render_driver = lambda project_dir, manifest_paths, log_path=None, timeout=7200: {
-                "group_0001": {"groupId": "group_0001", "ok": True, "frames": 3},
-            }
-            # Mock composite: copy base → video_with_tuber (không cần NVENC)
-            def fake_composite(base_video, overlay_dir, output, fps_str,
-                               *, offset_x=0, offset_y=0):
-                import shutil as _shutil
-                _shutil.copy2(str(base_video), str(output))
-                return output
-            to.composite_group = fake_composite
-
+            to._pipe_prerender_frames = self._copy_pipe
             videos = render_and_composite_groups(
-                project_dir=PROJECT_ROOT / "remotion_tuber",
                 groups=[fake_group],
                 retry_attempts=0,
                 artifact_policy={"mode": "repairable", "overlayFrames": "safe"},
                 logs_dir=logs,
                 duration_tolerance_s=1.0,
+                stretched_video=Path(fake_group.manifest["base"]),
             )
             assert len(videos) == 1
             assert videos[0].exists()
             # overlay frames đã bị cleanup theo policy safe
             assert not (fake_group.group_dir / "overlay_frames").exists()
         finally:
-            if orig_run is not None:
-                to._run_render_driver = orig_run
-            if orig_comp is not None:
-                to.composite_group = orig_comp
+            to._pipe_prerender_frames = orig
 
     def test_retry_on_failure_then_success(self, fake_group, tmp_path: Path):
-        """Mock render fail 1 lần, retry thành công."""
+        """Mock pipe fail 1 lần, retry thành công."""
         import sync_engine.tuber_overlay as to
 
         logs = tmp_path / "logs"; logs.mkdir()
         call_count = [0]
 
-        def flaky_driver(project_dir, manifest_paths, log_path=None, timeout=7200):
+        def flaky_pipe(stretched_video, output, group_manifest, prerender_dir,
+                       prerender_manifest, fps_str, fps_float, *,
+                       offset_x=0, offset_y=0, log_path=None):
             call_count[0] += 1
             if call_count[0] == 1:
-                return {}  # fail lần 1
-            return {"group_0001": {"groupId": "group_0001", "ok": True, "frames": 3}}
-
-        def fake_composite(base_video, overlay_dir, output, fps_str,
-                           *, offset_x=0, offset_y=0):
+                raise TuberOverlayError("fail lần 1")
             import shutil as _shutil
-            _shutil.copy2(str(base_video), str(output))
-            return output
+            _shutil.copy2(group_manifest["base"], str(output))
+            return Path(output)
 
-        orig_run = getattr(to, "_run_render_driver", None)
-        orig_comp = getattr(to, "composite_group", None)
+        orig = to._pipe_prerender_frames
         try:
-            to._run_render_driver = flaky_driver
-            to.composite_group = fake_composite
+            to._pipe_prerender_frames = flaky_pipe
             videos = render_and_composite_groups(
-                project_dir=PROJECT_ROOT / "remotion_tuber",
                 groups=[fake_group],
                 retry_attempts=2,
                 artifact_policy={"mode": "repairable", "overlayFrames": "safe"},
                 logs_dir=logs,
                 duration_tolerance_s=1.0,
+                stretched_video=Path(fake_group.manifest["base"]),
             )
             assert len(videos) == 1
             assert call_count[0] == 2  # lần 1 fail, lần 2 OK
             s = st.read_status(fake_group.group_dir)
             assert s["status"] == "done"
-            # V2: mỗi lần render/composite/validate 1 group, attempt tăng khi fail
+            # mỗi lần render/composite/validate 1 group, attempt tăng khi fail
             assert s["attempts"] == 1
         finally:
-            if orig_run is not None:
-                to._run_render_driver = orig_run
-            if orig_comp is not None:
-                to.composite_group = orig_comp
+            to._pipe_prerender_frames = orig
 
     def test_exhausted_retry_raises(self, fake_group, tmp_path: Path):
-        """Mock render luôn fail → hết retry → raise."""
+        """Mock pipe + png_sequence fallback luôn fail → hết retry → raise."""
         import sync_engine.tuber_overlay as to
 
         logs = tmp_path / "logs"; logs.mkdir()
-        orig_run = getattr(to, "_run_render_driver", None)
+        orig_pipe = to._pipe_prerender_frames
+        orig_build = to._build_prerender_frame_list
+
+        def boom(*a, **kw):
+            raise TuberOverlayError("luôn fail")
+
         try:
-            to._run_render_driver = lambda *a, **kw: {}
+            to._pipe_prerender_frames = boom
+            to._build_prerender_frame_list = boom  # chặn cả fallback png_sequence
             with pytest.raises(TuberOverlayError, match="hết retry"):
                 render_and_composite_groups(
-                    project_dir=PROJECT_ROOT / "remotion_tuber",
                     groups=[fake_group],
                     retry_attempts=1,
                     artifact_policy={"mode": "repairable"},
                     logs_dir=logs,
                     duration_tolerance_s=1.0,
+                    stretched_video=Path(fake_group.manifest["base"]),
                 )
             # status failed
             s = st.read_status(fake_group.group_dir)
             assert s["status"] == "failed"
             assert s["fallbackTriggered"] is True
         finally:
-            if orig_run is not None:
-                to._run_render_driver = orig_run
+            to._pipe_prerender_frames = orig_pipe
+            to._build_prerender_frame_list = orig_build
 
     def test_render_and_composite_fail_keeps_status(self, fake_group, tmp_path: Path):
-        """Composite fail → status FAILED."""
+        """Pipe fail → status FAILED."""
         import sync_engine.tuber_overlay as to
 
-        fake_group.manifest["base"] = str(fake_group.group_dir / "nonexistent.mp4")  # force composite fail
         logs = tmp_path / "logs"; logs.mkdir()
-        orig_run = getattr(to, "_run_render_driver", None)
+        orig_pipe = to._pipe_prerender_frames
+        orig_build = to._build_prerender_frame_list
+
+        def boom(*a, **kw):
+            raise TuberOverlayError("composite fail")
+
         try:
-            to._run_render_driver = lambda *a, **kw: {
-                "group_0001": {"groupId": "group_0001", "ok": True, "frames": 3}
-            }
+            to._pipe_prerender_frames = boom
+            to._build_prerender_frame_list = boom
             to.render_and_composite_groups(
-                project_dir=PROJECT_ROOT / "remotion_tuber",
                 groups=[fake_group],
                 retry_attempts=1,
                 artifact_policy={"mode": "repairable"},
                 logs_dir=logs,
                 duration_tolerance_s=1.0,
+                stretched_video=Path(fake_group.manifest["base"]),
             )
         except TuberOverlayError:
             pass
         finally:
-            if orig_run is not None:
-                to._run_render_driver = orig_run
+            to._pipe_prerender_frames = orig_pipe
+            to._build_prerender_frame_list = orig_build
         s = st.read_status(fake_group.group_dir)
         assert s is not None
-        # composite fail → status FAILED, fallbackTriggered
+        # pipe fail → status FAILED, fallbackTriggered
         assert s["status"] in ("running", "failed")
         assert s["lastError"] is not None or s["status"] == "running"
 

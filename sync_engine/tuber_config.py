@@ -4,7 +4,7 @@ sync_engine/tuber_config.py
 Load + validate tuber overlay config và resolve output layout.
 
 Dùng chung cho `cli/sync_video.py` (all-in path) và `cli/tuber_repair.py`
-(late-repair path). Module này KHÔNG đụng tới FFmpeg/Remotion — chỉ là config +
+(late-repair path). Module này KHÔNG đụng tới FFmpeg — chỉ là config +
 path resolution thuần để dễ unit-test (Layer 1).
 
 Quyết định plan liên quan:
@@ -44,13 +44,6 @@ _REQUIRED_KEYS = [
     "overlay.format",
     "retry.retryAttempts",
     "retry.onExhausted",
-]
-
-# Các key Remotion — chỉ bắt buộc khi overlay.mode != "prerender".
-_REMOTION_REQUIRED_KEYS = [
-    "remotion.projectDir",
-    "remotion.compositionId",
-    "remotion.entryPoint",
 ]
 
 
@@ -103,16 +96,15 @@ class TuberConfig:
 
     @property
     def overlay_mode(self) -> str:
-        """Mode kiểm soát render: 'remotion' | 'prerender' | 'auto' (default).
+        """Mode render — chỉ còn 'prerender' (Python/PIL/FFmpeg là path duy nhất).
 
-        'remotion' → luôn dùng Remotion, bỏ qua prerender_manifest.json.
-        'prerender' → bắt buộc dùng pre-render, lỗi nếu không có manifest.
-        'auto' → auto-detect: dùng prerender nếu có manifest, ngược lại Remotion.
+        Giữ lại như accessor cho config introspection; giá trị legacy 'remotion'/
+        'auto' được coi như 'prerender'.
         """
         mode = _get_nested(self.raw, "overlay.mode")
-        if mode in ("remotion", "prerender", "auto"):
-            return mode
-        return "auto"
+        if mode and mode not in ("prerender", "auto"):
+            logger.warning("overlay.mode=%r không còn hỗ trợ → dùng 'prerender'.", mode)
+        return "prerender"
 
     @property
     def mouth_mode(self) -> str:
@@ -280,9 +272,6 @@ class TuberConfig:
             return str(explicit)
         return self.asset_dir().name
 
-    def remotion_project_dir(self) -> Path:
-        return self._abs(_get_nested(self.raw, "remotion.projectDir"))
-
     def resolve_layout(self, project_root: Path, *, input_video: Optional[str],
                        output_name: Optional[str]) -> "TuberConfig":
         """Phase D: tính jobName + tuberRoot và set các path. Trả về chính self."""
@@ -317,12 +306,6 @@ def _validate_required(raw: Dict[str, Any]) -> List[str]:
     for key in _REQUIRED_KEYS:
         if _get_nested(raw, key) in (None, ""):
             missing.append(key)
-    # Remotion keys chỉ bắt buộc khi overlay.mode != "prerender"
-    overlay_mode = _get_nested(raw, "overlay.mode")
-    if overlay_mode != "prerender":
-        for key in _REMOTION_REQUIRED_KEYS:
-            if _get_nested(raw, key) in (None, ""):
-                missing.append(key)
     return missing
 
 

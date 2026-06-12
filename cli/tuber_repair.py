@@ -59,7 +59,7 @@ def run_repair(tuber_root: Path, output_path: str = None) -> str:
         if not p.exists():
             raise FileNotFoundError(f"Repair thiếu artifact bắt buộc: {p}")
 
-    # Resolve prerender manifest (V3)
+    # Resolve prerender manifest (path duy nhất). Không có → không repair được.
     prerender_manifest = None
     prerender_dir = None
     pm_path = run_manifest.get("prerenderManifest")
@@ -69,7 +69,11 @@ def run_repair(tuber_root: Path, output_path: str = None) -> str:
             prerender_dir = Path(pm_path).parent
         except (json.JSONDecodeError, OSError):
             prerender_manifest = None
-    use_prerender = prerender_manifest is not None
+    if prerender_manifest is None:
+        raise TuberOverlayError(
+            "Repair yêu cầu prerenderManifest hợp lệ trong run_manifest "
+            "(path Remotion đã gỡ; chạy lại all-in để bake prerender)."
+        )
 
     # Resolve overlay_format: đọc từ run_manifest (ghi lúc all-in), fallback config (V4)
     overlay_format = run_manifest.get("overlayFormat") or cfg.overlay_format
@@ -79,29 +83,21 @@ def run_repair(tuber_root: Path, output_path: str = None) -> str:
     src_video = run_manifest.get("sourceVideo")
     source_video = Path(src_video) if src_video else base_video
 
-    # Render tuber overlay muộn (group base.mp4 đã sẵn từ all-in run)
-    remotion = run_manifest["remotion"]
-    asset = run_manifest["asset"]
+    # Render tuber overlay muộn (composite prerender frames lên base đã có sẵn)
     jobs = jobs_from_run_manifest(run_manifest)
     if not jobs:
         raise TuberOverlayError("run_manifest không có group nào để repair.")
 
     video_with_tuber = Path(run_manifest["videoWithTuber"])
     render_groups_to_video(
-        project_dir=Path(remotion["projectDir"]),
-        asset_id=asset["assetId"],
-        asset_dir=Path(asset["assetDir"]),
-        chromakey=cfg.chromakey,
         groups=jobs,
         output_video=video_with_tuber,
         tmp_dir=tmp_dir,
         logs_dir=logs_dir,
         retry_attempts=cfg.retry_attempts,
         artifact_policy=ap,
-        use_prerender=use_prerender,
         prerender_dir=prerender_dir,
         prerender_manifest=prerender_manifest,
-        do_prepare_assets=not use_prerender,
         stretched_video=base_video,
         source_video=source_video,
         max_workers=cfg.max_workers,

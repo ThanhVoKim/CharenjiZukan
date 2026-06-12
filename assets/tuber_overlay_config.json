@@ -5,12 +5,6 @@
     "format": "direct",
     "mode": "prerender"
   },
-  "remotion": {
-    "projectDir": "remotion_tuber",
-    "compositionId": "TuberOverlay",
-    "entryPoint": "src/index.ts",
-    "renderDriver": "scripts/render-groups.ts"
-  },
   "asset": {
     "assetDir": "assets/pngtuber/nike_loop_fix",
     "assetId": "nike_loop_fix",

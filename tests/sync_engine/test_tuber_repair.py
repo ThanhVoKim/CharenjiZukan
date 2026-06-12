@@ -43,7 +43,6 @@ class TestLayer1_RepairResolvePrerender:
         run_mf = {
             "mediaDir": str(tmp_path),
             "prerenderManifest": str(pm_path),
-            "remotion": {},
             "asset": {"assetDir": str(tmp_path), "assetId": "test"},
             "tubnerConfig": {"enabled": True},
             "groups": [],
@@ -53,10 +52,14 @@ class TestLayer1_RepairResolvePrerender:
         p = Path(run_mf["prerenderManifest"])
         assert p.exists()
 
-    def test_no_prerender_without_manifest(self):
-        """Không có prerenderManifest trong run_manifest → fallback Remotion."""
-        rm = {"prerenderManifest": None}
-        assert rm.get("prerenderManifest") is None
+    def test_repair_requires_prerender_manifest(self):
+        """Path Remotion đã gỡ: repair raise nếu thiếu prerenderManifest hợp lệ."""
+        import inspect
+        from cli import tuber_repair
+        src = inspect.getsource(tuber_repair.run_repair)
+        # Phải raise khi prerender_manifest is None (không còn fallback Remotion)
+        assert "prerender_manifest is None" in src
+        assert "TuberOverlayError" in src
 
     def test_prerender_manifest_not_exist_fallback(self):
         """prerenderManifest path không tồn tại → coi như không prerender."""

@@ -1,7 +1,0 @@
-node_modules/
-out/
-.remotion/
-
-# Asset sinh ra bởi scripts/prepare-assets.ts (copy/chromakey từ assets/pngtuber).
-# Không commit; tái sinh được từ source asset.
-public/pngtuber/

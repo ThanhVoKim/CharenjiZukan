@@ -488,37 +488,6 @@ tests:
     enabled: true
 
   # ──────────────────────────────────────────────
-  # TUBER OVERLAY (Remotion) — remotion_tuber/ overlay alpha cho sync_engine
-  # ──────────────────────────────────────────────
-
-  - name: "Tuber Remotion — Layer 1: Project Structure & Manifest Schema"
-    file: "tests/sync_engine/test_tuber_remotion_validation.py"
-    keyword: "Layer1"
-    timeout_sec: 30
-    pytest_args: ["-v"]
-    tags: ["unit", "sync_engine"]
-    enabled: true
-
-  - name: "Tuber Remotion — Layer 2: Body Chromakey Extraction (FFmpeg)"
-    file: "tests/sync_engine/test_tuber_remotion_validation.py"
-    keyword: "Layer2"
-    timeout_sec: 120
-    pytest_args: ["-v", "-s"]
-    tags: ["integration", "ffmpeg", "sync_engine"]
-    enabled: true
-
-  - name: "Tuber Remotion — Layer 4: Real Remotion Overlay Render (Node + Chromium)"
-    file: "tests/sync_engine/test_tuber_remotion_validation.py"
-    keyword: "Layer4"
-    timeout_sec: 1800
-    env:
-      # Opt-in: cần `cd remotion_tuber && npm install` trước; lần đầu tải Chrome headless (~113MB).
-      REMOTION_TUBER_E2E: "1"
-    pytest_args: ["-v", "-s"]
-    tags: ["integration", "sync_engine"]
-    enabled: true
-
-  # ──────────────────────────────────────────────
   # TUBER OVERLAY (Python orchestration) — sync_engine/tuber_*.py
   # ──────────────────────────────────────────────
 

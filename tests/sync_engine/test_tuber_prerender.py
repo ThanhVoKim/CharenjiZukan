@@ -274,8 +274,8 @@ class TestLayer1_LookupMouthState:
 # LAYER 2 — Component tests (cần PIL)
 # ══════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.skipif(not os.environ.get("REMOTION_TUBER_E2E"),
-                    reason="Set REMOTION_TUBER_E2E=1 để test PIL warp thật")
+@pytest.mark.skipif(not os.environ.get("PRERENDER_E2E"),
+                    reason="Set PRERENDER_E2E=1 để test PIL warp thật")
 class TestLayer2_PILWarp:
     """Component: warp_sprite_to_quad với synthetic data."""
 
@@ -309,8 +309,8 @@ class TestLayer2_PILWarp:
 # LAYER 3 — Integration tests (cần đầy đủ asset)
 # ══════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.skipif(not os.environ.get("REMOTION_TUBER_E2E"),
-                    reason="Set REMOTION_TUBER_E2E=1 để test pre-render thật")
+@pytest.mark.skipif(not os.environ.get("PRERENDER_E2E"),
+                    reason="Set PRERENDER_E2E=1 để test pre-render thật")
 class TestLayer3_PrerenderIntegration:
     """Integration: pre-render thật với nike_loop_fix asset."""
 
@@ -325,7 +325,7 @@ class TestLayer3_PrerenderIntegration:
         track_path = self.ASSET_DIR / "mouth_track.json"
 
         if not body_dir.exists():
-            pytest.skip("Chạy prepare-assets trước (body-transparent chưa có)")
+            pytest.skip("body-transparent chưa có (chạy extract_body_transparent trước)")
 
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
@@ -349,7 +349,7 @@ class TestLayer3_PrerenderIntegration:
         track_path = self.ASSET_DIR / "mouth_track.json"
 
         if not body_dir.exists():
-            pytest.skip("Chạy prepare-assets trước")
+            pytest.skip("body-transparent chưa có (chạy extract_body_transparent trước)")
 
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
@@ -373,7 +373,7 @@ class TestLayer3_PrerenderIntegration:
         track_path = self.ASSET_DIR / "mouth_track.json"
 
         if not body_dir.exists():
-            pytest.skip("Chạy prepare-assets trước")
+            pytest.skip("body-transparent chưa có (chạy extract_body_transparent trước)")
 
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)

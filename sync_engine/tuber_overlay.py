@@ -1,17 +1,16 @@
 """
 sync_engine/tuber_overlay.py
 ============================
-Orchestration tuber overlay (Phase F base build, I render, N composite, O
-validate, P concat, R retry, T cleanup). Python là orchestrator; Node/Remotion
-chỉ render overlay PNG alpha.
+Orchestration tuber overlay (Phase I render, N composite, O validate, P concat,
+R retry, T cleanup). Pipeline thuần Python/PIL/FFmpeg: character frames được
+pre-render sẵn (tuber_prerender.py), runtime chỉ composite lên video stretched.
 
 Dùng chung sync_video (all-in) và tuber_repair (late repair).
 
-Flow một job (bundle Remotion MỘT lần):
-  prepare assets (chromakey → public) once
-  build group base.mp4 (build_ffmpeg_batch_cmd) cho mỗi group
-  render overlay tất cả group (1 lần bundle) → mỗi group overlay_frames/
-  với mỗi group: composite overlay lên base → validate → cleanup overlay_frames
+Flow một job:
+  load prerender_manifest.json (bake sẵn nếu thiếu/stale)
+  với mỗi group: composite overlay (direct pipe RGBA hoặc png_sequence) lên
+    video_stretched → validate → cleanup overlay_frames
   retry group fail tới retryAttempts; hết → fallback (render_without_tuber)
   concat group video_with_tuber.mp4 → media/video_stretched_with_tuber.mp4
 """
@@ -19,7 +18,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,154 +31,8 @@ from utils.ffmpeg_probe import HEVC_NVENC_VIDEO_ARGS as _HEVC_NVENC_VIDEO_ARGS
 
 logger = logging.getLogger("sync_video")
 
-RENDER_RESULT_PREFIX = "__TUBER_RENDER_RESULT__="
-
-
 class TuberOverlayError(RuntimeError):
     """Lỗi không thể phục hồi của tuber flow → caller fallback render_without_tuber."""
-
-
-# ════════════════════════════════════════════════════════════════════
-# NODE RENDER DRIVER
-# ════════════════════════════════════════════════════════════════════
-
-def _run_render_driver(
-    project_dir: Path,
-    manifest_paths: List[Path],
-    *,
-    log_path: Optional[Path] = None,
-    timeout: int = 7200,
-) -> Dict[str, Dict[str, Any]]:
-    """Gọi scripts/render-groups.ts (bundle once, render các manifest).
-
-    Trả về dict groupId -> result. Parse dòng __TUBER_RENDER_RESULT__.
-    """
-    npm = _which_npm()
-    if not npm:
-        raise TuberOverlayError("npm không có trong PATH — không thể gọi Remotion render driver.")
-
-    parts = [npm, "run", "render-groups", "--", *[str(p) for p in manifest_paths]]
-    logger.info("Gọi render driver: %s manifest(s)", len(manifest_paths))
-
-    if os.name == "nt":
-        cmd: Any = subprocess.list2cmdline(parts)
-        shell = True
-    else:
-        cmd = parts
-        shell = False
-
-    proc = subprocess.run(
-        cmd, cwd=str(project_dir), shell=shell,
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=timeout,
-    )
-
-    if log_path is not None:
-        try:
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            log_path.write_text(
-                (proc.stdout or "") + "\n=== STDERR ===\n" + (proc.stderr or ""),
-                encoding="utf-8",
-            )
-        except OSError:
-            pass
-
-    results: Dict[str, Dict[str, Any]] = {}
-    for line in (proc.stdout or "").splitlines():
-        if line.startswith(RENDER_RESULT_PREFIX):
-            try:
-                r = json.loads(line[len(RENDER_RESULT_PREFIX):])
-                results[str(r.get("groupId"))] = r
-            except json.JSONDecodeError:
-                continue
-
-    if proc.returncode != 0 and not results:
-        raise TuberOverlayError(
-            f"Render driver fail (exit {proc.returncode}). stderr tail:\n{(proc.stderr or '')[-1500:]}"
-        )
-    return results
-
-
-def _which_npm() -> Optional[str]:
-    import shutil
-    return shutil.which("npm")
-
-
-def prepare_assets(
-    project_dir: Path,
-    *,
-    asset_id: str,
-    asset_dir: Path,
-    chromakey: Dict[str, Any],
-    log_path: Optional[Path] = None,
-    timeout: int = 1200,
-) -> None:
-    """Phase B1/B2: chạy npm run prepare-assets (chromakey + copy vào public)."""
-    npm = _which_npm()
-    if not npm:
-        raise TuberOverlayError("npm không có trong PATH — không thể prepare assets.")
-
-    args = ["--asset-id", asset_id, "--asset-dir", str(asset_dir)]
-    if chromakey.get("color"):
-        args += ["--color", str(chromakey["color"])]
-    if chromakey.get("similarity") is not None:
-        args += ["--similarity", str(chromakey["similarity"])]
-    if chromakey.get("blend") is not None:
-        args += ["--blend", str(chromakey["blend"])]
-
-    parts = [npm, "run", "prepare-assets", "--", *args]
-    if os.name == "nt":
-        cmd: Any = subprocess.list2cmdline(parts)
-        shell = True
-    else:
-        cmd = parts
-        shell = False
-
-    proc = subprocess.run(
-        cmd, cwd=str(project_dir), shell=shell,
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=timeout,
-    )
-    if log_path is not None:
-        try:
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            log_path.write_text(
-                (proc.stdout or "") + "\n=== STDERR ===\n" + (proc.stderr or ""),
-                encoding="utf-8",
-            )
-        except OSError:
-            pass
-    if proc.returncode != 0:
-        raise TuberOverlayError(
-            f"prepare-assets fail (exit {proc.returncode}). stderr tail:\n{(proc.stderr or '')[-1500:]}"
-        )
-    logger.info("prepare-assets xong cho assetId=%s", asset_id)
-
-
-# ════════════════════════════════════════════════════════════════════
-# GROUP BASE BUILD (Phase F — tái dùng build_ffmpeg_batch_cmd)
-# ════════════════════════════════════════════════════════════════════
-
-def build_group_base(
-    video_path: str,
-    group_segments: List[Any],
-    base_out: Path,
-    fps_str: str,
-    fps_float: float,
-) -> Path:
-    """Dựng group_xxxx/base.mp4 trực tiếp từ video gốc bằng cơ chế batch (B5)."""
-    from sync_engine.video_processor import build_ffmpeg_batch_cmd
-
-    base_out.parent.mkdir(parents=True, exist_ok=True)
-    cmd = build_ffmpeg_batch_cmd(
-        video_path, str(base_out), group_segments, fps_str, fps_float,
-    )
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0 or not base_out.exists() or base_out.stat().st_size == 0:
-        raise TuberOverlayError(
-            f"Build group base fail ({base_out}). stderr tail:\n{(proc.stderr or '')[-1200:]}"
-        )
-    return base_out
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -188,7 +40,7 @@ def build_group_base(
 # ════════════════════════════════════════════════════════════════════
 
 def _detect_frame_pattern(overlay_dir: Path) -> str:
-    """Dò pattern frame_%0Nd.png từ file thật (Remotion zero-pad theo số frame)."""
+    """Dò pattern frame_%0Nd.png từ file thật (zero-pad theo số frame)."""
     frames = sorted(overlay_dir.glob("frame_*.png"))
     if not frames:
         raise TuberOverlayError(f"Không có overlay frame trong {overlay_dir}")
@@ -197,44 +49,6 @@ def _detect_frame_pattern(overlay_dir: Path) -> str:
     num_part = stem.split("_", 1)[1]
     width = len(num_part)
     return f"frame_%0{width}d.png"
-
-
-def composite_group(
-    base_video: Path,
-    overlay_dir: Path,
-    output: Path,
-    fps_str: str,
-    *,
-    offset_x: int = 0,
-    offset_y: int = 0,
-) -> Path:
-    """Phase N: composite overlay PNG alpha lên group base → video_with_tuber.mp4.
-
-    Args:
-        offset_x, offset_y: vị trí overlay trên base (V2: character box offset).
-    """
-    pattern = _detect_frame_pattern(overlay_dir)
-    overlay_filter = (
-        f"[0:v][1:v]overlay=x={offset_x}:y={offset_y}:format=auto:shortest=1[outv]"
-    )
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", str(base_video),
-        "-framerate", fps_str, "-start_number", "0",
-        "-i", str(overlay_dir / pattern),
-        "-filter_complex", overlay_filter,
-        "-map", "[outv]",
-        "-an",
-        *_HEVC_NVENC_VIDEO_ARGS,
-        "-video_track_timescale", "90000",
-        str(output),
-    ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0 or not output.exists() or output.stat().st_size == 0:
-        raise TuberOverlayError(
-            f"Composite group fail ({output}). stderr tail:\n{(proc.stderr or '')[-1200:]}"
-        )
-    return output
 
 
 def composite_group_from_stretched(
@@ -251,8 +65,7 @@ def composite_group_from_stretched(
 ) -> Path:
     """Composite overlay lên stretched video (seek-by-frame) → video_with_tuber.
 
-    Thay thế build_group_base() + composite_group() cho prerender path — gộp
-    2 encode (stretch + overlay) thành 1 encode (seek trim + overlay).
+    Gộp 2 encode (stretch + overlay) thành 1 encode (seek trim + overlay).
     Seek trực tiếp vào video_stretched.mp4 (đã promote) bằng hybrid fast-seek,
     trim-by-frame trong filter, rồi overlay PNG sequence.
     """
@@ -631,18 +444,16 @@ def _build_prerender_frame_list(
 
 def render_and_composite_groups(
     *,
-    project_dir: Path,
     groups: List[GroupJob],
     retry_attempts: int,
     artifact_policy: Dict[str, str],
     logs_dir: Path,
     min_output_bytes: int = 1024,
     duration_tolerance_s: float = 0.1,
-    use_prerender: bool = False,
     prerender_dir: Optional[Path] = None,
     prerender_manifest: Optional[Dict[str, Any]] = None,
-    stretched_video: Optional[Path] = None,  # NEW: required for prerender (seek)
-    source_video: Optional[Path] = None,  # NEW: stable anchor cho inputHash (resume)
+    stretched_video: Optional[Path] = None,  # required (seek source)
+    source_video: Optional[Path] = None,  # stable anchor cho inputHash (resume)
     max_workers: int = 1,
     skip_done: bool = True,
     debug_frame_enabled: bool = False,
@@ -651,9 +462,8 @@ def render_and_composite_groups(
 ) -> List[Path]:
     """Render → mỗi group composite/validate/cleanup, retry group fail.
 
-    V1 (use_prerender=False): bundle Remotion once, render overlay, composite.
-    V2 (use_prerender=True, overlay_format="direct"):  pipe raw RGBA → FFmpeg stdin.
-    V2 (use_prerender=True, overlay_format="png_sequence"):  copy PNG → overlay_frames.
+    overlay_format="direct":       pipe raw RGBA → FFmpeg stdin (production).
+    overlay_format="png_sequence": copy PNG → overlay_frames (debug/fallback).
     Khi max_workers > 1: xử lý groups song song (ThreadPoolExecutor).
 
     Trả về list video_with_tuber.mp4 theo thứ tự group. Raise TuberOverlayError nếu
@@ -703,63 +513,41 @@ def render_and_composite_groups(
             status["status"] = st.STATUS_RUNNING
             status["attempts"] = attempt
             try:
-                if use_prerender:
-                    # V2: direct pipe hoặc png_sequence theo overlay_format
-                    # Ở attempt cuối, nếu direct đã fail → fallback png_sequence (Q5)
-                    is_last_attempt = (attempt == retry_attempts)
-                    fmt = overlay_format
-                    if fmt == "direct" and is_last_attempt and last_err is not None:
-                        logger.warning(
-                            "Group %s: direct pipe fail → fallback png_sequence (last attempt).",
-                            g.group_id,
-                        )
-                        fmt = "png_sequence"
+                # direct pipe hoặc png_sequence theo overlay_format.
+                # Ở attempt cuối, nếu direct đã fail → fallback png_sequence (Q5)
+                is_last_attempt = (attempt == retry_attempts)
+                fmt = overlay_format
+                if fmt == "direct" and is_last_attempt and last_err is not None:
+                    logger.warning(
+                        "Group %s: direct pipe fail → fallback png_sequence (last attempt).",
+                        g.group_id,
+                    )
+                    fmt = "png_sequence"
 
-                    status["currentStep"] = st.STEP_COMPOSITING
-                    st.write_status(g.group_dir, status)
-                    if fmt == "direct":
-                        _pipe_prerender_frames(
-                            stretched_video,  # type: ignore[arg-type]
-                            out, g.manifest, prerender_dir, prerender_manifest,  # type: ignore[arg-type]
-                            fps_str, fps_float,
-                            offset_x=offset_x, offset_y=offset_y,
-                            log_path=logs_dir / f"direct_pipe_{g.group_id}.log",
-                        )
-                    else:
-                        # png_sequence path (debug / fallback)
-                        status["currentStep"] = st.STEP_RENDERING_OVERLAY
-                        st.write_status(g.group_dir, status)
-                        _build_prerender_frame_list(
-                            g.manifest, prerender_dir, prerender_manifest,  # type: ignore[arg-type]
-                        )
-                        status["currentStep"] = st.STEP_COMPOSITING
-                        st.write_status(g.group_dir, status)
-                        composite_group_from_stretched(
-                            stretched_video,  # type: ignore[arg-type]
-                            overlay_dir, out, fps_str, fps_float,
-                            render_start_frame=g.manifest["renderStartFrame"],
-                            render_duration_frames=g.manifest["renderDurationFrames"],
-                            offset_x=offset_x, offset_y=offset_y,
-                        )
+                status["currentStep"] = st.STEP_COMPOSITING
+                st.write_status(g.group_dir, status)
+                if fmt == "direct":
+                    _pipe_prerender_frames(
+                        stretched_video,  # type: ignore[arg-type]
+                        out, g.manifest, prerender_dir, prerender_manifest,  # type: ignore[arg-type]
+                        fps_str, fps_float,
+                        offset_x=offset_x, offset_y=offset_y,
+                        log_path=logs_dir / f"direct_pipe_{g.group_id}.log",
+                    )
                 else:
-                    # V1: Remotion render → composite base
-                    base = Path(g.manifest["base"])
-                    if attempt == 0:
-                        pass
+                    # png_sequence path (debug / fallback)
                     status["currentStep"] = st.STEP_RENDERING_OVERLAY
                     st.write_status(g.group_dir, status)
-                    r = _run_render_driver(
-                        project_dir, [g.manifest_path],
-                        log_path=logs_dir / f"render_driver_{g.group_id}.log",
+                    _build_prerender_frame_list(
+                        g.manifest, prerender_dir, prerender_manifest,  # type: ignore[arg-type]
                     )
-                    if not r.get(str(g.group_id), {}).get("ok"):
-                        raise TuberOverlayError(
-                            f"Render group {g.group_id} không ok: {r.get(str(g.group_id))}"
-                        )
                     status["currentStep"] = st.STEP_COMPOSITING
                     st.write_status(g.group_dir, status)
-                    composite_group(
-                        base, overlay_dir, out, fps_str,
+                    composite_group_from_stretched(
+                        stretched_video,  # type: ignore[arg-type]
+                        overlay_dir, out, fps_str, fps_float,
+                        render_start_frame=g.manifest["renderStartFrame"],
+                        render_duration_frames=g.manifest["renderDurationFrames"],
                         offset_x=offset_x, offset_y=offset_y,
                     )
 
@@ -842,10 +630,6 @@ def render_and_composite_groups(
 
 def render_groups_to_video(
     *,
-    project_dir: Path,
-    asset_id: str,
-    asset_dir: Path,
-    chromakey: Dict[str, Any],
     groups: List[GroupJob],
     output_video: Path,
     tmp_dir: Path,
@@ -854,42 +638,29 @@ def render_groups_to_video(
     artifact_policy: Dict[str, str],
     min_output_bytes: int = 1024,
     duration_tolerance_s: float = 0.1,
-    do_prepare_assets: bool = True,
-    use_prerender: bool = False,
     prerender_dir: Optional[Path] = None,
     prerender_manifest: Optional[Dict[str, Any]] = None,
     stretched_video: Optional[Path] = None,
-    source_video: Optional[Path] = None,  # NEW: stable anchor cho inputHash (resume)
+    source_video: Optional[Path] = None,  # stable anchor cho inputHash (resume)
     max_workers: int = 1,
     skip_done: bool = True,
     debug_frame_enabled: bool = False,
     debug_frame_margin_frames: int = 3,
     overlay_format: str = "direct",
 ) -> Path:
-    """High-level: prepare assets → render/composite groups → concat → output_video.
+    """High-level: render/composite prerender frames → concat → output_video.
 
-    V1: Remotion render + composite (use_prerender=False).
-    V2: Pre-rendered frames + composite (use_prerender=True).
       overlay_format="direct"       → raw RGBA pipe (production, không file trung gian).
       overlay_format="png_sequence" → ghi PNG overlay_frames (debug).
     Raise TuberOverlayError nếu fail (caller fallback).
     """
-    if not use_prerender and do_prepare_assets:
-        prepare_assets(
-            project_dir,
-            asset_id=asset_id, asset_dir=asset_dir, chromakey=chromakey,
-            log_path=logs_dir / "prepare_assets.log",
-        )
-
     group_videos = render_and_composite_groups(
-        project_dir=project_dir,
         groups=groups,
         retry_attempts=retry_attempts,
         artifact_policy=artifact_policy,
         logs_dir=logs_dir,
         min_output_bytes=min_output_bytes,
         duration_tolerance_s=duration_tolerance_s,
-        use_prerender=use_prerender,
         prerender_dir=prerender_dir,
         prerender_manifest=prerender_manifest,
         stretched_video=stretched_video,
@@ -908,17 +679,15 @@ def render_groups_to_video(
 def prepare_groups_and_base(
     *,
     config,
-    video_path: str,
     timeline: List[Any],
     fps_float: float,
     fps_str: str,
     width: int,
     height: int,
     track_aspect: Optional[float] = None,
-    use_prerender: bool = False,  # NEW: skip build_group_base khi composite-seek
-    real_total_frames: Optional[int] = None,  # NEW: clamp group theo EOF thật
+    real_total_frames: Optional[int] = None,  # clamp group theo EOF thật
 ) -> List[GroupJob]:
-    """Phase F + H: build groups, ghi group_manifest.json mỗi group (V3: bỏ base.mp4)."""
+    """Phase F + H: build groups, ghi group_manifest.json mỗi group (bỏ base.mp4)."""
 
     from sync_engine.tuber_manifest import (
         build_render_groups, build_group_manifest, write_group_manifest,
@@ -931,7 +700,7 @@ def prepare_groups_and_base(
     character = config.character
     mouth_mode = config.mouth_mode
 
-    # V2: mouth opts for amplitude analysis
+    # mouth opts for amplitude analysis
     mouth_opts: Optional[Dict[str, Any]] = None
     if mouth_mode != "cue":
         mouth_opts = {
@@ -954,12 +723,6 @@ def prepare_groups_and_base(
         rg.group_id = f"group_{rg.index + 1:04d}"
         rg.group_dir = config.groups_dir / rg.group_id
         rg.group_dir.mkdir(parents=True, exist_ok=True)
-
-        # base.mp4 (B5) — chỉ build cho V1 Remotion path (cần base)
-        if not use_prerender:
-            build_group_base(
-                video_path, rg.segments, rg.group_dir / "base.mp4", fps_str, fps_float,
-            )
 
         manifest = build_group_manifest(
             rg,
@@ -1157,9 +920,8 @@ def run_tuber_flow_all_in(
 ) -> Path:
     """Phase D-P all-in: trả về path video_stretched_with_tuber.mp4.
 
-    V1: Remotion render (gọi npm prepare-assets + render-groups).
-    V2: Pre-render (nếu config.asset.prerender có valid prerender_manifest.json).
-    Raise TuberOverlayError nếu fail (caller fallback render_without_tuber).
+    Pre-render character frames (bake nếu thiếu/stale) rồi composite lên video
+    stretched. Raise TuberOverlayError nếu fail (caller fallback render_without_tuber).
     `config` đã resolve_layout() + make_dirs().
     """
     from sync_engine.tuber_manifest import (
@@ -1177,41 +939,28 @@ def run_tuber_flow_all_in(
     # group cuối hụt vài frame so với timeline lý thuyết → fail tolerance).
     real_total_frames = probe_frame_count(base_video_stretched, fps_float)
 
-    # Determine overlay mode (explicit config vs auto-detect)
-    overlay_mode = config.overlay_mode  # "remotion" | "prerender" | "auto"
-    prerender_manifest = None
-    use_prerender = False
+    # Prerender là path duy nhất: load manifest, bake nếu thiếu/stale (vd thiếu
+    # mouthStates mới e/u).
+    prerender_manifest = _load_prerender_manifest(config)
+    if prerender_manifest is None or _prerender_is_stale(prerender_manifest, config):
+        prerender_manifest = _auto_run_prerender(config, width, height)
 
-    if overlay_mode == "prerender":
-        prerender_manifest = _load_prerender_manifest(config)
-        if prerender_manifest is None or _prerender_is_stale(prerender_manifest, config):
-            prerender_manifest = _auto_run_prerender(config, width, height)
-        use_prerender = True
-    elif overlay_mode == "remotion":
-        pass  # use_prerender = False, không load prerender
-    else:  # "auto"
-        prerender_manifest = _load_prerender_manifest(config)
-        if prerender_manifest is not None and _prerender_is_stale(prerender_manifest, config):
-            logger.info("Prerender manifest thiếu mouthStates mới (e/u) → bake lại.")
-            prerender_manifest = _auto_run_prerender(config, width, height)
-        use_prerender = prerender_manifest is not None
-
-    prerender_dir = config.prerender_character_dir if use_prerender else None
-
-    # Wipe caches nếu resume.skipDone=false (debug/re-render)
+    # Wipe caches nếu resume.skipDone=false (debug/re-render) → bake lại
     if not config.resume_skip_done:
         for d in (config.groups_dir, config.prerender_character_dir):
             if d and Path(d).is_dir():
                 import shutil
                 shutil.rmtree(d, ignore_errors=True)
                 logger.info("skipDone=false → xóa %s", d)
-        # Re-try load prerender nếu vừa wipe
-        if use_prerender or overlay_mode == "auto":
-            prerender_manifest = _load_prerender_manifest(config)
-            if prerender_manifest is None and overlay_mode == "prerender":
-                prerender_manifest = _auto_run_prerender(config, width, height)
-            use_prerender = prerender_manifest is not None
-            prerender_dir = config.prerender_character_dir if use_prerender else None
+        prerender_manifest = _load_prerender_manifest(config)
+        if prerender_manifest is None:
+            prerender_manifest = _auto_run_prerender(config, width, height)
+
+    if prerender_manifest is None:
+        raise TuberOverlayError(
+            "Không tạo được prerender_manifest cho tuber overlay (bake thất bại)."
+        )
+    prerender_dir = config.prerender_character_dir
 
     # Track aspect (từ prerender manifest hoặc mặc định 16:9)
     track_aspect = None
@@ -1237,12 +986,11 @@ def run_tuber_flow_all_in(
             final_render_args=final_render_args,
         )
 
-    # Phase F + H: groups + base + manifest
+    # Phase F + H: groups + manifest
     jobs = prepare_groups_and_base(
-        config=config, video_path=video_path, timeline=timeline,
+        config=config, timeline=timeline,
         fps_float=fps_float, fps_str=fps_str, width=width, height=height,
         track_aspect=track_aspect,
-        use_prerender=use_prerender,
         real_total_frames=real_total_frames,
     )
 
@@ -1250,12 +998,6 @@ def run_tuber_flow_all_in(
     asset = {
         "assetDir": str(config.asset_dir().resolve()),
         "assetId": config.asset_id(),
-    }
-    remotion = {
-        "projectDir": str(config.remotion_project_dir().resolve()),
-        "compositionId": config.raw.get("remotion", {}).get("compositionId", "TuberOverlay"),
-        "entryPoint": config.raw.get("remotion", {}).get("entryPoint", "src/index.ts"),
-        "renderDriver": config.raw.get("remotion", {}).get("renderDriver", "scripts/render-groups.ts"),
     }
     video_with_tuber = config.media_dir / VIDEO_WITH_TUBER_NAME
     run_manifest = build_run_manifest(
@@ -1267,7 +1009,7 @@ def run_tuber_flow_all_in(
         final_audio=config.media_dir / FINAL_AUDIO_NAME,
         video_with_tuber=video_with_tuber,
         overlay_format=config.overlay_format,
-        remotion=remotion, asset=asset,
+        asset=asset,
         group_manifest_paths=[j.manifest_path for j in jobs],
         artifact_policy=ap, tuber_config_raw=config.raw,
         prerender_manifest_path=prerender_dir / "prerender_manifest.json" if prerender_dir else None,
@@ -1277,10 +1019,6 @@ def run_tuber_flow_all_in(
 
     # Phase I-P: render + composite + concat
     return render_groups_to_video(
-        project_dir=config.remotion_project_dir(),
-        asset_id=config.asset_id(),
-        asset_dir=config.asset_dir(),
-        chromakey=config.chromakey,
         groups=jobs,
         output_video=video_with_tuber,
         tmp_dir=Path(tmp_dir),
@@ -1289,7 +1027,6 @@ def run_tuber_flow_all_in(
         artifact_policy=ap,
         min_output_bytes=int((render_config.get("tuber_validation", {}) or {}).get("minOutputBytes", 1024)),
         duration_tolerance_s=float((render_config.get("tuber_validation", {}) or {}).get("durationToleranceSec", 0.1)),
-        use_prerender=use_prerender,
         prerender_dir=prerender_dir,
         prerender_manifest=prerender_manifest,
         stretched_video=config.media_dir / BASE_VIDEO_NAME,
