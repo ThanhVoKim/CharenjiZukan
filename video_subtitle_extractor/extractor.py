@@ -32,6 +32,7 @@ from .chinese_filter import ChineseFilter
 from .subtitle_writer import SubtitleWriter, SubtitleEntry
 from .ocr.factory import create_ocr_backend
 from .box_manager import OcrBox, BoxState
+from .text_isolator import TextIsolationConfig, isolate_subtitle_text
 
 logger = get_logger(__name__)
 
@@ -95,6 +96,9 @@ class VideoSubtitleExtractor:
         qwen_min_pixels: int = 256 * 28 * 28,
         qwen_max_pixels: int = 1280 * 28 * 28,
         
+        # Text isolation (lọc watermark/overlay mờ trước OCR)
+        text_isolation: Optional[TextIsolationConfig] = None,
+
         # Output settings
         output_format: str = "srt",
         default_subtitle_duration: float = 3.0,
@@ -129,6 +133,10 @@ class VideoSubtitleExtractor:
             min_char_count=min_char_count
         )
         self.enable_chinese_filter = enable_chinese_filter
+
+        # Text isolation: mask watermark/overlay mờ trước khi đưa ảnh đi OCR.
+        # None hoặc enabled=False → bỏ qua hoàn toàn, luồng chạy như cũ.
+        self.text_isolation = text_isolation
         
         self.writers = {
             box.name: SubtitleWriter(default_duration=default_subtitle_duration) 
@@ -298,11 +306,18 @@ class VideoSubtitleExtractor:
                     # Ghi nhận mốc scene change trước để min_scene_frames vẫn hoạt động ổn định
                     state.last_scene_frame = frame_number
 
-                    # CV Pre-filter: bỏ qua OCR nếu ROI khả năng cao không có text
+                    # Text isolation: mask watermark/overlay mờ TRƯỚC khi prefilter + OCR.
+                    # Scene detection ở trên vẫn dùng curr_roi GỐC để bắt đúng thay đổi phụ đề.
+                    ocr_image = curr_roi
+                    if self.text_isolation is not None and self.text_isolation.enabled:
+                        ocr_image = isolate_subtitle_text(curr_roi, self.text_isolation)
+
+                    # CV Pre-filter chạy trên ảnh ĐÃ mask: watermark mờ bị xóa thành vùng
+                    # trống → prefilter tự skip OCR → tiết kiệm lần gọi model.
                     prefilter_passed = True
                     if self.cv_prefilter:
                         prefilter_passed = self.frame_processor.has_text_content(
-                            curr_roi,
+                            ocr_image,
                             min_edge_density=self.cv_min_edge_density,
                             low_threshold=self.cv_edge_low,
                             high_threshold=self.cv_edge_high,
@@ -317,9 +332,9 @@ class VideoSubtitleExtractor:
                             text=""  # Placeholder
                         )
                         state.entries.append(entry)
-                        
+
                         pending_ocr_tasks.append({
-                            "image": curr_roi,
+                            "image": ocr_image,
                             "box_name": box_name,
                             "entry": entry
                         })
@@ -464,6 +479,10 @@ class VideoSubtitleExtractor:
                 "cv_edge_low": self.cv_edge_low,
                 "cv_edge_high": self.cv_edge_high,
                 "save_minify_txt": self.save_minify_txt,
+                "text_isolation": (
+                    self.text_isolation.enabled
+                    if self.text_isolation is not None else False
+                ),
             },
             processing_time=processing_time
         )

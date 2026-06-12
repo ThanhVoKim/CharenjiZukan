@@ -1,5 +1,46 @@
 # Project Journal
 
+## 2026-06-12: Text Isolation — Lọc watermark/overlay mờ khỏi OCR phụ đề
+
+### Tóm tắt
+Thêm tính năng tách phụ đề lời thoại khỏi watermark/text-overlay (opacity < 70%) **trước khi OCR**,
+dựa trên opacity/color masking thuần OpenCV. Giải quyết ca creator có overlay động đè lên dải phụ đề.
+Mặc định TẮT — chỉ bật cho video có watermark.
+
+### Nguyên lý
+Watermark mờ (α<0.7) bị blend với nền → giảm tương phản/gradient, mất viền tối, lệch màu. `text_isolator`
+quyết định GIỮ/XÓA ở mức từng connected-component: color gate (màu chỉ định, Lab) + contrast gate
+(morph gradient ~ opacity) + stroke gate (viền tối) + min_component_area (chỉ diệt nhiễu). Deterministic,
+không model → không hallucinate.
+
+### Thay đổi
+- **`video_subtitle_extractor/text_isolator.py`** (MỚI): `TextIsolationConfig` + `isolate_subtitle_text`
+  + `parse_color_spec` (tên/hex/RGB).
+- **`tools/calibrate_text_isolation.py`** (MỚI): script hiệu chỉnh giám sát 2 thư mục mẫu
+  (`--subtitle-samples`, `--watermark-samples`), xuất JSON config + ảnh preview before/after + báo cáo
+  độ tách bạch. Tham số suy ra: min_contrast/color_tolerance (mạnh), stroke_max_luminance/require_stroke
+  (khá), min_component_area (yếu, chỉ diệt nhiễu — P5×0.5).
+- **`video_subtitle_extractor/extractor.py`**: thêm param `text_isolation`; mask ảnh TRƯỚC CV prefilter
+  (frame chỉ-watermark → ROI trống → skip OCR, tiết kiệm GPU); scene-detect vẫn trên ROI gốc.
+- **`cli/video_ocr.py`**: flags `--isolate-text`, `--isolate-config`, `--subtitle-colors`,
+  `--color-tolerance`, `--subtitle-min-contrast`, `--stroke-max-luminance`, `--min-component-area`,
+  `--no-require-stroke`. Ưu tiên CLI > YAML > JSON-calibrate > default.
+- **Tests**: `tests/video_ocr/test_text_isolator.py` (Layer1 unit parse_color_spec/config — verified
+  PASS; Layer2 component masking — chạy trên Colab vì cần cv2). Thêm 2 entry vào `test_matrix.yaml`.
+- **Docs**: `docs/text-isolation-guide.md` — quy tắc cắt mẫu + cách đọc/dùng 5 tham số + giới hạn.
+
+### Quyết định thiết kế
+- **Bỏ lọc thời gian (`min_persistence_frames`)**: watermark trôi chậm sống LÂU (không bị loại), phụ đề
+  câu ngắn sống ngắn (bị loại nhầm) → phản tác dụng. Loại hẳn.
+- Màu phụ đề **do người dùng chỉ định** (không tự dò), hỗ trợ cả chữ trắng lẫn chữ màu.
+- VLM tự phân loại subtitle: loại (dễ ảo giác).
+
+### Trạng thái
+- ✅ Module + script + tích hợp + CLI + test + doc hoàn tất. Layer1 test PASS local.
+- ⏳ Pending: chạy Layer2 trên Colab (cần cv2); người dùng cung cấp bảng màu thực tế + crop mẫu để
+  hiệu chỉnh ngưỡng; xác nhận chất lượng mask qua ảnh preview.
+- 🔮 Tương lai (nếu watermark đặc đè khít dòng phụ đề): text detection + lọc hình học/tracking vị trí.
+
 ## 2026-06-12: Phase 1 — Gỡ hoàn toàn path Remotion, prerender là path duy nhất
 
 ### Tóm tắt

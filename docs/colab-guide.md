@@ -917,9 +917,62 @@ Mỗi dòng gồm `box_name x y w h`.
 | `--warn-english`          | Tạo file cảnh báo riêng nếu subtitle chứa tiếng Anh/số                           | (tắt)                                                       |
 | `--save-minify-txt`       | Lưu file `<video>_script.txt` thuần văn bản, mỗi câu 1 dòng                      | (tắt)                                                       |
 | `--no-timestamp`          | Tắt timestamp (chỉ với format=txt)                                               | (tắt)                                                       |
+| `--isolate-text`          | Bật lọc watermark/overlay mờ (opacity masking) trước khi OCR                     | (tắt)                                                       |
+| `--isolate-config`        | File JSON ngưỡng từ `tools/calibrate_text_isolation.py`                          | (không dùng)                                                |
+| `--subtitle-colors`       | Màu phụ đề chỉ định: `"white,#FFD700"` hoặc `"255,255,255"`                      | (rỗng → dựa độ sáng)                                        |
+| `--color-tolerance`       | Sai số khoảng cách màu Lab                                                       | `40`                                                        |
+| `--subtitle-min-contrast` | Ngưỡng tương phản (proxy opacity); component mờ hơn bị xóa                       | `40`                                                        |
+| `--stroke-max-luminance`  | Ngưỡng độ sáng coi là viền tối                                                   | `80`                                                        |
+| `--min-component-area`    | Diện tích tối thiểu giữ component — chỉ diệt nhiễu, đặt nhỏ                       | `8`                                                         |
+| `--no-require-stroke`     | Tắt kiểm tra viền tối (phụ đề không có viền)                                     | (tắt)                                                       |
 | `--config`                | Đường dẫn file cấu hình `.yaml`                                                  | (không dùng)                                                |
 
 > **Mức ưu tiên Cấu hình**: CLI parameters có mức ưu tiên cao nhất, sau đó là tham số khai báo trong `--config`, và cuối cùng là Default values.
+
+#### Lọc watermark/overlay mờ (Text Isolation)
+
+Khi video có **watermark / text overlay mờ** (opacity < 70%) lọt vào vùng OCR — kể cả overlay di chuyển đè lên dải phụ đề — bật `--isolate-text` để xóa chúng **trước khi OCR**. Cơ chế dựa trên opacity/color masking thuần OpenCV (giữ glyph phụ đề đặc, đúng màu, có viền; xóa glyph mờ). **Mặc định TẮT** — video sạch không cần bật.
+
+**Bước 1 — Hiệu chỉnh ngưỡng** từ vài crop mẫu (cắt ở độ phân giải gốc, lưu PNG, chừa vài pixel nền):
+
+```colab
+# samples/subtitle/  : crop phụ đề sạch + crop phụ đề bị watermark ĐÈ chồng
+# samples/watermark/ : crop CHỈ watermark/overlay
+!uv run python /content/CharenjiZukan/tools/calibrate_text_isolation.py \
+    --subtitle-samples /content/samples/subtitle/ \
+    --watermark-samples /content/samples/watermark/ \
+    --subtitle-colors "white,#FFD700" \
+    --out /content/samples/text_isolation_config.json
+# → kiểm tra ảnh trong samples/preview/ : phụ đề còn nguyên, watermark thành đen
+```
+
+**Bước 2 — Chạy OCR với config đã hiệu chỉnh:**
+
+```colab
+!uv run video-ocr /content/video.mp4 \
+    --boxes-file /content/CharenjiZukan/assets/boxesOCR.txt \
+    --ocr-model Qwen/Qwen3-VL-8B-Instruct \
+    --isolate-text \
+    --isolate-config /content/samples/text_isolation_config.json \
+    --subtitle-colors "white,#FFD700" \
+    --hf-token "{hf_token}"
+```
+
+Hoặc truyền tay ngưỡng (không cần file JSON):
+
+```colab
+!uv run video-ocr /content/video.mp4 \
+    --isolate-text \
+    --subtitle-colors "white,#FFD700" \
+    --color-tolerance 40 \
+    --subtitle-min-contrast 45 \
+    --stroke-max-luminance 80 \
+    --min-component-area 8
+# Phụ đề không viền: thêm --no-require-stroke
+```
+
+> Chi tiết quy tắc cắt mẫu và cách đọc/dùng từng tham số: xem `docs/text-isolation-guide.md`.
+> Lưu ý `--min-component-area` chỉ để diệt nhiễu lốm đốm (đặt nhỏ 5–15), KHÔNG dùng để loại watermark.
 
 #### Output theo từng box
 

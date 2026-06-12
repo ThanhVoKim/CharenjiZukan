@@ -24,6 +24,7 @@ Examples:
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -33,6 +34,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from utils.logger import setup_logging, get_logger
 from video_subtitle_extractor import VideoSubtitleExtractor
 from video_subtitle_extractor.box_manager import parse_boxes_file, OcrBox
+from video_subtitle_extractor.text_isolator import TextIsolationConfig, parse_color_spec
 
 logger = get_logger(__name__)
 
@@ -147,6 +149,54 @@ Examples:
         help="Ngưỡng cao Canny edge detector (mặc định: 150)"
     )
     
+    # Text isolation (lọc watermark/overlay mờ trước OCR)
+    parser.add_argument(
+        "--isolate-text",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Bật lọc watermark/overlay mờ (opacity masking) trước khi OCR"
+    )
+    parser.add_argument(
+        "--isolate-config",
+        default=argparse.SUPPRESS,
+        help="File JSON config từ tools/calibrate_text_isolation.py (nạp ngưỡng đã dò)"
+    )
+    parser.add_argument(
+        "--subtitle-colors",
+        default=argparse.SUPPRESS,
+        help='Màu phụ đề chỉ định: "white,#FFD700" hoặc "255,255,255"'
+    )
+    parser.add_argument(
+        "--color-tolerance",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Sai số khoảng cách màu Lab (mặc định: 40)"
+    )
+    parser.add_argument(
+        "--subtitle-min-contrast",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Ngưỡng tương phản (proxy opacity); component mờ hơn bị xóa (mặc định: 40)"
+    )
+    parser.add_argument(
+        "--stroke-max-luminance",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Ngưỡng độ sáng coi là viền tối (mặc định: 80)"
+    )
+    parser.add_argument(
+        "--min-component-area",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Diện tích tối thiểu giữ component — chỉ diệt nhiễu, đặt nhỏ (mặc định: 8)"
+    )
+    parser.add_argument(
+        "--no-require-stroke",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Tắt kiểm tra viền tối (dùng khi phụ đề không có viền)"
+    )
+
     # Chinese filter
     parser.add_argument(
         "--min-chars",
@@ -297,6 +347,74 @@ def load_config(config_path: str) -> dict:
         return {}
 
 
+def _coerce_colors(value):
+    """Chuẩn hóa subtitle_colors về list[tuple[int,int,int]] từ str/list/tuple."""
+    if not value:
+        return []
+    if isinstance(value, str):
+        return parse_color_spec(value)
+    colors = []
+    for item in value:
+        if isinstance(item, str):
+            colors.extend(parse_color_spec(item))
+        elif isinstance(item, (list, tuple)) and len(item) == 3:
+            colors.append((int(item[0]), int(item[1]), int(item[2])))
+    return colors
+
+
+def build_text_isolation_config(args, config: dict) -> TextIsolationConfig:
+    """Dựng TextIsolationConfig theo thứ tự ưu tiên: CLI > YAML > JSON-calibrate > default.
+
+    Bật khi có `--isolate-text`, hoặc YAML/JSON đặt `enabled: true`.
+    """
+    yaml_ti = config.get("text_isolation", {}) if isinstance(config, dict) else {}
+
+    # Nạp JSON từ tools/calibrate_text_isolation.py nếu được chỉ định.
+    json_vals: dict = {}
+    iso_path = getattr(args, "isolate_config", None) or yaml_ti.get("config_file")
+    if iso_path:
+        try:
+            with open(iso_path, "r", encoding="utf-8") as f:
+                json_vals = json.load(f)
+        except Exception as e:
+            logger.warning(f"Không đọc được isolate-config {iso_path}: {e}")
+
+    defaults = TextIsolationConfig()
+
+    def resolve(cli_name, yaml_key, default):
+        if hasattr(args, cli_name):
+            return getattr(args, cli_name)
+        if yaml_key in yaml_ti and yaml_ti[yaml_key] is not None:
+            return yaml_ti[yaml_key]
+        if yaml_key in json_vals and json_vals[yaml_key] is not None:
+            return json_vals[yaml_key]
+        return default
+
+    enabled = (
+        hasattr(args, "isolate_text")
+        or bool(yaml_ti.get("enabled", False))
+        or bool(json_vals.get("enabled", False))
+    )
+
+    colors_raw = resolve("subtitle_colors", "subtitle_colors", defaults.subtitle_colors)
+    require_stroke = (
+        False if hasattr(args, "no_require_stroke")
+        else bool(resolve("require_stroke", "require_stroke", defaults.require_stroke))
+    )
+
+    return TextIsolationConfig(
+        enabled=enabled,
+        subtitle_colors=_coerce_colors(colors_raw),
+        color_tolerance=int(resolve("color_tolerance", "color_tolerance", defaults.color_tolerance)),
+        min_contrast=int(resolve("subtitle_min_contrast", "min_contrast", defaults.min_contrast)),
+        stroke_max_luminance=int(resolve("stroke_max_luminance", "stroke_max_luminance", defaults.stroke_max_luminance)),
+        stroke_search_px=int(resolve("stroke_search_px", "stroke_search_px", defaults.stroke_search_px)),
+        min_component_area=int(resolve("min_component_area", "min_component_area", defaults.min_component_area)),
+        require_stroke=require_stroke,
+        bright_luminance=int(resolve("bright_luminance", "bright_luminance", defaults.bright_luminance)),
+    )
+
+
 def main():
     """Main entry point"""
     args = parse_args()
@@ -388,6 +506,9 @@ def main():
         min_char_count=get_param("min_chars", ("chinese_filter", "min_char_count"), 2),
         enable_chinese_filter=get_param("enable_chinese_filter", ("chinese_filter", "enabled"), False),
         
+        # Text isolation (lọc watermark/overlay mờ trước OCR)
+        text_isolation=build_text_isolation_config(args, config),
+
         # OCR
         ocr_model=get_param("ocr_model", ("ocr", "model"), "deepseek-ai/DeepSeek-OCR-2"),
         device=get_param("device", ("ocr", "device"), "cuda"),

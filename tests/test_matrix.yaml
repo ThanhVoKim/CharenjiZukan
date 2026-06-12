@@ -313,6 +313,22 @@ tests:
     tags: ["gpu", "native_ocr"]
     enabled: true
 
+  - name: "Text Isolation — Layer 1: Unit (parse_color_spec, Config)"
+    file: "tests/video_ocr/test_text_isolator.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit", "native_ocr"]
+    enabled: true
+
+  - name: "Text Isolation — Layer 2: Component (Opacity/Color Masking)"
+    file: "tests/video_ocr/test_text_isolator.py"
+    keyword: "Layer2"
+    timeout_sec: 60
+    pytest_args: ["-v", "-s"]
+    tags: ["integration", "native_ocr"]
+    enabled: true
+
   # ──────────────────────────────────────────────
   # SYNC ENGINE TESTS
   # ──────────────────────────────────────────────
