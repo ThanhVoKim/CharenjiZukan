@@ -482,6 +482,9 @@ def run_punctuation_phase(output_paths: dict, args, config: dict, output_format:
 
     logger.info(f"🧠 Punctuation phase: provider={provider.name}, lang={language}, batch={batch_size}")
     for box_name, srt_path in output_paths.items():
+        if not str(srt_path).endswith('.srt'):
+            continue
+            
         srt_p = Path(srt_path)
         punct_srt = str(srt_p.with_name(f"{srt_p.stem}_punct.srt"))
         flat_txt = str(srt_p.with_name(f"{srt_p.stem}_flat.txt"))

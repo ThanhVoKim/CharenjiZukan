@@ -5,11 +5,11 @@ provider_config: "config/llm/vertexai-flash.yaml"
 prompt_file: "prompts/llm_tasks/punctuation_restoration.txt"
 # Ngôn ngữ nguồn của text OCR (Chinese/Japanese/English/...). CLI/flow có thể override.
 language: "Chinese"
-batch_size: 50
+batch_size: 30
 use_full_context: true
 wait_sec: 3
 generation_config:
-  thinking_level: MEDIUM
+  thinking_level: HIGH
 response_parser:
   type: "tag"
   tag: "PUNCT_TEXT"
