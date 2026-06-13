@@ -57,7 +57,7 @@ ocr:
   # DeepSeek-OCR-2: "deepseek-ai/DeepSeek-OCR-2"
   # Qwen3-VL (đọc nhanh): "Qwen/Qwen3-VL-8B-Instruct"
   # Qwen3-VL (đọc chính xác có suy luận): "Qwen/Qwen3-VL-8B-Thinking"
-  model: "deepseek-ai/DeepSeek-OCR-2"
+  model: "Qwen/Qwen3-VL-8B-Instruct"
 
   # Thiết bị: "cuda" (GPU) hoặc "cpu"
   device: "cuda"

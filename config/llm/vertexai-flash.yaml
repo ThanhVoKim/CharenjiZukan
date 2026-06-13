@@ -1,0 +1,18 @@
+# Provider config chung cho Google Vertex AI Gemini
+provider: "vertexai"
+project_id: "gemini-493908v1"
+location: "global"
+model: "gemini-3.5-flash"
+generation_config:
+  temperature: 1
+  max_output_tokens: 65536
+  candidate_count: 1
+safety_settings:
+  HARM_CATEGORY_HATE_SPEECH: "BLOCK_NONE"
+  HARM_CATEGORY_HARASSMENT: "BLOCK_NONE"
+  HARM_CATEGORY_SEXUALLY_EXPLICIT: "BLOCK_NONE"
+  HARM_CATEGORY_DANGEROUS_CONTENT: "BLOCK_NONE"
+request_timeout: 300
+retry_attempts: 3
+retry_wait_seconds: 10
+cache_ttl_seconds: 3600

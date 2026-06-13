@@ -317,9 +317,6 @@ khai trùng trong `flow.yaml`. Đổi task config khác bằng `--punctuation-ta
 !uv run video-ocr /content/video.mp4 --config /content/flow.yaml --punctuate
 
 # Bước 2: Forced-align text đã có dấu với vocals tách từ video
-#   align-srt dùng Qwen3ForcedAligner (from qwen_asr) → .venv chính phải có
-#   qwen-asr + audio-separator (CÙNG bộ deps mà forced-align của sync-video
-#   yêu cầu). KHÔNG cần flash-attn (aligner không dùng flash_attention_2).
 #   Cài 1 lần vào .venv chính:
 #   !uv pip install qwen-asr audio-separator
 !uv run align-srt \
@@ -354,20 +351,6 @@ khai trùng trong `flow.yaml`. Đổi task config khác bằng `--punctuation-ta
 | `--model-path`        | Đường dẫn model aligner                                                         | `Qwen/Qwen3-ForcedAligner-0.6B` |
 | `--device`, `-d`      | Thiết bị chạy                                                                   | `cuda:0`                        |
 | `--verbose`, `-v`     | Bật log chi tiết                                                                | (tắt)                           |
-
-> `align-srt` chạy ở **`.venv` chính** (như `sync-video`), cần `qwen-asr` (cho `Qwen3ForcedAligner`) +
-> `audio-separator` (tách vocal) — cùng bộ deps với forced-align của `sync-video`. KHÔNG cần
-> `flash-attn`. Tách vocal + align dùng GPU, VRAM giải phóng sau mỗi task.
-
-#### Tham số `video-ocr` mới (phase punctuation)
-
-| Tham số CLI                 | Mô tả                                                       | Mặc định                                        |
-| --------------------------- | ----------------------------------------------------------- | ----------------------------------------------- |
-| `--punctuate`               | Bật phase phục hồi dấu câu sau OCR (chỉ áp dụng format SRT) | (tắt)                                           |
-| `--punctuation-task-config` | Con trỏ tới llm_tasks YAML (SSOT mọi tham số LLM)           | `config/llm_tasks/punctuation_restoration.yaml` |
-
-> `language`, `batch_size`, `use_full_context`, `provider`, `prompt`, `response_parser` đều nằm trong
-> task config (SSOT) — không khai trong `flow.yaml`.
 
 ### 2.1. Mute Audio (mute-srt)
 
@@ -1074,6 +1057,16 @@ Ví dụ input là `/content/video.mp4` với 2 box `subtitle` và `note`, outpu
 | Box lớn, subtitle thay đổi chậm  | 0.5             | 5               |
 | Video nhiều nhiễu/hiệu ứng       | 2.0             | 6               |
 | Mặc định cân bằng                | 1.5             | 4               |
+
+#### Tham số `video-ocr` mới (phase punctuation)
+
+| Tham số CLI                 | Mô tả                                                       | Mặc định                                        |
+| --------------------------- | ----------------------------------------------------------- | ----------------------------------------------- |
+| `--punctuate`               | Bật phase phục hồi dấu câu sau OCR (chỉ áp dụng format SRT) | (tắt)                                           |
+| `--punctuation-task-config` | Con trỏ tới llm_tasks YAML (SSOT mọi tham số LLM)           | `config/llm_tasks/punctuation_restoration.yaml` |
+
+> `language`, `batch_size`, `use_full_context`, `provider`, `prompt`, `response_parser` đều nằm trong
+> task config (SSOT) — không khai trong `flow.yaml`.
 
 ---
 
