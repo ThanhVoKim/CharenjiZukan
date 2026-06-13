@@ -327,7 +327,7 @@ class TestExecuteForcedAlignmentMocked:
         mock_aligner.align.return_value = [fake_items]
 
         with patch(
-            "sync_engine.forced_alignment_subtitle.load_forced_aligner",
+            "utils.forced_aligner.load_forced_aligner",
             return_value=mock_aligner,
         ), patch("utils.media_utils.clear_vram"):
             result = run_forced_alignment_subtitle(
@@ -415,7 +415,7 @@ class TestExecuteForcedAlignmentMocked:
         mock_aligner.align.return_value = [[]]  # empty results
 
         with patch(
-            "sync_engine.forced_alignment_subtitle.load_forced_aligner",
+            "utils.forced_aligner.load_forced_aligner",
             return_value=mock_aligner,
         ), patch("utils.media_utils.clear_vram"):
             with pytest.raises(ValueError, match="không trả về kết quả"):
@@ -445,7 +445,7 @@ class TestExecuteForcedAlignmentMocked:
         mock_aligner.align.return_value = None
 
         with patch(
-            "sync_engine.forced_alignment_subtitle.load_forced_aligner",
+            "utils.forced_aligner.load_forced_aligner",
             return_value=mock_aligner,
         ), patch("utils.media_utils.clear_vram"):
             with pytest.raises(ValueError, match="không trả về kết quả"):
@@ -476,7 +476,7 @@ class TestExecuteForcedAlignmentMocked:
         mock_aligner.align.return_value = [fake_items]
 
         with patch(
-            "sync_engine.forced_alignment_subtitle.load_forced_aligner",
+            "utils.forced_aligner.load_forced_aligner",
             return_value=mock_aligner,
         ) as mock_load, patch(
             "utils.media_utils.clear_vram"
@@ -515,10 +515,10 @@ class TestExecuteForcedAlignmentMocked:
         mock_aligner.align.return_value = [fake_items]
 
         with patch(
-            "sync_engine.forced_alignment_subtitle.load_forced_aligner",
+            "utils.forced_aligner.load_forced_aligner",
             return_value=mock_aligner,
         ), patch("utils.media_utils.clear_vram"), patch(
-            "sync_engine.forced_alignment_subtitle.segment_words_to_subtitles"
+            "utils.forced_aligner.segment_words_to_subtitles"
         ) as mock_segment:
             mock_segment.return_value = [
                 {

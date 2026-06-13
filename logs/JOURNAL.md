@@ -1,5 +1,89 @@
 # Project Journal
 
+## 2026-06-13: Dọn config + môi trường flow OCR (align-srt CLI thuần, dedup punctuation, .venv chính)
+
+### Tóm tắt
+Refactor theo review người dùng — 3 điểm: (1) `align-srt` đứng riêng nên **bỏ đọc YAML config**, dùng
+**CLI args thuần + `--task-file`** (đúng idiom repo); (2) **dedup** config punctuation — giữ
+`config/llm_tasks/punctuation_restoration.yaml` làm **SSOT**, bỏ key trùng khỏi config video-ocr;
+(3) `align-srt` chạy ở **`.venv` chính** như `sync-video` (cần `qwen-asr` + `audio-separator` cài ở
+`.venv` chính — cùng bộ deps forced-align của sync-video; KHÔNG cần `flash-attn`).
+
+### Thay đổi
+- **`cli/align_srt.py`**: xoá `_load_yaml` + arg `--config`; knob forced-alignment thành **default của
+  argparse** (`_ALIGN_DEFAULTS`); `resolve_align_cfg` build từ args; vocal-sep preset qua
+  `--separator-preset` (default `vocal_extraction`), bỏ section `vocal_separation:`. Toggle tách vẫn
+  `--no-separate`/`--vocals`.
+- **`cli/video_ocr.py`**: thêm 2 CLI args `--punctuate` (mặc định TẮT) + `--punctuation-task-config`;
+  `run_punctuation_phase(output_paths, args, config, format)` đọc enabled/task_config từ CLI
+  (CLI>YAML>default), mọi tham số LLM (language/batch_size/use_full_context/provider) lấy **chỉ từ
+  task_cfg**. Bỏ các key trùng trong section `punctuation:`.
+- **`docs/colab-guide.md`**: Mục 2.0c — `align-srt` chạy `!uv run align-srt` ở `.venv` chính (gỡ
+  `.venv-qwen3asr` + cài audio-separator vào venv đó); gỡ `forced_alignment:`/`vocal_separation:` khỏi
+  `flow.yaml`; cập nhật bảng tham số (bỏ `--config`, thêm `--separator-preset`, `--no-split-on-comma`,
+  `--punctuate`/`--punctuation-task-config`).
+
+### Lý do
+align-srt là CLI độc lập, repo không có master-config-per-CLI → CLI args đủ và nhất quán. Punctuation
+config trùng lặp → SSOT = llm_tasks yaml (như `srt_translation.yaml`). align-srt dùng chung lõi
+`utils/forced_aligner.py` (`from qwen_asr import Qwen3ForcedAligner`, `attn_implementation=None`) nên
+**cần `qwen-asr`** (không cần `flash-attn` — aligner không gọi flash_attention_2) — y hệt forced-align
+của sync-video; chọn chạy ở `.venv` chính (cài qwen-asr + audio-separator ở đó) cho nhất quán với
+sync-video, thay vì `.venv-qwen3asr`.
+
+---
+
+## 2026-06-13: OCR-centric source SRT — Punctuation (LLM) + Forced-alignment timing
+
+### Tóm tắt
+Tách trách nhiệm tạo SRT nguồn: **text từ OCR** (ground-truth), **dấu câu từ LLM** (vertexAI),
+**timing + ngắt block từ Qwen3-ForcedAligner**. Thay cho qwen3-asr (text+timing đều do ASR → text dễ sai).
+Các bước CLI rời, dùng chung 1 file YAML config; aligner tự tách vocal từ video.
+
+### Flow
+```
+video-ocr <video> --config flow.yaml
+  → <stem>_<box>.srt  + (nếu punctuation.enabled) _punct.srt + _flat.txt
+align-srt <stem>_<box>_flat.txt --video <video> --config flow.yaml
+  → tự tách vocal (reuse audio-separator) → _aligned.srt (text OCR + timing align)
+```
+
+### Thay đổi
+- **`utils/forced_aligner.py`** (MỚI): tách lõi `load_forced_aligner` + `execute_forced_alignment`
+  (trung lập, nhận `align_cfg` dict) ra khỏi `sync_engine/`. Dùng chung sync-video + align-srt.
+- **`sync_engine/forced_alignment_subtitle.py`**: chỉ còn glue render_config
+  (`_resolve_aligner_config`, `run_forced_alignment_subtitle`), re-export lõi. **sync_video không đổi.**
+- **`punctuation/srt_punctuator.py`** (MỚI): `restore_punctuation_srt` chạy BATCH (mô phỏng
+  srt_translator: parse_srt + translation/batching + render_batch_prompt). Validator
+  `_content_signature` (strip Unicode P* + whitespace) chống ảo giác — chỉ thêm dấu, không đổi chữ;
+  lệch → BatchIntegrityError → retry → giữ nguyên block gốc. `flatten_srt_to_text` nối 1 dòng
+  (CJK không space / Latin có space) cho aligner.
+- **`cli/align_srt.py`** (MỚI) + script `align-srt`: nhận `--video`, tự trích audio (ffmpeg) +
+  tách vocal (reuse `cli/audio_separator.separate_audio`, preset vocal_extraction), align → SRT.
+  Đọc section `forced_alignment` trong --config (CLI > YAML > default). Hỗ trợ `--vocals`, `--no-separate`, `--task-file`.
+- **`cli/video_ocr.py`**: thêm `run_punctuation_phase` (tuỳ chọn, bật bằng `punctuation.enabled`
+  trong --config YAML); provider dựng qua `llm_ai.task_runner.create_task_provider`.
+- **`config/llm_tasks/punctuation_restoration.yaml`** + **`prompts/llm_tasks/punctuation_restoration.txt`**
+  (MỚI): vertexai; prompt ràng buộc đa ngôn ngữ + block-là-mảnh-câu + chỉ thêm dấu + giữ số dòng (`<PUNCT_TEXT>`).
+- **`pyproject.toml`**: đăng ký `align-srt`, thêm `punctuation*` vào packages.find.
+- **Tests**: `tests/punctuation/test_srt_punctuator.py` (9 test L1/L2, mock provider — PASS local);
+  cập nhật patch target trong `tests/sync_engine/test_forced_alignment_subtitle.py` sang
+  `utils.forced_aligner.*` (25 test PASS). Thêm 2 entry `test_matrix.yaml`.
+
+### Quyết định thiết kế
+- **Không dùng `llm-task`/`generic_text_task`** cho punctuation (gửi nguyên file 1 call, không batch,
+  không kiểm tra toàn vẹn) → dùng SRT-batch như translate (chống drift theo số block + char-preservation).
+- **Validator trung lập ngôn ngữ** (Unicode category P*) thay vì hardcode bộ dấu CJK.
+- **align-srt là CLI riêng** (không gọi từ video-ocr) — người dùng chạy 2 bước rời, dễ debug.
+- Aligner cần text **phẳng 1 dòng** (`merge_punctuation` nuốt `\n`) → có bước flatten riêng.
+
+### Trạng thái
+- ✅ Lõi + 2 CLI/phase + config/prompt + test L1/L2 (local PASS) + matrix + journal.
+- ⏳ Pending: Layer 3/4 (align-srt + tách vocal) cần GPU + `qwen-asr` + `audio-separator` → chạy Colab;
+  real-API test punctuation (vertexAI) trên dữ liệu OCR thật để tinh chỉnh prompt + `max_chars` tiếng Trung.
+
+---
+
 ## 2026-06-12: Text Isolation — Lọc watermark/overlay mờ khỏi OCR phụ đề
 
 ### Tóm tắt

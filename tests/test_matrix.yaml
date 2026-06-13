@@ -578,3 +578,23 @@ tests:
     pytest_args: ["-v"]
     tags: ["unit", "sync_engine"]
     enabled: true
+
+  # ──────────────────────────────────────────────────────────
+  # PUNCTUATION RESTORATION — punctuation/srt_punctuator.py
+  # ──────────────────────────────────────────────────────────
+
+  - name: "SRT Punctuator — Layer 1: Content Signature & Flatten"
+    file: "tests/punctuation/test_srt_punctuator.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "SRT Punctuator — Layer 2: Batch Restore + Anti-Hallucination (Mock Provider)"
+    file: "tests/punctuation/test_srt_punctuator.py"
+    keyword: "Layer2"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true

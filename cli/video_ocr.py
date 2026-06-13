@@ -311,6 +311,19 @@ Examples:
         help="Lưu file [video]_script.txt thuần văn bản (minify), mỗi câu 1 dòng"
     )
     
+    # Punctuation restoration (LLM) — mặc định TẮT
+    parser.add_argument(
+        "--punctuate",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Bật phase phục hồi dấu câu (LLM) trên OCR SRT → _punct.srt + _flat.txt"
+    )
+    parser.add_argument(
+        "--punctuation-task-config",
+        default="config/llm_tasks/punctuation_restoration.yaml",
+        help="Con trỏ tới llm_tasks YAML (SSOT tham số LLM punctuation)"
+    )
+
     # Config file
     parser.add_argument(
         "--config",
@@ -413,6 +426,80 @@ def build_text_isolation_config(args, config: dict) -> TextIsolationConfig:
         require_stroke=require_stroke,
         bright_luminance=int(resolve("bright_luminance", "bright_luminance", defaults.bright_luminance)),
     )
+
+
+def run_punctuation_phase(output_paths: dict, args, config: dict, output_format: str) -> None:
+    """Phase tuỳ chọn: phục hồi dấu câu (LLM) trên OCR SRT → _punct.srt + _flat.txt.
+
+    Bật khi có cờ CLI `--punctuate` (hoặc `config["punctuation"]["enabled"]: true`).
+    Chỉ áp dụng cho format SRT. Mọi tham số LLM (provider, language, batch_size,
+    use_full_context, prompt_file, response_parser) lấy DUY NHẤT từ task config
+    (`--punctuation-task-config`, mặc định config/llm_tasks/punctuation_restoration.yaml)
+    — đây là SSOT, không khai trùng trong config video-ocr.
+
+    Tái dùng `punctuation/srt_punctuator.py` (batch + validator) và provider LLM
+    qua `llm_ai.task_runner.create_task_provider` (giống cli/llm_task.py).
+    """
+    yaml_punct = config.get("punctuation", {}) if isinstance(config, dict) else {}
+    enabled = hasattr(args, "punctuate") or bool(yaml_punct.get("enabled", False))
+    if not enabled:
+        return
+
+    if output_format != "srt":
+        logger.warning("Punctuation phase chỉ hỗ trợ format SRT — bỏ qua.")
+        return
+
+    if not output_paths:
+        return
+
+    from types import SimpleNamespace
+    from llm_ai.task_runner import create_task_provider, resolve_project_path
+    from llm_ai.tasks.generic_text_task import load_task_config
+    from punctuation.srt_punctuator import restore_punctuation_srt, flatten_srt_to_text
+
+    # CLI > YAML > default cho con trỏ task_config.
+    task_config_rel = (
+        getattr(args, "punctuation_task_config", None)
+        or yaml_punct.get("task_config")
+        or "config/llm_tasks/punctuation_restoration.yaml"
+    )
+    task_config_path = resolve_project_path(task_config_rel)
+    task_cfg = load_task_config(str(task_config_path))
+
+    # SSOT: mọi tham số LLM lấy từ task_cfg.
+    prompt_file = str(resolve_project_path(task_cfg.get("prompt_file")))
+    language = task_cfg.get("language", "Chinese")
+    batch_size = int(task_cfg.get("batch_size", 30))
+    use_full_context = bool(task_cfg.get("use_full_context", True))
+
+    # Namespace tối thiểu cho create_task_provider (không override gì → lấy từ task_cfg).
+    provider_args = SimpleNamespace(
+        provider=None,
+        provider_config=None, keys=None, base_url=None, model=None,
+        system_prompt=None, temperature=None, max_tokens=None, request_timeout=None,
+    )
+    provider = create_task_provider(provider_args, task_cfg)
+
+    logger.info(f"🧠 Punctuation phase: provider={provider.name}, lang={language}, batch={batch_size}")
+    for box_name, srt_path in output_paths.items():
+        srt_p = Path(srt_path)
+        punct_srt = str(srt_p.with_name(f"{srt_p.stem}_punct.srt"))
+        flat_txt = str(srt_p.with_name(f"{srt_p.stem}_flat.txt"))
+        try:
+            stats = restore_punctuation_srt(
+                input_srt=str(srt_p),
+                output_srt=punct_srt,
+                prompt_file=prompt_file,
+                provider=provider,
+                language=language,
+                batch_size=batch_size,
+                use_full_context=use_full_context,
+            )
+            flatten_srt_to_text(punct_srt, flat_txt)
+            print(f"   ✍️  {box_name}: {punct_srt} ({stats['success']}/{stats['total_batches']} batch, "
+                  f"{stats['reverted_blocks']} block giữ gốc) → {flat_txt}")
+        except Exception as exc:
+            logger.error(f"Punctuation phase lỗi cho box {box_name}: {exc}")
 
 
 def main():
@@ -556,6 +643,11 @@ def main():
             total_subs = sum(sum(counts.values()) for r in results for counts in [r.subtitles_count])
             print(f"   Total subtitles: {total_subs}")
             print(f"{'='*60}")
+
+            # Phase tuỳ chọn: phục hồi dấu câu (LLM) trên từng box SRT.
+            ocr_format = get_param("format", ("output", "format"), "srt")
+            for r in results:
+                run_punctuation_phase(r.output_paths, args, config, ocr_format)
             
         else:
             # Single video mode
@@ -580,6 +672,10 @@ def main():
                 print(f"\n🎉 Done! Extracted {total_extracted} subtitles across {len(result.subtitles_count)} boxes")
                 for box_name, count in result.subtitles_count.items():
                     print(f"   - {box_name}: {count} entries -> {result.output_paths[box_name]}")
+
+                # Phase tuỳ chọn: phục hồi dấu câu (LLM) trên từng box SRT.
+                ocr_format = get_param("format", ("output", "format"), "srt")
+                run_punctuation_phase(result.output_paths, args, config, ocr_format)
             else:
                 print(f"\n⚠️ No subtitles found in video")
                 

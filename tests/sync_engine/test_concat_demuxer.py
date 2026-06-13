@@ -275,7 +275,8 @@ class TestLayer1_FilterComplexBatchUnit:
         assert "setpts=2.000000*PTS" in filter_val  # 1/0.5 = 2.0
         # exact_start = 1.0 - 0.0 = 1.0 -> safe_start = 0.983333, safe_duration=1.983333
         assert "trim=start=0.983333:duration=1.983333" in filter_val
-        assert "trim=end_frame=60[v0]" in filter_val
+        # 2000ms gốc @ speed=0.5 -> stretched 4000ms -> 120 frames @ 30fps
+        assert "trim=end_frame=120[v0]" in filter_val
 
     def test_multiple_segments_concat_labels(self):
         """3 segments (0-1s, 1-2s, 2-3s) → rough_start=0, exact_starts=0,1,2."""

@@ -1,0 +1,13 @@
+task_name: "punctuation_restoration"
+system_prompt: "You are a precise punctuation-restoration engine. You ONLY insert punctuation marks; you never add, remove, or change any letter/word characters."
+provider: "vertexai"
+provider_config: "config/llm/vertexai.yaml"
+prompt_file: "prompts/llm_tasks/punctuation_restoration.txt"
+# Ngôn ngữ nguồn của text OCR (Chinese/Japanese/English/...). CLI/flow có thể override.
+language: "Chinese"
+batch_size: 50
+use_full_context: true
+wait_sec: 5
+response_parser:
+  type: "tag"
+  tag: "PUNCT_TEXT"
