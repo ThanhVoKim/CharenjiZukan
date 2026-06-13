@@ -30,6 +30,7 @@ from llm_ai.tasks.response_parser import parse_tag_response
 from llm_ai.retry import calculate_linear_retry_wait_seconds
 from translation.batching import (
     BatchIntegrityError,
+    CacheTelemetryAccumulator,
     get_retry_attempts,
     get_retry_wait_seconds,
     merge_translated_batch,
@@ -135,6 +136,7 @@ def restore_punctuation_srt(
     success_count = 0
     failed_count = 0
     reverted_blocks = 0
+    cache_telemetry = CacheTelemetryAccumulator()
 
     for idx, batch in enumerate(batches):
         batch_srt_str = "\n\n".join(
@@ -153,6 +155,7 @@ def restore_punctuation_srt(
         for attempt in range(1, retry_attempts + 1):
             try:
                 raw_result = provider.call(prompt_message)
+                cache_telemetry.record(provider)
                 try:
                     punctuated_text = parse_tag_response(raw_result, PUNCT_TAG)
                 except Exception as exc:
@@ -193,6 +196,10 @@ def restore_punctuation_srt(
     Path(output_srt).parent.mkdir(parents=True, exist_ok=True)
     Path(output_srt).write_text(output_content, encoding="utf-8")
     logger.info(f"📄 Đã ghi punctuation SRT: {output_srt}")
+
+    cache_summary = cache_telemetry.summary_line()
+    if cache_summary:
+        logger.info(cache_summary)
 
     return {
         "total_blocks": total,

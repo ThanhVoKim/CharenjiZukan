@@ -102,7 +102,14 @@ def apply_provider_chain_entry_overrides(
 
     for key in PROVIDER_CHAIN_OVERRIDE_KEYS:
         if key in entry and entry.get(key) is not None:
-            cfg[key] = entry.get(key)
+            # generation_config được deep-merge để override lẻ (vd thinking_level)
+            # không xoá temperature/max_output_tokens của base provider config.
+            if key == "generation_config" and isinstance(entry.get(key), dict):
+                merged_gen_cfg = dict(cfg.get("generation_config") or {})
+                merged_gen_cfg.update(entry.get(key))
+                cfg["generation_config"] = merged_gen_cfg
+            else:
+                cfg[key] = entry.get(key)
 
     return cfg
 
@@ -139,6 +146,12 @@ class FallbackLLMProvider(BaseLLMProvider):
             raise ValueError("Số lượng names phải khớp số lượng providers")
 
         self._active_index = 0
+        # Global context được chain tự quản (xem set_global_context). Mỗi provider
+        # khi trở thành active sẽ được hỏi set_global_context: nếu provider tự cache
+        # được (True) thì gửi message nguyên; nếu không (False) chain prepend inline.
+        self._global_context: str | None = None
+        self._context_applied: set[int] = set()
+        self._needs_inline: dict[int, bool] = {}
         first_provider = self._providers[0]
         self._retry_attempts = retry_attempts if retry_attempts is not None else getattr(first_provider, "_retry_attempts", 3)
         self._retry_wait_seconds = (
@@ -200,6 +213,34 @@ class FallbackLLMProvider(BaseLLMProvider):
             logger.warning("[ProviderChain] Chuyển fallback %s -> %s", old_name, new_name)
         return True
 
+    def _ensure_context_on_active(self) -> None:
+        """Đảm bảo provider active đã nhận global context (cache hoặc đánh dấu inline)."""
+        if self._global_context is None:
+            return
+        index = self._active_index
+        if index in self._context_applied:
+            return
+        provider = self._get_provider(index)
+        cached = provider.set_global_context(self._global_context)
+        self._needs_inline[index] = not cached
+        self._context_applied.add(index)
+        if cached:
+            logger.info(
+                "[ProviderChain] %s đã nhận global context nội bộ (cache mode)",
+                self._chain_names[index],
+            )
+        else:
+            logger.info(
+                "[ProviderChain] %s không cache được, dùng inline context",
+                self._chain_names[index],
+            )
+
+    def _prepare_message(self, message: str) -> str:
+        """Prepend global context nếu provider active không tự cache được."""
+        if self._global_context and self._needs_inline.get(self._active_index):
+            return f"{self._global_context}\n\n{message}"
+        return message
+
     def call(self, message: str) -> str:
         failures: list[ProviderFailure] = []
         last_exc: Exception | None = None
@@ -207,9 +248,10 @@ class FallbackLLMProvider(BaseLLMProvider):
         while self._active_index < len(self._sources):
             chain_name = self._chain_names[self._active_index]
             provider = self._get_provider(self._active_index)
+            self._ensure_context_on_active()
 
             try:
-                return provider.call(message)
+                return provider.call(self._prepare_message(message))
             except OpenAICompatCapabilityError as exc:
                 logger.error(
                     "[ProviderChain] Lỗi capability/config ở %s (%s); không fallback để tránh chạy sai profile: %s",
@@ -240,18 +282,19 @@ class FallbackLLMProvider(BaseLLMProvider):
         raise ProviderChainError(failures) from last_exc
 
     def set_global_context(self, context: str) -> bool:
-        """Set context cho single-provider chain; multi-provider dùng inline context.
+        """Chain tự quản global context cho mọi provider trong fallback chain.
 
-        Với provider_chain nhiều phần tử, không eager instantiate toàn bộ fallback
-        providers chỉ để set cache/context. Workflow SRT sẽ giữ context inline để
-        fallback nào cũng nhận được context đầy đủ.
+        Trả True để caller (workflow SRT) bỏ inline context khỏi từng prompt; chain
+        sẽ tự lo việc cấp context cho provider active: provider nào tự cache được
+        (vd Vertex explicit cache, OpenAI Responses anchor) thì gửi message nguyên,
+        provider không cache được thì chain prepend context inline ngay trước khi gọi.
+        Việc set_global_context lên provider được hoãn tới khi provider thật sự
+        active để tránh eager instantiate toàn bộ fallback (kéo credential/dependency).
         """
         if not context or not context.strip():
             return False
 
-        if len(self._sources) > 1:
-            logger.info("[ProviderChain] Bỏ qua provider context cache; dùng inline context cho fallback chain")
-            return False
-
-        provider = self._get_provider(self._active_index)
-        return provider.set_global_context(context)
+        self._global_context = context
+        self._context_applied.clear()
+        self._needs_inline.clear()
+        return True

@@ -49,10 +49,15 @@ class VertexAIProvider(BaseLLMProvider):
 
         self._safety_settings = self._parse_safety_settings(safety_settings)
         self._cached_content_name: str | None = None
+        self._last_telemetry: dict | None = None
 
     @property
     def name(self) -> str:
         return f"Vertex AI ({self._model_name}, project={self._project_id})"
+
+    @property
+    def last_telemetry_record(self) -> dict | None:
+        return dict(self._last_telemetry) if self._last_telemetry else None
 
     def _parse_safety_settings(self, safety_settings: dict) -> list[object] | None:
         """
@@ -108,6 +113,14 @@ class VertexAIProvider(BaseLLMProvider):
         if self._safety_settings is not None:
             cfg["safety_settings"] = self._safety_settings
 
+        # Gemini 3 dùng thinking_level (low/medium/high) thay cho thinking_budget.
+        # Gửi cả hai trong cùng request -> lỗi 400, nên thinking_level được ưu tiên.
+        thinking_level = cfg.pop("thinking_level", None)
+        if thinking_level is not None:
+            cfg.pop("thinking_budget", None)
+            level = getattr(self._types.ThinkingLevel, str(thinking_level).upper())
+            cfg["thinking_config"] = self._types.ThinkingConfig(thinking_level=level)
+
         if self._cached_content_name:
             cfg["cached_content"] = self._cached_content_name
         elif self._system_prompt:
@@ -123,6 +136,24 @@ class VertexAIProvider(BaseLLMProvider):
             "The request may use cached global context. "
             "Treat that cache as read-only reference and do not rewrite it unless explicitly asked."
         )
+
+    def _capture_telemetry(self, response: object) -> None:
+        """Trích usage_metadata để đo hiệu quả context cache."""
+        usage = getattr(response, "usage_metadata", None)
+        if usage is None:
+            self._last_telemetry = None
+            return
+
+        def _int(attr: str) -> int | None:
+            value = getattr(usage, attr, None)
+            return int(value) if isinstance(value, (int, float)) else None
+
+        self._last_telemetry = {
+            "prompt_tokens": _int("prompt_token_count"),
+            "cached_tokens": _int("cached_content_token_count"),
+            "output_tokens": _int("candidates_token_count"),
+            "thinking_tokens": _int("thoughts_token_count"),
+        }
 
     def set_global_context(self, context: str) -> bool:
         """
@@ -189,6 +220,8 @@ class VertexAIProvider(BaseLLMProvider):
                         raise RuntimeError(
                             f"Vertex AI response bị block. Feedback: {response.prompt_feedback}"
                         )
+
+                    self._capture_telemetry(response)
 
                     text = getattr(response, "text", "") or ""
                     if not text.strip():

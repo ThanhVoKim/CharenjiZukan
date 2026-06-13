@@ -1,12 +1,14 @@
 task_name: "srt_translation"
 system_prompt: "You are a top-tier Subtitle Translation Engine."
 provider_chain:
-  - name: "primary_openai"
-    provider: "openai"
-    provider_config: "config/llm/openai_compat.yaml"
-  - name: "fallback_vertexai"
+  - name: "primary_vertexai"
     provider: "vertexai"
     provider_config: "config/llm/vertexai.yaml"
+    generation_config:
+      thinking_level: HIGH
+  - name: "fallback_freemodel"
+    provider: "openai"
+    provider_config: "config/llm/freemodel_dev.yaml"
 prompt_file: "prompts/translation/srt_translate.txt"
 target_language: "English"
 batch_size: 30

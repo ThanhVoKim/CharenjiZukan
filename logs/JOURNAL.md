@@ -1,5 +1,52 @@
 # Project Journal
 
+## 2026-06-13: Tối ưu token LLM — context cache đo được + thinking_level per-task + Responses anchor-fork
+
+### Tóm tắt
+Giải bài toán "đốt token" khi `use_full_context: true` cho video dài (hàng nghìn block). Kết luận
+nghiên cứu: **Agent Engine Sessions KHÔNG giúp** (gửi lại history mỗi lượt). C��ng cụ đúng là **context
+caching** — vốn đã có cho Vertex nhưng (1) translation dùng `provider_chain` nên bị vô hiệu, (2) không
+có telemetry để biết cache có hit. Đồng thời thêm điều khiển `thinking_level` (Gemini 3) per-task.
+
+### Thay đổi
+- **`llm_ai/providers/vertexai.py`**: `_build_generate_config` pop `thinking_level` (low/medium/high) →
+  `ThinkingConfig`, loại `thinking_budget` để tránh lỗi 400 (Gemini 3). Thêm `_capture_telemetry` đọc
+  `usage_metadata` (`cached_content_token_count`...) → `last_telemetry_record`.
+- **`llm_ai/provider_chain.py`**: `FallbackLLMProvider` giờ **tự quản global context**.
+  `set_global_context` trả `True` (caller bỏ inline); `_ensure_context_on_active()` set context cho
+  provider khi active (cache nếu được, prepend inline nếu không) — re-apply khi fallover.
+  `apply_provider_chain_entry_overrides` deep-merge `generation_config` (thay vì replace).
+- **`llm_ai/providers/openai.py`**: thêm `set_global_context` cho Responses-API profile → tạo **anchor
+  R0** (`store: true`) gửi full context 1 lần; mọi batch **fork từ R0 cố định** (biến mới
+  `_anchor_response_id`, KHÔNG sequential-chaining để tránh phình token). Error-recovery: R0 invalid →
+  tạo lại anchor 1 lần. Nhánh chat_completions giữ nguyên.
+- **`llm_ai/task_runner.py`**: `apply_provider_overrides` deep-merge `generation_config` từ task config.
+- **`translation/batching.py`**: thêm `CacheTelemetryAccumulator` cộng dồn token qua batch.
+- **`translation/srt_translator.py`** + **`punctuation/srt_punctuator.py`**: ghi nhận telemetry mỗi
+  batch, log 1 dòng tổng kết `🧠 Cache: X/Y prompt tokens hit (Z%)`.
+- **Configs**: `srt_translation.yaml` đảo chain → **Vertex primary** (thinking_level: low) +
+  **freemodel_dev fallback** (Responses API). `punctuation_restoration.yaml` thêm `thinking_level: low`.
+- **Tests**: `tests/translation/test_translation_providers.py` — sửa import stale
+  (`translation.vertexai_provider` → `llm_ai.providers.vertexai`); thêm Layer1 (telemetry accumulator,
+  thinking_level, chain-aware context) + Layer3 (Responses anchor fork-from-R0). Matrix entries hiện có
+  đã bao qua keyword Layer1/Layer3.
+
+### Lý do
+OpenAI prompt cache là *giảm giá best-effort* (token vẫn bị tính, evict 5-10 phút idle) — KHÁC Vertex
+`CachedContent` (bỏ token khỏi prompt, ~90% off, TTL deterministic). Anchor-fork: cache discount hết
+hạn KHÔNG cần gửi lại full_context — fork cùng R0 tự re-warm; tạo R0 mới là strictly worse. Vì vậy
+chọn Vertex làm primary cho translation (tiết kiệm chắc chắn), freemodel_dev Responses làm fallback.
+`cached_tokens` telemetry chỉ để **quan sát**, không phải trigger gửi lại context.
+
+### Pending / Next
+- E2E trên 1 video dài thật: xác nhận `cached_content_token_count`/`cached_tokens` > 0 và so token
+  Console Billing trước/sau.
+- Tuỳ chọn follow-up: dùng `prompt_cache_key` ổn định cho OpenAI chat_completions profile khi backend
+  hỗ trợ (`supports_prompt_cache_key`).
+- `google-api-core` + `openai` đã được cài vào `.venv` local để chạy test (CPU-only, an toàn).
+
+---
+
 ## 2026-06-13: Dọn config + môi trường flow OCR (align-srt CLI thuần, dedup punctuation, .venv chính)
 
 ### Tóm tắt

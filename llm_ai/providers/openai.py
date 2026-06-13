@@ -70,6 +70,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         self._previous_response_id: str | None = None
         self._last_response_id: str | None = None
         self._last_telemetry_record: dict[str, Any] | None = None
+        # Anchor R0 cho fork-from-anchor: full context được gửi 1 lần (store=true),
+        # mọi batch sau fork từ cùng anchor này thay vì chain tuần tự.
+        self._anchor_response_id: str | None = None
+        self._anchor_context: str | None = None
 
     @property
     def name(self) -> str:
@@ -91,6 +95,61 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         """Xóa previous response state local của provider."""
         self._previous_response_id = None
         self._last_response_id = None
+        self._anchor_response_id = None
+
+    def set_global_context(self, context: str) -> bool:
+        """Tạo anchor R0 chứa full context cho fork-from-anchor (chỉ Responses API).
+
+        Returns:
+            True: anchor đã tạo (store=true) trên server, caller bỏ context khỏi
+                  từng batch prompt; mọi batch sau fork từ anchor này.
+            False: profile không hỗ trợ Responses/previous_response_state, caller nên
+                   fallback chèn context inline vào prompt.
+        """
+        if not context or not context.strip():
+            return False
+
+        if self._profile.api_mode != API_MODE_RESPONSES:
+            return False
+        if not self._profile.capability_flags.supports_previous_response_state:
+            return False
+
+        self._anchor_context = context
+        return self._create_anchor() is not None
+
+    def _create_anchor(self) -> str | None:
+        """Gửi full context (store=true) tạo anchor R0; trả response id hoặc None."""
+        if not self._anchor_context:
+            return None
+        try:
+            response, _headers = self._create_response(
+                build_responses_payload(
+                    self._profile,
+                    self._system_prompt,
+                    self._anchor_context,
+                )
+            )
+        except Exception as exc:
+            logging.warning(
+                "[OpenAI Provider] Không tạo được anchor context (fork-from-anchor), "
+                "fallback inline. Chi tiết: %s - %s",
+                type(exc).__name__,
+                exc,
+            )
+            self._anchor_response_id = None
+            return None
+
+        anchor_id = extract_response_id(response)
+        if not anchor_id:
+            logging.warning(
+                "[OpenAI Provider] Anchor response thiếu id, fallback inline context"
+            )
+            self._anchor_response_id = None
+            return None
+
+        self._anchor_response_id = anchor_id
+        logging.info("[OpenAI Provider] Anchor context tạo thành công: %s", anchor_id)
+        return anchor_id
 
     def call(self, message: str) -> str:
         from openai import AuthenticationError, BadRequestError, PermissionDeniedError
@@ -142,7 +201,9 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         headers: Any = None
 
         if self._profile.api_mode == API_MODE_RESPONSES:
-            previous_response_id = (
+            # Ưu tiên anchor R0 (fork-from-anchor) để mọi batch fork từ cùng context
+            # đã cache, tránh chain tuần tự N nối N-1 làm phình token.
+            previous_response_id = self._anchor_response_id or (
                 self._previous_response_id
                 if self._profile.stateful_options.use_previous_response_id
                 else None
@@ -156,10 +217,29 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             try:
                 response, headers = self._create_response(payload)
             except Exception as exc:
-                wrapped = self._maybe_wrap_endpoint_rejection(exc, payload)
-                if wrapped:
-                    raise wrapped from exc
-                raise
+                # Error-recovery: anchor R0 hết hạn lưu trữ / bị xóa -> tạo lại anchor
+                # một lần rồi fork tiếp. Không phải kiểm tra định kỳ.
+                if (
+                    previous_response_id
+                    and previous_response_id == self._anchor_response_id
+                    and self._is_invalid_previous_response_error(exc)
+                ):
+                    logging.warning(
+                        "[OpenAI Provider] Anchor %s không còn hợp lệ, tạo lại anchor",
+                        self._anchor_response_id,
+                    )
+                    self._anchor_response_id = None
+                    new_anchor = self._create_anchor()
+                    if new_anchor:
+                        payload["previous_response_id"] = new_anchor
+                        response, headers = self._create_response(payload)
+                    else:
+                        raise
+                else:
+                    wrapped = self._maybe_wrap_endpoint_rejection(exc, payload)
+                    if wrapped:
+                        raise wrapped from exc
+                    raise
 
             text = extract_responses_text(response)
             self._capture_state(response)
@@ -312,6 +392,22 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 type(exc).__name__,
                 exc,
             )
+
+    def _is_invalid_previous_response_error(self, exc: Exception) -> bool:
+        """Nhận diện lỗi previous_response_id không tồn tại/hết hạn (HTTP 404/400)."""
+        try:
+            import openai
+        except ImportError:
+            openai = None  # type: ignore[assignment]
+
+        if openai is not None and isinstance(exc, getattr(openai, "APIStatusError", tuple())):
+            if getattr(exc, "status_code", None) not in {400, 404}:
+                return False
+
+        text = f"{self._provider_error_text(exc)} {exc}".lower()
+        return "previous_response" in text or (
+            "response" in text and ("not found" in text or "expired" in text)
+        )
 
     def _provider_error_text(self, exc: Exception) -> str:
         response = getattr(exc, "response", None)

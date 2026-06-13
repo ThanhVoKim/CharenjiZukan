@@ -355,7 +355,7 @@ class TestLayer3_VertexAICache:
     def test_vertexai_set_global_context_creates_cache_and_call_uses_cached_content(self):
         pytest.importorskip("google.genai", reason="google-genai required")
 
-        from translation import vertexai_provider as vertexai_provider_module
+        from llm_ai.providers import vertexai as vertexai_provider_module
 
         mock_client = MagicMock()
         mock_cached = MagicMock()
@@ -410,7 +410,7 @@ class TestLayer3_VertexAICache:
 
         Không dùng bất kỳ mock nào trong test này.
         """
-        from translation import vertexai_provider as vertexai_provider_module
+        from llm_ai.providers import vertexai as vertexai_provider_module
 
         secret_info = {
             "name": "Nguyễn Văn An",
@@ -499,7 +499,7 @@ class TestLayer3_VertexAICache:
         Test rằng khi không dùng cache, provider vẫn hoạt động bình thường.
         Mock generate_content để verify provider không crash khi không có cached_content.
         """
-        from translation import vertexai_provider as vertexai_provider_module
+        from llm_ai.providers import vertexai as vertexai_provider_module
         
         provider_no_cache = vertexai_provider_module.VertexAIProvider(
             project_id=vertexai_credentials.project_id,
@@ -528,7 +528,7 @@ class TestLayer3_VertexAICache:
     def test_vertexai_set_global_context_fallback_when_context_too_short(self):
         pytest.importorskip("google.genai", reason="google-genai required")
 
-        from translation import vertexai_provider as vertexai_provider_module
+        from llm_ai.providers import vertexai as vertexai_provider_module
 
         mock_client = MagicMock()
         mock_client.caches.create.side_effect = RuntimeError(
@@ -552,6 +552,245 @@ class TestLayer3_VertexAICache:
         assert used_cache is False
         assert provider._cached_content_name is None
         mock_client.caches.create.assert_called_once()
+
+
+# ═════════════════════════════════════════════════════════════════════
+# LAYER 1 — UNIT: Telemetry accumulator + thinking_level config
+# ═════════════════════════════════════════════════════════════════════
+
+class TestLayer1_CacheTelemetryAccumulator:
+    """Cộng dồn telemetry token để đo hiệu quả context cache."""
+
+    def _acc(self):
+        from translation.batching import CacheTelemetryAccumulator
+        return CacheTelemetryAccumulator()
+
+    def test_empty_accumulator_returns_none_summary(self):
+        acc = self._acc()
+        assert acc.summary_line() is None
+
+    def test_records_and_sums_across_batches(self):
+        acc = self._acc()
+
+        class _P:
+            def __init__(self, rec):
+                self._rec = rec
+
+            @property
+            def last_telemetry_record(self):
+                return self._rec
+
+        acc.record(_P({"prompt_tokens": 1000, "cached_tokens": 900, "output_tokens": 50}))
+        acc.record(_P({"prompt_tokens": 1000, "cached_tokens": 900, "output_tokens": 60}))
+
+        summary = acc.summary_line()
+        assert summary is not None
+        assert "1,800/2,000" in summary
+        assert "90%" in summary
+        assert acc.output_tokens == 110
+
+    def test_provider_without_telemetry_is_ignored(self):
+        acc = self._acc()
+
+        class _NoTel:
+            last_telemetry_record = None
+
+        acc.record(_NoTel())
+        assert acc.samples == 0
+        assert acc.summary_line() is None
+
+
+class TestLayer1_VertexThinkingLevel:
+    """thinking_level (Gemini 3) phải sinh ThinkingConfig và loại bỏ thinking_budget."""
+
+    def _make_provider(self, generation_config):
+        pytest.importorskip("google.genai", reason="google-genai required")
+        from llm_ai.providers import vertexai as vertexai_provider_module
+
+        with patch("google.genai.Client", return_value=MagicMock()):
+            return vertexai_provider_module.VertexAIProvider(
+                project_id="p",
+                location="global",
+                model="gemini-3.1-pro-preview",
+                generation_config=generation_config,
+                safety_settings={},
+                system_prompt="sys",
+                request_timeout=60,
+                retry_attempts=1,
+                retry_wait_seconds=1,
+            )
+
+    def test_thinking_level_builds_thinking_config(self):
+        provider = self._make_provider({"temperature": 1, "thinking_level": "low"})
+
+        captured = {}
+
+        def fake_cfg(**kwargs):
+            captured.update(kwargs)
+            return kwargs
+
+        with patch.object(provider._types, "GenerateContentConfig", side_effect=fake_cfg):
+            provider._build_generate_config()
+
+        assert "thinking_config" in captured
+        assert "thinking_level" not in captured  # đã pop khỏi cfg gốc
+        assert captured.get("temperature") == 1
+
+    def test_thinking_level_drops_thinking_budget(self):
+        provider = self._make_provider({"thinking_level": "high", "thinking_budget": 8192})
+
+        captured = {}
+
+        def fake_cfg(**kwargs):
+            captured.update(kwargs)
+            return kwargs
+
+        with patch.object(provider._types, "GenerateContentConfig", side_effect=fake_cfg):
+            provider._build_generate_config()
+
+        assert "thinking_config" in captured
+        assert "thinking_budget" not in captured
+
+
+# ═════════════════════════════════════════════════════════════════════
+# LAYER 1 — UNIT: Chain-aware global context
+# ═════════════════════════════════════════════════════════════════════
+
+class TestLayer1_FallbackChainContext:
+    """FallbackLLMProvider tự quản global context: cache cho provider hỗ trợ,
+    prepend inline cho provider không hỗ trợ, và re-apply khi fallover."""
+
+    def _provider(self, *, can_cache: bool, fail_first_call: bool = False):
+        from llm_ai.base import BaseLLMProvider
+
+        class _FakeProvider(BaseLLMProvider):
+            def __init__(self):
+                self.received_context = None
+                self.last_message = None
+                self.calls = 0
+                self._retry_attempts = 1
+                self._retry_wait_seconds = 0
+
+            @property
+            def name(self):
+                return "fake"
+
+            def set_global_context(self, context):
+                self.received_context = context
+                return can_cache
+
+            def call(self, message):
+                self.calls += 1
+                self.last_message = message
+                if fail_first_call:
+                    raise RuntimeError("boom")
+                return f"<TRANSLATE_TEXT>{message[:3]}</TRANSLATE_TEXT>"
+
+        return _FakeProvider()
+
+    def test_set_global_context_returns_true_so_caller_drops_inline(self):
+        from llm_ai.provider_chain import FallbackLLMProvider
+
+        p1 = self._provider(can_cache=True)
+        chain = FallbackLLMProvider([p1], names=["primary"])
+        assert chain.set_global_context("FULL CONTEXT") is True
+
+    def test_cache_capable_provider_gets_clean_message(self):
+        from llm_ai.provider_chain import FallbackLLMProvider
+
+        p1 = self._provider(can_cache=True)
+        chain = FallbackLLMProvider([p1], names=["primary"])
+        chain.set_global_context("FULL CONTEXT")
+        chain.call("batch-1")
+
+        assert p1.received_context == "FULL CONTEXT"  # đã set cache
+        assert p1.last_message == "batch-1"  # message KHÔNG bị prepend context
+
+    def test_non_cache_provider_gets_inline_context(self):
+        from llm_ai.provider_chain import FallbackLLMProvider
+
+        p1 = self._provider(can_cache=False)
+        chain = FallbackLLMProvider([p1], names=["primary"])
+        chain.set_global_context("FULL CONTEXT")
+        chain.call("batch-1")
+
+        assert p1.last_message.startswith("FULL CONTEXT")
+        assert "batch-1" in p1.last_message
+
+    def test_context_reapplied_on_fallover(self):
+        from llm_ai.provider_chain import FallbackLLMProvider
+
+        primary = self._provider(can_cache=True, fail_first_call=True)
+        fallback = self._provider(can_cache=True)
+        chain = FallbackLLMProvider([primary, fallback], names=["primary", "fallback"])
+        chain.set_global_context("FULL CONTEXT")
+
+        result = chain.call("batch-1")
+
+        # Fallback cũng phải nhận global context khi trở thành active
+        assert fallback.received_context == "FULL CONTEXT"
+        assert result.startswith("<TRANSLATE_TEXT>")
+
+
+# ═════════════════════════════════════════════════════════════════════
+# LAYER 3 — INTEGRATION: OpenAI Responses anchor R0 fork-from-anchor
+# ═════════════════════════════════════════════════════════════════════
+
+class TestLayer3_ResponsesAnchorFork:
+    """set_global_context tạo anchor R0 một lần; mọi batch fork từ cùng anchor."""
+
+    def _responses_provider(self):
+        pytest.importorskip("openai")
+        provider = create_provider(
+            "openai",
+            {
+                "model": "gpt-mock",
+                "api_mode": "responses",
+                "retry_attempts": 1,
+                "retry_wait_seconds": 0,
+                "capability_flags": {
+                    "supports_responses_api": True,
+                    "supports_previous_response_state": True,
+                },
+                "stateful_options": {"store": True, "use_previous_response_id": True},
+            },
+            {"api_key": "mock"},
+        )
+        return provider
+
+    def test_anchor_created_once_and_reused_for_all_batches(self):
+        provider = self._responses_provider()
+
+        created_payloads = []
+
+        def fake_create_response(payload):
+            created_payloads.append(dict(payload))
+            resp = MagicMock()
+            resp.id = "resp-anchor-0" if len(created_payloads) == 1 else f"resp-{len(created_payloads)}"
+            resp.output_text = "<TRANSLATE_TEXT>ok</TRANSLATE_TEXT>"
+            return resp, None
+
+        with patch.object(provider, "_create_response", side_effect=fake_create_response):
+            assert provider.set_global_context("FULL CONTEXT " * 100) is True
+            assert provider._anchor_response_id == "resp-anchor-0"
+
+            provider.call("batch-1")
+            provider.call("batch-2")
+
+        # 1 anchor + 2 batch = 3 request
+        assert len(created_payloads) == 3
+        # Cả 2 batch fork từ cùng anchor R0 (KHÔNG chain tuần tự)
+        assert created_payloads[1]["previous_response_id"] == "resp-anchor-0"
+        assert created_payloads[2]["previous_response_id"] == "resp-anchor-0"
+
+    def test_set_global_context_false_when_responses_unsupported(self):
+        pytest.importorskip("openai")
+        provider = create_provider(
+            "openai",
+            {"model": "gpt-mock", "api_mode": "chat_completions"},
+            {"api_key": "mock"},
+        )
+        assert provider.set_global_context("FULL CONTEXT") is False
 
 
 # ═════════════════════════════════════════════════════════════════════

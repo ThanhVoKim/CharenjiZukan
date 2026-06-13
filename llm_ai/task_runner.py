@@ -96,6 +96,14 @@ def apply_provider_overrides(
     if task_cfg.get("system_prompt") is not None:
         cfg["system_prompt"] = task_cfg.get("system_prompt")
 
+    # Deep-merge generation_config từ task config (vd thinking_level per-task) lên
+    # base provider config, giữ lại temperature/max_output_tokens của provider.
+    task_gen_cfg = task_cfg.get("generation_config")
+    if isinstance(task_gen_cfg, dict):
+        merged_gen_cfg = dict(cfg.get("generation_config") or {})
+        merged_gen_cfg.update(task_gen_cfg)
+        cfg["generation_config"] = merged_gen_cfg
+
     if args.base_url:
         cfg["base_url"] = args.base_url
     if args.model:

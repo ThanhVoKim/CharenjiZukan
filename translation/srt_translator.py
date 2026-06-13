@@ -8,6 +8,7 @@ from utils.srt_parser import parse_srt, segments_to_srt, segments_to_txt
 from llm_ai.base import BaseLLMProvider
 from translation.batching import (
     BatchIntegrityError,
+    CacheTelemetryAccumulator,
     get_retry_attempts,
     get_retry_wait_seconds,
     merge_translated_batch,
@@ -74,6 +75,7 @@ def translate_srt_file(
     total_batches = len(batches)
     success_count = 0
     failed_count = 0
+    cache_telemetry = CacheTelemetryAccumulator()
     t_start = time.time()
 
     for idx, batch in enumerate(batches):
@@ -100,6 +102,7 @@ def translate_srt_file(
             try:
                 t0 = time.time()
                 raw_result = provider.call(prompt_message)
+                cache_telemetry.record(provider)
                 try:
                     translated_text = parse_translation_response(raw_result)
                 except Exception as exc:
@@ -171,5 +174,10 @@ def translate_srt_file(
     print(f"✅ Hoàn thành: {output_file}")
     print(f"   Batch: {success_count}/{total_batches} thành công | {failed_count} lỗi")
     print(f"   Thời gian: {elapsed_total:.1f}s")
+
+    cache_summary = cache_telemetry.summary_line()
+    if cache_summary:
+        logger.info(cache_summary)
+        print(f"   {cache_summary}")
 
     return stats

@@ -8,6 +8,8 @@ language: "Chinese"
 batch_size: 50
 use_full_context: true
 wait_sec: 3
+generation_config:
+  thinking_level: MEDIUM
 response_parser:
   type: "tag"
   tag: "PUNCT_TEXT"

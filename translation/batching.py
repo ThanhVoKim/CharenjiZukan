@@ -26,6 +26,40 @@ def merge_translated_batch(translated_str: str, original_batch: List[dict]) -> L
     return result
 
 
+class CacheTelemetryAccumulator:
+    """Cộng dồn telemetry token qua các batch để đo hiệu quả context cache.
+
+    Đọc `provider.last_telemetry_record` sau mỗi batch. Hỗ trợ cả Vertex
+    (`cached_tokens` = cached_content_token_count) lẫn OpenAI Responses
+    (`cached_tokens` từ prompt_tokens_details). Provider không bật telemetry
+    sẽ trả None và được bỏ qua an toàn.
+    """
+
+    def __init__(self) -> None:
+        self.prompt_tokens = 0
+        self.cached_tokens = 0
+        self.output_tokens = 0
+        self.samples = 0
+
+    def record(self, provider: object) -> None:
+        record = getattr(provider, "last_telemetry_record", None)
+        if not record:
+            return
+        self.samples += 1
+        self.prompt_tokens += int(record.get("prompt_tokens") or 0)
+        self.cached_tokens += int(record.get("cached_tokens") or 0)
+        self.output_tokens += int(record.get("output_tokens") or 0)
+
+    def summary_line(self) -> str | None:
+        if self.samples == 0 or self.prompt_tokens == 0:
+            return None
+        hit_pct = 100.0 * self.cached_tokens / self.prompt_tokens
+        return (
+            f"🧠 Cache: {self.cached_tokens:,}/{self.prompt_tokens:,} prompt tokens "
+            f"hit ({hit_pct:.0f}%) | output {self.output_tokens:,}"
+        )
+
+
 def get_retry_attempts(provider: object) -> int:
     raw_retry_attempts = getattr(provider, "_retry_attempts", 3)
     try:
