@@ -792,6 +792,53 @@ class TestLayer3_ResponsesAnchorFork:
         )
         assert provider.set_global_context("FULL CONTEXT") is False
 
+    def test_concurrent_anchor_recreate_creates_single_r0(self):
+        """Khi anchor R0 hết hạn, nhiều thread đồng thời chỉ tạo lại đúng 1 anchor mới.
+
+        Mô phỏng: anchor cũ resp-anchor-0 invalid -> mọi batch song song dính lỗi
+        previous_response_not_found -> double-checked locking đảm bảo chỉ 1 anchor
+        mới được tạo, các thread sau dùng lại.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        provider = self._responses_provider()
+
+        anchor_create_count = {"n": 0}
+        create_lock = __import__("threading").Lock()
+
+        def fake_create_response(payload):
+            prev = payload.get("previous_response_id")
+            # Request tạo anchor (không có previous_response_id) -> đếm.
+            if prev is None:
+                with create_lock:
+                    anchor_create_count["n"] += 1
+                    idx = anchor_create_count["n"]
+                resp = MagicMock()
+                # Anchor đầu tiên = R0 cũ (sẽ bị coi là hết hạn); sau đó = R-new.
+                resp.id = "resp-anchor-0" if idx == 1 else "resp-anchor-new"
+                resp.output_text = ""
+                return resp, None
+            # Fork từ anchor cũ -> giả lập lỗi hết hạn để kích hoạt recreate.
+            if prev == "resp-anchor-0":
+                raise RuntimeError("previous_response_not_found: expired")
+            # Fork từ anchor mới -> OK.
+            resp = MagicMock()
+            resp.id = "resp-batch"
+            resp.output_text = "<TRANSLATE_TEXT>ok</TRANSLATE_TEXT>"
+            return resp, None
+
+        with patch.object(provider, "_create_response", side_effect=fake_create_response):
+            assert provider.set_global_context("FULL CONTEXT " * 100) is True
+            assert provider._anchor_response_id == "resp-anchor-0"
+
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                results = list(ex.map(lambda i: provider.call(f"batch-{i}"), range(16)))
+
+        assert all("TRANSLATE_TEXT" in r for r in results)
+        # 1 anchor cũ + đúng 1 anchor mới (KHÔNG tạo trùng dù 16 call song song).
+        assert anchor_create_count["n"] == 2
+        assert provider._anchor_response_id == "resp-anchor-new"
+
 
 # ═════════════════════════════════════════════════════════════════════
 # LAYER 4 — REAL MODEL TESTS

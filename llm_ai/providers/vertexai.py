@@ -1,7 +1,8 @@
 import logging
+import threading
 
 from llm_ai.base import BaseLLMProvider
-from llm_ai.retry import build_linear_retry_wait
+from llm_ai.retry import build_exponential_retry_wait
 
 logger = logging.getLogger("llm_ai")
 
@@ -49,7 +50,9 @@ class VertexAIProvider(BaseLLMProvider):
 
         self._safety_settings = self._parse_safety_settings(safety_settings)
         self._cached_content_name: str | None = None
-        self._last_telemetry: dict | None = None
+        # Telemetry lưu thread-local: khi chạy batch song song, mỗi thread đọc đúng
+        # số liệu của call() chính mình thay vì bị thread khác ghi đè (clobber).
+        self._telemetry_local = threading.local()
 
     @property
     def name(self) -> str:
@@ -57,7 +60,8 @@ class VertexAIProvider(BaseLLMProvider):
 
     @property
     def last_telemetry_record(self) -> dict | None:
-        return dict(self._last_telemetry) if self._last_telemetry else None
+        record = getattr(self._telemetry_local, "record", None)
+        return dict(record) if record else None
 
     def _parse_safety_settings(self, safety_settings: dict) -> list[object] | None:
         """
@@ -141,14 +145,14 @@ class VertexAIProvider(BaseLLMProvider):
         """Trích usage_metadata để đo hiệu quả context cache."""
         usage = getattr(response, "usage_metadata", None)
         if usage is None:
-            self._last_telemetry = None
+            self._telemetry_local.record = None
             return
 
         def _int(attr: str) -> int | None:
             value = getattr(usage, attr, None)
             return int(value) if isinstance(value, (int, float)) else None
 
-        self._last_telemetry = {
+        self._telemetry_local.record = {
             "prompt_tokens": _int("prompt_token_count"),
             "cached_tokens": _int("cached_content_token_count"),
             "output_tokens": _int("candidates_token_count"),
@@ -205,7 +209,7 @@ class VertexAIProvider(BaseLLMProvider):
         for attempt in Retrying(
             retry=retry_if_not_exception_type(no_retry_errors),
             stop=stop_after_attempt(self._retry_attempts),
-            wait=build_linear_retry_wait(self._retry_wait_seconds),
+            wait=build_exponential_retry_wait(self._retry_wait_seconds),
             reraise=True,
         ):
             with attempt:

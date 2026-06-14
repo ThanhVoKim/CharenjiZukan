@@ -8,6 +8,8 @@ language: "Chinese"
 batch_size: 20
 use_full_context: true
 wait_sec: 3
+# Số batch chạy song song. 1 = tuần tự (mặc định). >1 = warm-up batch đầu rồi fan-out.
+max_workers: 1
 generation_config:
   thinking_level: HIGH
 response_parser:

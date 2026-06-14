@@ -334,20 +334,21 @@ config khác bằng `--task-config <path>`; override nhanh bằng `--lang`, `--b
 
 #### Bảng tham số `punctuate-srt`
 
-| Tham số             | Mô tả                                                     | Mặc định                                        |
-| ------------------- | --------------------------------------------------------- | ----------------------------------------------- |
-| `--input`, `-i`     | File SRT nguồn (text OCR chưa dấu)                        | (bắt buộc nếu không `--task-file`)              |
-| `--task-file`, `-t` | JSON `[{"input": "...", "output": "..."}]`                | (không dùng)                                    |
-| `--output`, `-o`    | File `.srt` hoặc folder đầu ra                            | `<input>_punct.srt`                             |
-| `--task-config`     | Task YAML — SSOT mọi tham số LLM                          | `config/llm_tasks/punctuation_restoration.yaml` |
-| `--lang`, `-l`      | Ngôn ngữ nguồn (override task config)                     | task config → `Chinese`                         |
-| `--batch`, `-b`     | Số block SRT mỗi batch (override task config)             | task config → `30`                              |
-| `--no-context`      | Tắt full-context (mặc định bật)                           | (context bật)                                   |
-| `--no-flatten`      | Không sinh `_flat.txt` cho forced aligner (mặc định sinh) | (flatten bật)                                   |
-| `--provider`, `-p`  | Override provider (gemini/openai/vertexai)                | task config / provider_chain                    |
-| `--model`, `-m`     | Override model name                                       | task config                                     |
-| `--wait`            | Giây chờ giữa mỗi batch                                   | task config → `0`                               |
-| `--verbose`, `-v`   | Bật log chi tiết                                          | (tắt)                                           |
+| Tham số             | Mô tả                                                                                                 | Mặc định                                        |
+| ------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `--input`, `-i`     | File SRT nguồn (text OCR chưa dấu)                                                                    | (bắt buộc nếu không `--task-file`)              |
+| `--task-file`, `-t` | JSON `[{"input": "...", "output": "..."}]`                                                            | (không dùng)                                    |
+| `--output`, `-o`    | File `.srt` hoặc folder đầu ra                                                                        | `<input>_punct.srt`                             |
+| `--task-config`     | Task YAML — SSOT mọi tham số LLM                                                                      | `config/llm_tasks/punctuation_restoration.yaml` |
+| `--lang`, `-l`      | Ngôn ngữ nguồn (override task config)                                                                 | task config → `Chinese`                         |
+| `--batch`, `-b`     | Số block SRT mỗi batch (override task config)                                                         | task config → `30`                              |
+| `--no-context`      | Tắt full-context (mặc định bật)                                                                       | (context bật)                                   |
+| `--no-flatten`      | Không sinh `_flat.txt` cho forced aligner (mặc định sinh)                                             | (flatten bật)                                   |
+| `--provider`, `-p`  | Override provider (gemini/openai/vertexai)                                                            | task config / provider_chain                    |
+| `--model`, `-m`     | Override model name                                                                                   | task config                                     |
+| `--wait`            | Tuần tự: giây chờ giữa batch. Song song: trần nhịp request, tối đa 1 request mỗi `min_interval` giây. | task config → `0`                               |
+| `--workers`, `-w`   | Số batch chạy song song (batch đầu warm-up tuần tự)                                                   | task config (`max_workers`) → `1`               |
+| `--verbose`, `-v`   | Bật log chi tiết                                                                                      | (tắt)                                           |
 
 > `align-srt` gọi `Qwen3ForcedAligner` qua `from qwen_asr import ...` (xem `utils/forced_aligner.py`),
 > **bắt buộc cần `qwen-asr`** + `audio-separator` (tách vocal) — đúng bộ deps mà forced-align của
@@ -562,9 +563,19 @@ gemini_key = userdata.get('gemini_key')
     --batch     30 \
     --budget    24576 \
     --wait      0.5 \
+    --workers   3 \
     --no-context \
     --verbose
 ```
+
+> **Chạy song song (`--workers`):** Mặc định `1` (tuần tự). Đặt `--workers 3` để dịch
+> nhiều batch cùng lúc — batch ĐẦU luôn chạy tuần tự ("warm-up") để provider kịp tạo/ấm
+> context cache (Vertex `CachedContent`) hoặc anchor R0 (OpenAI Responses) TRƯỚC khi
+> fan-out, tránh cả wave đầu cùng cold-start cache. Cache/anchor là read-only dùng chung
+> nên **không ảnh hưởng tính nhất quán bản dịch** giữa các batch. Lưu ý rate limit: cached
+> tokens vẫn tính vào TPM/RPM; với model free-tier/preview (RPM thấp) nên giữ workers nhỏ
+> (3–5). 429 được xử lý tự động bằng exponential backoff + jitter. Có thể đặt sẵn
+> `max_workers` trong task YAML thay cho cờ CLI.
 
 #### Tham số
 
@@ -583,7 +594,8 @@ gemini_key = userdata.get('gemini_key')
 | `--prompt`          | Đường dẫn prompt dịch SRT                                                                                                 | `prompts/translation/srt_translate.txt`      |
 | `--batch`, `-b`     | Số dòng dịch mỗi lần                                                                                                      | `30`                                         |
 | `--budget`          | Thinking budget tokens (Gemini only)                                                                                      | `24576`                                      |
-| `--wait`            | Giây chờ giữa mỗi batch                                                                                                   | `0`                                          |
+| `--wait`            | Tuần tự: giây chờ giữa batch. Song song: trần nhịp phát request (RPM cap)                                                 | `0`                                          |
+| `--workers`, `-w`   | Số batch dịch chạy song song (batch đầu warm-up tuần tự để tạo/ấm cache trước)                                            | task config (`max_workers`) → `1`            |
 | `--no-context`      | Tắt global context, gộp toàn bộ text của file SRT gốc thành một đoạn "Read-Only Reference" và gửi kèm trong prompt cho AI | (mặc định bật)                               |
 | `--verbose`, `-v`   | Hiển thị log chi tiết                                                                                                     | (tắt)                                        |
 

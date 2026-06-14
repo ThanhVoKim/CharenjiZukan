@@ -14,6 +14,10 @@ target_language: "English"
 batch_size: 30
 use_full_context: true
 wait_sec: 0.5
+# Số batch dịch chạy song song. 1 = tuần tự (mặc định an toàn). >1 = warm-up batch
+# đầu tuần tự (tạo/ấm cache + anchor R0) rồi fan-out. Giữ nhỏ (3-5) với model
+# free-tier/preview vì cached tokens vẫn tính vào TPM/RPM (dễ 429).
+max_workers: 1
 response_parser:
   type: "tag"
   tag: "TRANSLATE_TEXT"

@@ -45,10 +45,11 @@ def translate_srt_file(
     batch_size: int = 30,
     use_full_context: bool = True,
     wait_sec: float = 0.0,
+    max_workers: int = 1,
 ) -> dict:
     print(f"\n🤖 Provider: {provider.name}")
     print(f"🌐 Ngôn ngữ: {target_language}")
-    print(f"📦 Batch  : {batch_size} block/lần\n")
+    print(f"📦 Batch  : {batch_size} block/lần | Workers: {max_workers}\n")
 
     t_start = time.time()
     translated_srt, stats = run_srt_batch_task(
@@ -63,6 +64,7 @@ def translate_srt_file(
         wait_sec=wait_sec,
         validator=None,
         write_srt=True,
+        max_workers=max_workers,
     )
     elapsed_total = time.time() - t_start
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence
 
@@ -152,6 +153,13 @@ class FallbackLLMProvider(BaseLLMProvider):
         self._global_context: str | None = None
         self._context_applied: set[int] = set()
         self._needs_inline: dict[int, bool] = {}
+        # Khoá bảo vệ trạng thái chuyển fallback khi chạy batch song song: chốt
+        # active_index + áp context được thực hiện trong khoá, còn network call
+        # (phần chậm) chạy NGOÀI khoá để các batch vẫn song song thật sự.
+        self._lock = threading.RLock()
+        # Lưu provider mà mỗi thread vừa gọi -> last_telemetry_record đọc đúng số
+        # liệu của chính thread đó (không bị nhầm sang provider thread khác đang dùng).
+        self._call_local = threading.local()
         first_provider = self._providers[0]
         self._retry_attempts = retry_attempts if retry_attempts is not None else getattr(first_provider, "_retry_attempts", 3)
         self._retry_wait_seconds = (
@@ -189,6 +197,18 @@ class FallbackLLMProvider(BaseLLMProvider):
     def active_provider_name(self) -> str:
         provider = self._providers[self._active_index]
         return provider.name if provider is not None else self._chain_names[self._active_index]
+
+    @property
+    def last_telemetry_record(self) -> Mapping[str, Any] | None:
+        """Telemetry của provider mà thread hiện tại vừa gọi (delegate xuống dưới).
+
+        Đọc per-thread (`_call_local`) để khi chạy song song không nhầm sang
+        provider của thread khác; fallback về provider active nếu thread chưa gọi.
+        """
+        provider = getattr(self._call_local, "provider", None)
+        if provider is None:
+            provider = self._providers[self._active_index]
+        return provider.last_telemetry_record if provider is not None else None
 
     @property
     def provider_count(self) -> int:
@@ -245,13 +265,21 @@ class FallbackLLMProvider(BaseLLMProvider):
         failures: list[ProviderFailure] = []
         last_exc: Exception | None = None
 
-        while self._active_index < len(self._sources):
-            chain_name = self._chain_names[self._active_index]
-            provider = self._get_provider(self._active_index)
-            self._ensure_context_on_active()
+        while True:
+            # Chốt snapshot trạng thái dưới khoá (nhanh), rồi gọi network NGOÀI khoá.
+            with self._lock:
+                index = self._active_index
+                if index >= len(self._sources):
+                    break
+                chain_name = self._chain_names[index]
+                provider = self._get_provider(index)
+                self._ensure_context_on_active()
+                prepared = self._prepare_message(message)
+                # Ghi provider của thread này để telemetry đọc đúng nguồn.
+                self._call_local.provider = provider
 
             try:
-                return provider.call(self._prepare_message(message))
+                return provider.call(prepared)
             except OpenAICompatCapabilityError as exc:
                 logger.error(
                     "[ProviderChain] Lỗi capability/config ở %s (%s); không fallback để tránh chạy sai profile: %s",
@@ -262,13 +290,14 @@ class FallbackLLMProvider(BaseLLMProvider):
                 raise
             except Exception as exc:
                 last_exc = exc
-                failure = ProviderFailure(
-                    chain_name=chain_name,
-                    provider_name=provider.name,
-                    error_type=type(exc).__name__,
-                    message=str(exc),
+                failures.append(
+                    ProviderFailure(
+                        chain_name=chain_name,
+                        provider_name=provider.name,
+                        error_type=type(exc).__name__,
+                        message=str(exc),
+                    )
                 )
-                failures.append(failure)
                 logger.error(
                     "[ProviderChain] Provider thất bại sau retry: %s (%s) - %s",
                     chain_name,
@@ -276,8 +305,13 @@ class FallbackLLMProvider(BaseLLMProvider):
                     exc,
                 )
 
-                if not self.advance_to_next_provider(str(exc)):
-                    break
+                with self._lock:
+                    # Chỉ thread đầu tiên thất bại tại index này mới advance; thread
+                    # khác thấy index đã đổi -> vòng lặp lại trên provider mới.
+                    if self._active_index == index:
+                        if not self.advance_to_next_provider(str(exc)):
+                            break  # đang ở provider cuối, hết fallback
+                    # else: thread khác đã advance, lặp lại để dùng active mới.
 
         raise ProviderChainError(failures) from last_exc
 

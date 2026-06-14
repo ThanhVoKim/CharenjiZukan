@@ -504,6 +504,26 @@ tests:
     enabled: true
 
   # ──────────────────────────────────────────────
+  # SRT BATCH CONCURRENCY — llm_ai/srt_batch/ + retry + provider thread-safety
+  # ──────────────────────────────────────────────
+
+  - name: "SRT Batch Concurrency — Layer 1: Exponential Backoff, RateLimiter, Telemetry"
+    file: "tests/llm_ai/test_srt_batch_concurrency.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "SRT Batch Concurrency — Layer 2: Fan-out, Warm-up, Thread-safe Fallback"
+    file: "tests/llm_ai/test_srt_batch_concurrency.py"
+    keyword: "Layer2"
+    timeout_sec: 60
+    pytest_args: ["-v", "-s"]
+    tags: ["unit"]
+    enabled: true
+
+  # ──────────────────────────────────────────────
   # TUBER OVERLAY (Python orchestration) — sync_engine/tuber_*.py
   # ──────────────────────────────────────────────
 

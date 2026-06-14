@@ -79,6 +79,7 @@ def restore_punctuation_srt(
     batch_size: int = 30,
     use_full_context: bool = True,
     wait_sec: float = 0.0,
+    max_workers: int = 1,
 ) -> dict[str, Any]:
     """Phục hồi dấu câu cho SRT bằng LLM, ghi `output_srt`.
 
@@ -100,6 +101,7 @@ def restore_punctuation_srt(
         wait_sec=wait_sec,
         validator=_validate_content_preserved,
         write_srt=True,
+        max_workers=max_workers,
     )
     return stats
 
@@ -206,7 +208,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         metavar="SEC",
-        help="Giây chờ giữa mỗi batch (ưu tiên: CLI > task config > 0).",
+        help="Tuần tự: giây chờ giữa batch. Song song: trần nhịp phát request "
+             "(ưu tiên: CLI > task config > 0).",
+    )
+    parser.add_argument(
+        "--workers", "-w",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Số batch chạy song song (ưu tiên: CLI > task config > 1). "
+             "Batch đầu luôn warm-up tuần tự trước khi fan-out.",
     )
     parser.add_argument(
         "--flatten",
@@ -278,6 +289,9 @@ def main() -> None:
     use_full_context = bool(
         _resolve_by_priority(args.context, task_cfg, ["use_full_context", "full_context"], True)
     )
+    max_workers = int(
+        _resolve_by_priority(args.workers, task_cfg, ["max_workers", "workers", "concurrency"], 1)
+    )
 
     try:
         tasks = resolve_cli_tasks(
@@ -308,6 +322,7 @@ def main() -> None:
         print(f"  Lang     : {language}")
         print(f"  Batch    : {batch_size}")
         print(f"  Context  : {'ON' if use_full_context else 'OFF'}")
+        print(f"  Workers  : {max_workers}")
         print("=" * 55)
 
         try:
@@ -320,6 +335,7 @@ def main() -> None:
                 batch_size=batch_size,
                 use_full_context=use_full_context,
                 wait_sec=wait_sec,
+                max_workers=max_workers,
             )
 
             flat_msg = ""

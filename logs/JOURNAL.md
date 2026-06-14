@@ -1,5 +1,53 @@
 # Project Journal
 
+## 2026-06-14: Fan-out song song cho SRT batch (translate/punctuate) + an-toàn-thread cho cache/anchor
+
+### Tóm tắt
+
+`run_srt_batch_task` trước nay chạy **tuần tự** (1 batch/lần). Với video dài (hàng nghìn block) wall-clock
+rất lâu dù mỗi batch độc lập. Thêm chế độ **fan-out song song** (`max_workers > 1`) theo mô hình
+**warm-up rồi fan-out**: batch ĐẦU chạy tuần tự để provider kịp tạo/ấm context cache (Vertex
+`CachedContent`) hoặc anchor R0 (OpenAI Responses) TRƯỚC khi bung các batch còn lại qua
+`ThreadPoolExecutor`. Cache/anchor là read-only dùng chung nên **không ảnh hưởng tính nhất quán bản
+dịch** giữa các batch (fork-from-anchor, không chain tuần tự N→N-1). Mặc định vẫn `max_workers=1`
+(giữ nguyên hành vi cũ).
+
+Theo tài liệu chính thức (Vertex + OpenAI): caching **không** nới rate limit (cached tokens vẫn tính vào
+TPM/RPM), nên concurrency phải **cap** + **exponential backoff** chứ không fan-out vô hạn — đặc biệt với
+model free-tier/preview RPM thấp.
+
+### Thay đổi
+
+- **`llm_ai/retry.py`**: thêm `calculate_exponential_retry_wait_seconds` + `build_exponential_retry_wait`
+  (gấp đôi mỗi attempt, truncated tại max, + jitter để tránh "retry storm"). Vertex & OpenAI provider
+  chuyển sang dùng exponential thay cho linear.
+- **`llm_ai/providers/vertexai.py` & `openai.py`**: telemetry chuyển sang **thread-local**
+  (`threading.local`) — chạy song song mỗi thread đọc đúng số liệu call của mình, không bị clobber.
+- **`llm_ai/providers/openai.py`**: thêm `_recreate_anchor_locked` (**double-checked locking** quanh
+  `_anchor_lock`) — khi R0 hết hạn giữa chừng, nhiều thread chỉ tạo lại **đúng 1** anchor mới, không trùng.
+- **`llm_ai/provider_chain.py`**: `FallbackLLMProvider.call()` **thread-safe** (RLock chốt snapshot
+  active_index + áp context dưới khoá, network call ngoài khoá; fallover-guard chống double-advance).
+  Thêm `last_telemetry_record` (delegate per-thread xuống provider active).
+- **`llm_ai/srt_batch/batching.py`**: `CacheTelemetryAccumulator.record_dict()` — cộng dồn từ dict
+  telemetry (worker đọc thread-local rồi trả về **main thread** cộng đơn luồng, không cần khoá).
+- **`llm_ai/srt_batch/runner.py`**: tách `_process_one_batch` (thuần, không ghi state chia sẻ) trả
+  `_BatchOutcome`; thêm `_RateLimiter` (trần nhịp phát request theo `wait_sec` khi song song); warm-up
+  batch 0 → fan-out `ThreadPoolExecutor`; áp kết quả + telemetry ở main thread. `max_workers` param mới.
+- **CLI/wrapper**: `translate_srt_file`, `restore_punctuation_srt` + `cli/translate_srt.py`,
+  `cli/punctuate_srt.py` thêm `--workers/-w` (ưu tiên CLI > task YAML `max_workers` > 1).
+- **Config**: `srt_translation.yaml` + `punctuation_restoration.yaml` thêm `max_workers: 1` (kèm chú
+  thích cảnh báo RPM). `docs/colab-guide.md`: bảng tham số + ghi chú song song/warm-up/rate-limit.
+- **Tests**: mới `tests/llm_ai/test_srt_batch_concurrency.py` (15 test: backoff math, RateLimiter,
+  record_dict, song song==tuần tự cùng kết quả, overlap thật, warm-up đơn độc, context set 1 lần,
+  fallback chain thread-safe). Thêm `test_concurrent_anchor_recreate_creates_single_r0` vào
+  `test_translation_providers.py`. `test_matrix.yaml`: 2 entry mới. Đã chạy `tests/{translation,llm_ai}`
+  xanh (67 passed + mới, 6 skip Layer4/no-cred).
+
+> Cơ chế **theo capability profile**, không theo primary/fallback: provider nào hỗ trợ explicit cache/
+> Responses anchor thì an toàn song song; cached tokens vẫn tính TPM nên giữ workers nhỏ (3–5).
+
+---
+
 ## 2026-06-14: Gộp `punctuation/srt_punctuator.py` vào `cli/punctuate_srt.py` — xóa package `punctuation/`
 
 ### Tóm tắt

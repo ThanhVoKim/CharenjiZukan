@@ -172,7 +172,16 @@ Ví dụ đầy đủ:
         type=float,
         default=None,
         metavar="SEC",
-        help="Giây chờ giữa mỗi batch (ưu tiên: CLI > task config > mặc định 0)",
+        help="Tuần tự: giây chờ giữa batch. Song song: trần nhịp phát request "
+             "(ưu tiên: CLI > task config > mặc định 0)",
+    )
+    parser.add_argument(
+        "--workers", "-w",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Số batch chạy song song (ưu tiên: CLI > task config > 1). "
+             "Batch đầu luôn warm-up tuần tự trước khi fan-out.",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -393,6 +402,9 @@ def main():
         ["use_full_context", "full_context"],
         True,
     )
+    max_workers = int(
+        resolve_by_priority(args.workers, task_config, ["max_workers", "workers", "concurrency"], 1)
+    )
 
     ok_tasks = 0
     for task in tasks:
@@ -408,6 +420,7 @@ def main():
         print(f"  Lang     : {args.lang}")
         print(f"  Batch    : {batch_size}")
         print(f"  Context  : {'ON' if use_full_context else 'OFF'}")
+        print(f"  Workers  : {max_workers}")
         print("=" * 55)
 
         try:
@@ -420,6 +433,7 @@ def main():
                 batch_size=batch_size,
                 use_full_context=use_full_context,
                 wait_sec=wait_sec,
+                max_workers=max_workers,
             )
             ok_tasks += 1
         except KeyboardInterrupt:

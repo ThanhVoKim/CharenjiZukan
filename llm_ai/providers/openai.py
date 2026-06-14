@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any, Mapping
 
@@ -21,7 +22,7 @@ from llm_ai.openai_compat import (
     requested_payload_feature,
     write_telemetry_record,
 )
-from llm_ai.retry import build_linear_retry_wait
+from llm_ai.retry import build_exponential_retry_wait
 
 
 class OpenAICompatibleProvider(BaseLLMProvider):
@@ -69,11 +70,16 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         self._retry_wait_seconds = retry_wait_seconds
         self._previous_response_id: str | None = None
         self._last_response_id: str | None = None
-        self._last_telemetry_record: dict[str, Any] | None = None
+        # Telemetry lưu thread-local: chạy batch song song mỗi thread đọc đúng số
+        # liệu call() của mình, không bị thread khác ghi đè.
+        self._telemetry_local = threading.local()
         # Anchor R0 cho fork-from-anchor: full context được gửi 1 lần (store=true),
         # mọi batch sau fork từ cùng anchor này thay vì chain tuần tự.
         self._anchor_response_id: str | None = None
         self._anchor_context: str | None = None
+        # Khoá tái tạo anchor: khi chạy song song, nhiều thread cùng phát hiện R0
+        # hết hạn sẽ chỉ cho 1 thread tạo lại (double-check), tránh tạo trùng R0.
+        self._anchor_lock = threading.Lock()
 
     @property
     def name(self) -> str:
@@ -89,7 +95,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
     @property
     def last_telemetry_record(self) -> dict[str, Any] | None:
-        return dict(self._last_telemetry_record) if self._last_telemetry_record else None
+        record = getattr(self._telemetry_local, "record", None)
+        return dict(record) if record else None
 
     def reset_state(self) -> None:
         """Xóa previous response state local của provider."""
@@ -151,6 +158,26 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         logging.info("[OpenAI Provider] Anchor context tạo thành công: %s", anchor_id)
         return anchor_id
 
+    def _recreate_anchor_locked(self, stale_anchor_id: str) -> str | None:
+        """Tạo lại anchor R0 an-toàn-thread khi anchor cũ hết hạn.
+
+        Double-checked locking: khi chạy song song, nhiều thread cùng phát hiện
+        anchor cũ (`stale_anchor_id`) hết hạn. Chỉ thread ĐẦU TIÊN vào khoá thấy
+        anchor hiện tại vẫn là anchor cũ mới tạo lại; các thread sau vào khoá thấy
+        anchor đã đổi -> dùng luôn anchor mới, KHÔNG tạo trùng R0.
+        """
+        with self._anchor_lock:
+            if self._anchor_response_id == stale_anchor_id:
+                # Mình là thread đầu tiên -> tạo lại đúng 1 lần.
+                logging.warning(
+                    "[OpenAI Provider] Anchor %s không còn hợp lệ, tạo lại anchor",
+                    stale_anchor_id,
+                )
+                self._anchor_response_id = None
+                self._create_anchor()
+            # else: thread khác đã refresh -> dùng anchor mới hiện có.
+            return self._anchor_response_id
+
     def call(self, message: str) -> str:
         from openai import AuthenticationError, BadRequestError, PermissionDeniedError
         from tenacity import Retrying, retry_if_not_exception_type, stop_after_attempt
@@ -165,7 +192,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         for attempt in Retrying(
             retry=retry_if_not_exception_type(no_retry_errors),
             stop=stop_after_attempt(self._retry_attempts),
-            wait=build_linear_retry_wait(self._retry_wait_seconds),
+            wait=build_exponential_retry_wait(self._retry_wait_seconds),
             reraise=True,
         ):
             with attempt:
@@ -224,12 +251,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     and previous_response_id == self._anchor_response_id
                     and self._is_invalid_previous_response_error(exc)
                 ):
-                    logging.warning(
-                        "[OpenAI Provider] Anchor %s không còn hợp lệ, tạo lại anchor",
-                        self._anchor_response_id,
-                    )
-                    self._anchor_response_id = None
-                    new_anchor = self._create_anchor()
+                    new_anchor = self._recreate_anchor_locked(previous_response_id)
                     if new_anchor:
                         payload["previous_response_id"] = new_anchor
                         response, headers = self._create_response(payload)
@@ -328,7 +350,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             retry_count=retry_count,
             prompt_cache_key=self._profile.request_options.prompt_cache_key,
         )
-        self._last_telemetry_record = record
+        self._telemetry_local.record = record
         write_telemetry_record(self._profile, record)
 
     def _maybe_wrap_endpoint_rejection(

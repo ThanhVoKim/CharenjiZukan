@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Mapping
 
 from utils.srt_parser import parse_srt
 
@@ -42,8 +42,16 @@ class CacheTelemetryAccumulator:
         self.samples = 0
 
     def record(self, provider: object) -> None:
-        record = getattr(provider, "last_telemetry_record", None)
-        if not record:
+        self.record_dict(getattr(provider, "last_telemetry_record", None))
+
+    def record_dict(self, record: object) -> None:
+        """Cộng dồn trực tiếp từ một telemetry record (dict).
+
+        Dùng ở chế độ chạy song song: worker đọc telemetry (thread-local) rồi trả
+        record về main thread, main thread gọi record_dict đơn luồng -> không cần
+        khoá cho phép cộng (`+=`).
+        """
+        if not record or not isinstance(record, Mapping):
             return
         self.samples += 1
         self.prompt_tokens += int(record.get("prompt_tokens") or 0)
