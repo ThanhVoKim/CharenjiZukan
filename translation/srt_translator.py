@@ -1,21 +1,25 @@
 # -*- coding: utf-8 -*-
-import copy
+"""
+translation/srt_translator.py
+=============================
+Dịch SRT theo lô bằng LLM. Wrapper mỏng quanh hạ tầng dùng chung
+`llm_ai/srt_batch/` — chỉ đặc tả phần riêng của dịch thuật:
+  - response_tag = "TRANSLATE_TEXT"
+  - không có validator (dịch được phép đổi chữ)
+  - sidecar `.txt` (segments_to_txt) cạnh SRT output.
+"""
+
 import time
 import logging
 from pathlib import Path
 
-from utils.srt_parser import parse_srt, segments_to_srt, segments_to_txt
+from utils.srt_parser import segments_to_txt
 from llm_ai.base import BaseLLMProvider
-from translation.batching import (
+from llm_ai.srt_batch import (
     BatchIntegrityError,
     CacheTelemetryAccumulator,
-    get_retry_attempts,
-    get_retry_wait_seconds,
-    merge_translated_batch,
+    run_srt_batch_task,
 )
-from translation.prompting import build_global_context, load_prompt, render_batch_prompt
-from translation.response_parser import parse_translation_response
-from llm_ai.retry import calculate_linear_retry_wait_seconds
 
 logger = logging.getLogger("srt_translator")
 
@@ -26,7 +30,10 @@ def GeminiCaller(*args, **kwargs):
     return GeminiProvider(*args, **kwargs)
 
 
-parse_gemini_response = parse_translation_response
+def parse_gemini_response(result: str) -> str:
+    from translation.response_parser import parse_translation_response
+
+    return parse_translation_response(result)
 
 
 def translate_srt_file(
@@ -39,145 +46,46 @@ def translate_srt_file(
     use_full_context: bool = True,
     wait_sec: float = 0.0,
 ) -> dict:
-    raw_content = Path(input_file).read_text(encoding="utf-8", errors="ignore")
-    srt_list = parse_srt(raw_content)
-    total = len(srt_list)
-
-    if total == 0:
-        raise ValueError(f"Không đọc được block SRT nào từ: {input_file}")
-
-    logger.info(f"📄 Đọc: {total} block SRT | Provider: {provider.name} | Batch: {batch_size}")
-    print(f"\n📄 Tổng: {total} block SRT")
-    print(f"🤖 Provider: {provider.name}")
+    print(f"\n🤖 Provider: {provider.name}")
     print(f"🌐 Ngôn ngữ: {target_language}")
     print(f"📦 Batch  : {batch_size} block/lần\n")
 
-    base_prompt = load_prompt(prompt_file, target_language)
-
-    context_block = ""
-    if use_full_context:
-        context_block, full_text = build_global_context(srt_list)
-        logger.info(f"📝 Full context: {len(full_text)} ký tự")
-
-        if provider.set_global_context(context_block):
-            logger.info("🧠 Provider đã tiếp nhận global context nội bộ (cache mode)")
-            context_block = ""
-
-    batch_retry_attempts = get_retry_attempts(provider)
-    batch_retry_wait_seconds = get_retry_wait_seconds(provider)
-    logger.info(
-        f"🔁 Batch integrity retry config: attempts={batch_retry_attempts}, "
-        f"wait={batch_retry_wait_seconds}s"
-    )
-
-    translated_srt = copy.deepcopy(srt_list)
-    batches = [srt_list[i : i + batch_size] for i in range(0, total, batch_size)]
-    total_batches = len(batches)
-    success_count = 0
-    failed_count = 0
-    cache_telemetry = CacheTelemetryAccumulator()
     t_start = time.time()
+    translated_srt, stats = run_srt_batch_task(
+        input_srt=input_file,
+        output_srt=output_file,
+        prompt_file=prompt_file,
+        provider=provider,
+        language=target_language,
+        response_tag="TRANSLATE_TEXT",
+        batch_size=batch_size,
+        use_full_context=use_full_context,
+        wait_sec=wait_sec,
+        validator=None,
+        write_srt=True,
+    )
+    elapsed_total = time.time() - t_start
 
-    for idx, batch in enumerate(batches):
-        batch_srt_str = "\n\n".join(
-            f"{item['line']}\n{item['time']}\n{item['text'].strip()}"
-            for item in batch
-        )
-
-        prompt_message = render_batch_prompt(
-            base_prompt=base_prompt,
-            batch_srt_str=batch_srt_str,
-            context_block=context_block,
-        )
-
-        b_start = batch[0]["line"]
-        b_end = batch[-1]["line"]
-        print(
-            f"🔄 [{idx + 1:>3}/{total_batches}] block {b_start:>5} → {b_end:<5}",
-            end="  ",
-            flush=True,
-        )
-
-        for attempt in range(1, batch_retry_attempts + 1):
-            try:
-                t0 = time.time()
-                raw_result = provider.call(prompt_message)
-                cache_telemetry.record(provider)
-                try:
-                    translated_text = parse_translation_response(raw_result)
-                except Exception as exc:
-                    raise BatchIntegrityError(f"Không parse được <TRANSLATE_TEXT>: {exc}") from exc
-
-                elapsed_batch = time.time() - t0
-
-                offset = idx * batch_size
-                translated_batch = merge_translated_batch(translated_text, batch)
-                for j, item in enumerate(translated_batch):
-                    translated_srt[offset + j]["text"] = item["text"]
-
-                success_count += 1
-                print(f"✅  {elapsed_batch:.1f}s")
-                break
-
-            except BatchIntegrityError as exc:
-                if attempt < batch_retry_attempts:
-                    print(f"⚠️  retry {attempt}/{batch_retry_attempts}: {exc}")
-                    logger.warning(
-                        f"Batch {idx + 1} phản hồi không hợp lệ "
-                        f"(lần {attempt}/{batch_retry_attempts}): {exc}"
-                    )
-                    wait_seconds = calculate_linear_retry_wait_seconds(
-                        batch_retry_wait_seconds,
-                        attempt,
-                    )
-                    if wait_seconds > 0:
-                        print(f"   ⏳ chờ {wait_seconds:g}s trước khi retry...")
-                        time.sleep(wait_seconds)
-                    continue
-
-                failed_count += 1
-                print(f"❌  {exc}")
-                logger.error(
-                    f"Batch {idx + 1} thất bại sau {batch_retry_attempts} lần retry "
-                    f"do lỗi phản hồi: {exc}"
-                )
-
-            except Exception as exc:
-                failed_count += 1
-                print(f"❌  {exc}")
-                logger.error(f"Batch {idx + 1} thất bại: {exc}")
-                break
-
-        if wait_sec > 0:
-            time.sleep(wait_sec)
-
-    output_content = segments_to_srt(translated_srt)
-    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
-    Path(output_file).write_text(output_content, encoding="utf-8")
-
+    # Sidecar text: nối text các block thành .txt cạnh SRT output.
     txt_output = str(Path(output_file).with_suffix(".txt"))
     txt_content = segments_to_txt(translated_srt)
     Path(txt_output).write_text(txt_content, encoding="utf-8")
     logger.info(f"📄 Đã lưu text: {txt_output}")
 
-    elapsed_total = time.time() - t_start
-    stats = {
-        "total_blocks": total,
-        "total_batches": total_batches,
-        "success": success_count,
-        "failed": failed_count,
-        "elapsed": round(elapsed_total, 1),
-        "output": output_file,
-    }
+    stats["elapsed"] = round(elapsed_total, 1)
 
     print(f"\n{'─'*50}")
     print(f"✅ Hoàn thành: {output_file}")
-    print(f"   Batch: {success_count}/{total_batches} thành công | {failed_count} lỗi")
+    print(f"   Batch: {stats['success']}/{stats['total_batches']} thành công | {stats['failed']} lỗi")
     print(f"   Thời gian: {elapsed_total:.1f}s")
 
-    cache_summary = cache_telemetry.summary_line()
-    if cache_summary:
-        logger.info(cache_summary)
-        print(f"   {cache_summary}")
-
     return stats
+
+
+__all__ = [
+    "translate_srt_file",
+    "GeminiCaller",
+    "parse_gemini_response",
+    "BatchIntegrityError",
+    "CacheTelemetryAccumulator",
+]

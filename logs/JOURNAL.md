@@ -1,5 +1,82 @@
 # Project Journal
 
+## 2026-06-14: Gộp `punctuation/srt_punctuator.py` vào `cli/punctuate_srt.py` — xóa package `punctuation/`
+
+### Tóm tắt
+
+Sau khi tách `punctuate-srt` thành CLI riêng (entry cùng ngày, bên dưới), package `punctuation/` chỉ
+còn 1 file mỏng phục vụ đúng 1 CLI → không đáng có thư mục riêng. Inline toàn bộ vào CLI.
+
+### Thay đổi
+
+- **`cli/punctuate_srt.py`**: gộp 4 hàm core (`_content_signature`, `_validate_content_preserved`,
+  `restore_punctuation_srt`, `flatten_srt_to_text`) trực tiếp vào file. Import đổi từ
+  `punctuation.srt_punctuator` → dùng `llm_ai.srt_batch` + `utils.srt_parser` tại chỗ.
+- **Xóa** thư mục `punctuation/` (cả `__init__.py` + `srt_punctuator.py`). Bỏ `punctuation*` khỏi
+  `pyproject.toml` `packages.find`.
+- **Tests**: gộp `tests/punctuation/test_srt_punctuator.py` vào `tests/cli/test_punctuate_srt.py`
+  (thêm `TestLayer1_ContentSignature`, `TestLayer1_Flatten`, `TestLayer2_RestorePunctuation` — tham
+  chiếu hàm qua `punctuate_srt.*`). Xóa `tests/punctuation/`. `test_matrix.yaml`: gộp entry, gỡ 2 mục
+  trỏ file đã xóa. Đã chạy: `tests/{cli,translation,llm_ai}` xanh (133 passed, 7 skip Layer4).
+
+> Hạ tầng batch vẫn ở `llm_ai/srt_batch/` (dùng chung `translate-srt`); chỉ phần wrapper đặc thù
+> punctuation chuyển từ package riêng vào thẳng CLI.
+
+---
+
+## 2026-06-14: Tách `punctuate-srt` thành CLI riêng + gom hạ tầng batch-SRT về `llm_ai/srt_batch/`
+
+### Tóm tắt
+
+Phục hồi dấu câu trước nay là **một phase nhúng trong `video-ocr`** (`--punctuate`), khó retry/debug
+độc lập (LLM tốn kém, hay phải gọi lại; log thực tế từng thấy `45/47 batch, 100 block giữ gốc`). Tách
+hẳn thành CLI standalone **`punctuate-srt`**. Đồng thời sửa một "mùi" kiến trúc: `punctuation/` import
+hạ tầng batch từ `translation/` (mũi tên phụ thuộc sai — thứ bị mượn là batch-loop/context-cache/
+integrity-retry, không dính dịch thuật). Gom hạ tầng đó về **`llm_ai/srt_batch/`** (nhà ngữ nghĩa
+đúng); `translation/` và `punctuation/` chỉ còn wrapper mỏng.
+
+### Thay đổi
+
+- **Mới `llm_ai/srt_batch/`**: `batching.py` + `prompting.py` (chuyển từ `translation/`), `runner.py`
+  với `run_srt_batch_task(...)` — vòng lặp batch generic nhận `response_tag` + `validator` (optional).
+  `load_prompt` hợp nhất thay cả `{lang}` lẫn `{language}` (no-op với prompt chỉ có 1 placeholder).
+- **`translation/srt_translator.py`**: wrapper mỏng gọi `run_srt_batch_task(response_tag="TRANSLATE_TEXT",
+  validator=None)` + sidecar `.txt`. Giữ chữ ký `translate_srt_file` + alias `GeminiCaller`/
+  `parse_gemini_response`. **Xóa** `translation/batching.py`, `translation/prompting.py`.
+- **`punctuation/srt_punctuator.py`**: wrapper mỏng gọi `run_srt_batch_task(response_tag="PUNCT_TEXT",
+  validator=_validate_content_preserved)`. Giữ nguyên tên public (`_content_signature`,
+  `restore_punctuation_srt`, `flatten_srt_to_text`) → test cũ không đổi.
+- **Mới `cli/punctuate_srt.py`** → script `punctuate-srt` (pyproject). Args: `--input/--task-file/
+  --output`, `--task-config` (SSOT, mặc định `config/llm_tasks/punctuation_restoration.yaml`),
+  `--lang/--batch/--no-context/--no-flatten`, provider overrides. Dùng `resolve_cli_tasks`
+  (default_ext `_punct.srt`) + `create_task_provider` (như `llm-task`).
+- **`cli/video_ocr.py`**: **gỡ hẳn** `run_punctuation_phase()` + 2 args `--punctuate`/
+  `--punctuation-task-config` + 2 call-site. `video-ocr` giờ chỉ làm OCR.
+- **Tests**: `tests/translation/...` đổi import `translation.batching` → `llm_ai.srt_batch.batching`.
+  Mới `tests/cli/test_punctuate_srt.py` (Layer1 arg-parser + Layer3 pipeline mock provider). Thêm 2
+  entry vào `test_matrix.yaml`. Đã chạy: `tests/{llm_ai,cli,punctuation,translation}` xanh
+  (107+35 passed, skip Layer4 real-API).
+- **Docs**: `colab-guide.md` mục 2.0c → luồng **3 bước rời** `video-ocr → punctuate-srt → align-srt`,
+  thêm bảng tham số `punctuate-srt`, gỡ bảng `--punctuate` của video-ocr.
+
+### Flow mới (OCR-centric)
+
+```
+video-ocr <video> --config flow.yaml      → <stem>.srt                  (chỉ OCR)
+punctuate-srt <stem>.srt                   → <stem>_punct.srt + <stem>_punct_flat.txt
+align-srt <stem>_punct_flat.txt --video …  → <stem>_punct_flat_aligned.srt
+```
+
+Mỗi bước retry/debug độc lập. Hạ tầng batch (cache/context/retry) dùng chung `translate-srt` qua
+`llm_ai/srt_batch/`.
+
+### Pending / Next
+
+- Câu hỏi mở của user (chưa làm): **phương án non-LLM** cho phục hồi dấu câu (deepmultilingualpunctuation,
+  ct-punctuator...) — có thể thêm như một provider/validator thay thế trong `punctuate-srt` sau này.
+
+---
+
 ## 2026-06-13: Tối ưu token LLM — context cache đo được + thinking_level per-task + Responses anchor-fork
 
 ### Tóm tắt

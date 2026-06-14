@@ -267,15 +267,24 @@ def segments_to_txt(segments: List[Dict]) -> str:
     return ' '.join(texts)
 
 
-def write_segments_to_flat_text(segments: list, output_path: str) -> Path:
+def write_segments_to_flat_text(
+    segments: list, output_path: str, cjk_aware: bool = False
+) -> Path:
     """Ghi toàn bộ subtitle text thành raw text phẳng ra file .txt.
 
-    Normalize whitespace: mỗi segment được collapse whitespace thành single space,
-    sau đó tất cả segment được nối bằng khoảng trắng. Không timestamp, không line number.
+    Normalize whitespace: mỗi segment được collapse whitespace thành single space.
+
+    Separator phụ thuộc `cjk_aware`:
+      - `cjk_aware=False` (mặc định): luôn nối các segment bằng một khoảng trắng.
+      - `cjk_aware=True` + nội dung là CJK (Trung/Nhật/Hàn): bỏ MỌI khoảng trắng
+        và nối trực tiếp (dấu câu là ranh giới — forced aligner duyệt theo ký tự
+        nên không được chèn space giữa các ký tự Hán). Nội dung Latin vẫn nối
+        bằng khoảng trắng như thường.
 
     Args:
         segments: List of segment dicts (từ parse_srt).
         output_path: Đường dẫn file .txt output.
+        cjk_aware: Bật xử lý đặc biệt cho CJK (nối không khoảng trắng).
 
     Returns:
         Path tới file đã ghi.
@@ -286,12 +295,18 @@ def write_segments_to_flat_text(segments: list, output_path: str) -> Path:
         >>> Path('/tmp/out.txt').read_text()
         'Hello world Foo bar'
     """
+    cjk = cjk_aware and is_cjk("".join(str(seg.get("text", "")) for seg in segments))
+
     chunks = []
     for segment in segments:
-        text = " ".join(str(segment.get("text", "")).split())
+        text = str(segment.get("text", ""))
+        # Bỏ toàn bộ whitespace/newline với CJK; collapse về single space với Latin.
+        text = "".join(text.split()) if cjk else " ".join(text.split())
         if text:
             chunks.append(text)
-    flat_text = " ".join(chunks).strip()
+
+    sep = "" if cjk else " "
+    flat_text = sep.join(chunks).strip()
 
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)

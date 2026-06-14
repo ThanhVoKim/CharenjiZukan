@@ -580,21 +580,30 @@ tests:
     enabled: true
 
   # ──────────────────────────────────────────────────────────
-  # PUNCTUATION RESTORATION — punctuation/srt_punctuator.py
+  # PUNCTUATE SRT CLI — cli/punctuate_srt.py
+  # (gộp cả core restore/flatten + CLI; punctuation/ cũ đã xóa)
   # ──────────────────────────────────────────────────────────
 
-  - name: "SRT Punctuator — Layer 1: Content Signature & Flatten"
-    file: "tests/punctuation/test_srt_punctuator.py"
+  - name: "Punctuate SRT CLI — Layer 1: Content Signature, Flatten & Arg Parser"
+    file: "tests/cli/test_punctuate_srt.py"
     keyword: "Layer1"
     timeout_sec: 30
     pytest_args: ["-v"]
     tags: ["unit"]
     enabled: true
 
-  - name: "SRT Punctuator — Layer 2: Batch Restore + Anti-Hallucination (Mock Provider)"
-    file: "tests/punctuation/test_srt_punctuator.py"
+  - name: "Punctuate SRT CLI — Layer 2: Batch Restore + Anti-Hallucination (Mock Provider)"
+    file: "tests/cli/test_punctuate_srt.py"
     keyword: "Layer2"
     timeout_sec: 30
     pytest_args: ["-v"]
     tags: ["unit"]
+    enabled: true
+
+  - name: "Punctuate SRT CLI — Layer 3: Full Pipeline (Mock Provider)"
+    file: "tests/cli/test_punctuate_srt.py"
+    keyword: "Layer3"
+    timeout_sec: 60
+    pytest_args: ["-v", "-s"]
+    tags: ["integration"]
     enabled: true

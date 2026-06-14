@@ -562,7 +562,7 @@ class TestLayer1_CacheTelemetryAccumulator:
     """Cộng dồn telemetry token để đo hiệu quả context cache."""
 
     def _acc(self):
-        from translation.batching import CacheTelemetryAccumulator
+        from llm_ai.srt_batch.batching import CacheTelemetryAccumulator
         return CacheTelemetryAccumulator()
 
     def test_empty_accumulator_returns_none_summary(self):

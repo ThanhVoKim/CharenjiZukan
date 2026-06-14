@@ -288,42 +288,66 @@ Chạy CLI với file JSON:
 
 Hướng tiếp cận thay thế cho `qwen3-asr-srt` khi muốn **text chính xác tuyệt đối**: lấy text từ
 **OCR phụ đề cứng** (ground-truth), LLM **chỉ thêm dấu câu** (không đổi chữ), rồi
-**Qwen3-ForcedAligner** ngắt block + lấy timestamp. Gồm 2 bước CLI rời:
-`video-ocr` đọc `--config flow.yaml`; `align-srt` đứng riêng, cấu hình **hoàn toàn bằng CLI args**.
+**Qwen3-ForcedAligner** ngắt block + lấy timestamp. Gồm **3 bước CLI rời, độc lập** — mỗi bước retry/
+debug riêng được, không CLI nào đọc `flow.yaml` của CLI khác:
 
 ```
-video-ocr <video> --config flow.yaml --punctuate
-   → <stem>_<box>.srt  + (nếu --punctuate) <stem>_<box>_punct.srt + <stem>_<box>_flat.txt
-align-srt <stem>_<box>_flat.txt --video <video>
-   → align-srt tự tách vocal (audio-separator) → <stem>_<box>_aligned.srt
+video-ocr <video> --config flow.yaml          → <stem>_<box>.srt           (chỉ OCR)
+punctuate-srt <stem>_<box>.srt                → <stem>_<box>_punct.srt + <stem>_<box>_punct_flat.txt
+align-srt <stem>_<box>_punct_flat.txt --video <video>
+                                              → tự tách vocal (audio-separator) → <stem>_<box>_punct_flat_aligned.srt
 ```
 
-#### Bật punctuation cho `video-ocr`
+#### Bước phục hồi dấu câu — `punctuate-srt` (CLI riêng)
 
-Phase punctuation **mặc định TẮT**, bật bằng cờ CLI `--punctuate`. Mọi tham số LLM (provider,
-language, batch_size, use_full_context, prompt, response_parser) lấy **DUY NHẤT** từ
-`config/llm_tasks/punctuation_restoration.yaml` (SSOT, đúng pattern `srt_translation.yaml`) — không
-khai trùng trong `flow.yaml`. Đổi task config khác bằng `--punctuation-task-config <path>`.
+Tách hẳn khỏi `video-ocr` để dễ **retry/debug** (LLM tốn kém, hay phải gọi lại). Mọi tham số LLM
+(provider, language, batch_size, use_full_context, prompt, response_parser) lấy **DUY NHẤT** từ
+`config/llm_tasks/punctuation_restoration.yaml` (SSOT, đúng pattern `srt_translation.yaml`). Đổi task
+config khác bằng `--task-config <path>`; override nhanh bằng `--lang`, `--batch`, `--no-context`...
 
-> Phase punctuation dùng provider **vertexAI** (xem `config/llm/vertexai.yaml`, cấu hình ADC như
-> `translate-srt`). LLM chỉ được chèn dấu câu; mỗi dòng được kiểm tra "xoá dấu phải khớp text gốc",
-> lệch thì giữ nguyên text OCR (chống ảo giác). Block phụ đề có thể là **mảnh câu** — prompt không ép
-> mỗi dòng thành câu hoàn chỉnh.
+> Dùng provider **vertexAI** (xem `config/llm/vertexai.yaml`, cấu hình ADC như `translate-srt`). LLM
+> chỉ được chèn dấu câu; mỗi dòng được kiểm tra "xoá dấu phải khớp text gốc", lệch thì giữ nguyên text
+> OCR (chống ảo giác). Batch nào fail sau hết retry → cả batch giữ text gốc (stats `… block giữ gốc`).
+> Block phụ đề có thể là **mảnh câu** — prompt không ép mỗi dòng thành câu hoàn chỉnh.
+>
+> Hạ tầng batch (vòng lặp lô + context cache + integrity retry) dùng chung với `translate-srt` qua
+> `llm_ai/srt_batch/`; `punctuate-srt` chỉ là wrapper mỏng thêm validator chống ảo giác.
 
 #### Chạy
 
 ```colab
-# Bước 1: OCR + phục hồi dấu câu (cần môi trường OCR ở Mục 1.3/1.4 + vertexAI ADC)
-!uv run video-ocr /content/video.mp4 --config /content/flow.yaml --punctuate
+# Bước 1: OCR thuần (cần môi trường OCR ở Mục 1.3/1.4)
+!uv run video-ocr /content/video.mp4 --config /content/flow.yaml
 
-# Bước 2: Forced-align text đã có dấu với vocals tách từ video
+# Bước 2: Phục hồi dấu câu (cần vertexAI ADC). Retry chỉ cần chạy lại đúng lệnh này.
+#   --flatten (mặc định bật) sinh thêm _flat.txt 1 dòng cho align-srt.
+!uv run punctuate-srt /content/video_subtitle.srt --lang Chinese
+
+# Bước 3: Forced-align text đã có dấu với vocals tách từ video
 #   Cài 1 lần vào .venv chính:
 #   !uv pip install qwen-asr audio-separator
 !uv run align-srt \
-  /content/video_subtitle_flat.txt \
+  /content/video_subtitle_punct_flat.txt \
   --video /content/video.mp4 \
   --language Chinese
 ```
+
+#### Bảng tham số `punctuate-srt`
+
+| Tham số             | Mô tả                                                                  | Mặc định                                        |
+| ------------------- | ---------------------------------------------------------------------- | ----------------------------------------------- |
+| `--input`, `-i`     | File SRT nguồn (text OCR chưa dấu)                                      | (bắt buộc nếu không `--task-file`)              |
+| `--task-file`, `-t` | JSON `[{"input": "...", "output": "..."}]`                             | (không dùng)                                    |
+| `--output`, `-o`    | File `.srt` hoặc folder đầu ra                                          | `<input>_punct.srt`                             |
+| `--task-config`     | Task YAML — SSOT mọi tham số LLM                                        | `config/llm_tasks/punctuation_restoration.yaml` |
+| `--lang`, `-l`      | Ngôn ngữ nguồn (override task config)                                   | task config → `Chinese`                         |
+| `--batch`, `-b`     | Số block SRT mỗi batch (override task config)                          | task config → `30`                              |
+| `--no-context`      | Tắt full-context (mặc định bật)                                         | (context bật)                                   |
+| `--no-flatten`      | Không sinh `_flat.txt` cho forced aligner (mặc định sinh)               | (flatten bật)                                   |
+| `--provider`, `-p`  | Override provider (gemini/openai/vertexai)                             | task config / provider_chain                    |
+| `--model`, `-m`     | Override model name                                                     | task config                                     |
+| `--wait`            | Giây chờ giữa mỗi batch                                                 | task config → `0`                               |
+| `--verbose`, `-v`   | Bật log chi tiết                                                        | (tắt)                                           |
 
 > `align-srt` gọi `Qwen3ForcedAligner` qua `from qwen_asr import ...` (xem `utils/forced_aligner.py`),
 > **bắt buộc cần `qwen-asr`** + `audio-separator` (tách vocal) — đúng bộ deps mà forced-align của
@@ -1058,15 +1082,8 @@ Ví dụ input là `/content/video.mp4` với 2 box `subtitle` và `note`, outpu
 | Video nhiều nhiễu/hiệu ứng       | 2.0             | 6               |
 | Mặc định cân bằng                | 1.5             | 4               |
 
-#### Tham số `video-ocr` mới (phase punctuation)
-
-| Tham số CLI                 | Mô tả                                                       | Mặc định                                        |
-| --------------------------- | ----------------------------------------------------------- | ----------------------------------------------- |
-| `--punctuate`               | Bật phase phục hồi dấu câu sau OCR (chỉ áp dụng format SRT) | (tắt)                                           |
-| `--punctuation-task-config` | Con trỏ tới llm_tasks YAML (SSOT mọi tham số LLM)           | `config/llm_tasks/punctuation_restoration.yaml` |
-
-> `language`, `batch_size`, `use_full_context`, `provider`, `prompt`, `response_parser` đều nằm trong
-> task config (SSOT) — không khai trong `flow.yaml`.
+> **Phục hồi dấu câu** đã tách khỏi `video-ocr` thành CLI riêng `punctuate-srt` (xem Mục 2.0c) —
+> chạy sau khi có SRT từ OCR. `video-ocr` giờ chỉ làm OCR.
 
 ---
 
