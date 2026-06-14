@@ -2,7 +2,7 @@
 provider: "vertexai"
 project_id: "gemini-493908v1"
 location: "global"
-model: "gemini-3.5-flash"
+model: "gemini-3.1-flash-lite"
 generation_config:
   temperature: 1
   max_output_tokens: 65536
@@ -13,6 +13,6 @@ safety_settings:
   HARM_CATEGORY_SEXUALLY_EXPLICIT: "BLOCK_NONE"
   HARM_CATEGORY_DANGEROUS_CONTENT: "BLOCK_NONE"
 request_timeout: 300
-retry_attempts: 5
+retry_attempts: 10
 retry_wait_seconds: 10
 cache_ttl_seconds: 3600

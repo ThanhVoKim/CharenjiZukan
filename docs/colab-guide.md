@@ -334,20 +334,20 @@ config khác bằng `--task-config <path>`; override nhanh bằng `--lang`, `--b
 
 #### Bảng tham số `punctuate-srt`
 
-| Tham số             | Mô tả                                                                  | Mặc định                                        |
-| ------------------- | ---------------------------------------------------------------------- | ----------------------------------------------- |
-| `--input`, `-i`     | File SRT nguồn (text OCR chưa dấu)                                      | (bắt buộc nếu không `--task-file`)              |
-| `--task-file`, `-t` | JSON `[{"input": "...", "output": "..."}]`                             | (không dùng)                                    |
-| `--output`, `-o`    | File `.srt` hoặc folder đầu ra                                          | `<input>_punct.srt`                             |
-| `--task-config`     | Task YAML — SSOT mọi tham số LLM                                        | `config/llm_tasks/punctuation_restoration.yaml` |
-| `--lang`, `-l`      | Ngôn ngữ nguồn (override task config)                                   | task config → `Chinese`                         |
-| `--batch`, `-b`     | Số block SRT mỗi batch (override task config)                          | task config → `30`                              |
-| `--no-context`      | Tắt full-context (mặc định bật)                                         | (context bật)                                   |
-| `--no-flatten`      | Không sinh `_flat.txt` cho forced aligner (mặc định sinh)               | (flatten bật)                                   |
-| `--provider`, `-p`  | Override provider (gemini/openai/vertexai)                             | task config / provider_chain                    |
-| `--model`, `-m`     | Override model name                                                     | task config                                     |
-| `--wait`            | Giây chờ giữa mỗi batch                                                 | task config → `0`                               |
-| `--verbose`, `-v`   | Bật log chi tiết                                                        | (tắt)                                           |
+| Tham số             | Mô tả                                                     | Mặc định                                        |
+| ------------------- | --------------------------------------------------------- | ----------------------------------------------- |
+| `--input`, `-i`     | File SRT nguồn (text OCR chưa dấu)                        | (bắt buộc nếu không `--task-file`)              |
+| `--task-file`, `-t` | JSON `[{"input": "...", "output": "..."}]`                | (không dùng)                                    |
+| `--output`, `-o`    | File `.srt` hoặc folder đầu ra                            | `<input>_punct.srt`                             |
+| `--task-config`     | Task YAML — SSOT mọi tham số LLM                          | `config/llm_tasks/punctuation_restoration.yaml` |
+| `--lang`, `-l`      | Ngôn ngữ nguồn (override task config)                     | task config → `Chinese`                         |
+| `--batch`, `-b`     | Số block SRT mỗi batch (override task config)             | task config → `30`                              |
+| `--no-context`      | Tắt full-context (mặc định bật)                           | (context bật)                                   |
+| `--no-flatten`      | Không sinh `_flat.txt` cho forced aligner (mặc định sinh) | (flatten bật)                                   |
+| `--provider`, `-p`  | Override provider (gemini/openai/vertexai)                | task config / provider_chain                    |
+| `--model`, `-m`     | Override model name                                       | task config                                     |
+| `--wait`            | Giây chờ giữa mỗi batch                                   | task config → `0`                               |
+| `--verbose`, `-v`   | Bật log chi tiết                                          | (tắt)                                           |
 
 > `align-srt` gọi `Qwen3ForcedAligner` qua `from qwen_asr import ...` (xem `utils/forced_aligner.py`),
 > **bắt buộc cần `qwen-asr`** + `audio-separator` (tách vocal) — đúng bộ deps mà forced-align của
