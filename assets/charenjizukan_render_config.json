@@ -27,7 +27,8 @@
     "scale_width": "1920",
     "scale_height": "78",
     "x": "0",
-    "y": "964"
+    "y": "964",
+    "path": "/content/assets/black-background.jpg"
   },
   "subtitles": {
     "enabled": true,
@@ -35,19 +36,19 @@
     "style": {
       "Fontname": "Noto Sans CJK JP",
       "Bold": "1",
-      "FontSize": "20",
+      "FontSize": "24",
       "PrimaryColour": "&H0000FFFF",
       "OutlineColour": "&H00000000",
       "Outline": "1",
       "Shadow": "1.5",
       "BackColour": "0xE6000000",
       "Alignment": "2",
-      "MarginV": "12"
+      "MarginV": "10"
     }
   },
   "audio_mix": {
     "mute_audio_volume": 1.0,
-    "ambient_volume": 0.03,
+    "ambient_volume": 0.04,
     "bgm_volume": 0
   },
   "audio_policies": {
@@ -79,12 +80,12 @@
   "forced_alignment_subtitle": {
     "enabled": true,
     "language": "Japanese",
-    "max_chars": 42,
+    "max_chars": 17,
     "min_chars": 0,
     "split_on_comma": true,
-    "offset_seconds": 0.24,
+    "offset_seconds": 0.04,
     "keep_tts_synced_debug": false,
     "fail_policy": "warn",
-    "batch_size": 16
+    "batch_size": 32
   }
 }

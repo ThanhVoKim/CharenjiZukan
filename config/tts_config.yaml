@@ -19,7 +19,7 @@ voicevox_nemo:
   voice_id: 10008
   host: "127.0.0.1"
   port: 50121
-  speed_scale: 1.12
+  speed_scale: 1.1
   pitch_scale: -0.05
   intonation_scale: 1.0
   volume_scale: 2.0
@@ -32,7 +32,7 @@ voicevox:
   voice_id: 100
   host: "127.0.0.1"
   port: 50021
-  speed_scale: 1.12
+  speed_scale: 1.1
   pitch_scale: -0.05
   intonation_scale: 1.0
   volume_scale: 2.0
