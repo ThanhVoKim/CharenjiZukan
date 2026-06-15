@@ -1,5 +1,38 @@
 # Project Journal
 
+## 2026-06-16: align-srt v2 — bỏ Forced Aligner, thay bằng tách câu thuần CPU
+
+### Tóm tắt
+
+`cli/align_srt.py` viết lại: bỏ hoàn toàn nhánh `Qwen3ForcedAligner` + tách vocal + GPU.
+Lý do: (1) OOM VRAM với video > 1 giờ; (2) overengineer — mục đích thật chỉ là **gom block SRT
+thành câu hoàn chỉnh theo dấu ngắt câu**, trong khi `_punct.srt` đã có timestamp OCR gốc.
+
+### Thuật toán mới (v1)
+
+Duyệt block SRT theo thứ tự, gom vào buffer; khi block kết thúc bằng dấu ngắt câu
+(`.!?:。！？：；`, không gồm phẩy, bỏ qua ngoặc/nháy đóng ở đuôi) → flush thành 1 block câu:
+- `start = buffer[0].start_time` (timestamp OCR thật)
+- `end   = buffer[-1].end_time`  (timestamp OCR thật)
+- Không nội suy, không model, không GPU.
+
+Block dư cuối file (không có dấu ngắt) → flush thành câu cuối.
+
+### NOTE hoãn lại
+
+Dấu ngắt câu nằm GIỮA block (vd `去学校。然后`) → v1 mặc kệ. Khi cần: nội suy timestamp theo
+tỉ lệ ký tự trong block đó (dùng `start_time`/`end_time` thật của chính block).
+
+### File thay đổi
+
+- `utils/srt_sentence_segmenter.py` — TẠO MỚI: lõi thuần (testable, no I/O)
+- `cli/align_srt.py` — VIẾT LẠI: bỏ forced-align/vocal/GPU; args mới đơn giản
+- `tests/utils/test_srt_sentence_segmenter.py` — TẠO MỚI: 30 unit tests (Layer 1), 30/30 pass
+- `tests/test_matrix.yaml` — thêm entry `unit` cho segmenter
+- `docs/colab-guide.md` — cập nhật Mục 2.0c: flow + bảng tham số mới + NOTE hoãn
+
+---
+
 ## 2026-06-15: Forced Alignment per-clip TTS — sửa OOM dây chuyền + không sót dòng mute
 
 ### Tóm tắt

@@ -284,19 +284,26 @@ Chạy CLI với file JSON:
   - CLI đã tự đặt `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (giảm phân mảnh, dùng `setdefault` nên có thể override bằng env var của bạn).
   - Hạ `--max-new-tokens` (mặc định 1024) hoặc `--batch-size` nếu vẫn sát trần; tăng `--max-new-tokens` nếu thấy phụ đề cuối chunk bị cắt cụt.
 
-### 2.0 c. SRT nguồn từ OCR — Phục hồi dấu câu (LLM) + Forced Alignment (align-srt)
+### 2.0 c. SRT nguồn từ OCR — Phục hồi dấu câu (LLM) + Tách câu theo dấu câu (align-srt)
 
 Hướng tiếp cận thay thế cho `qwen3-asr-srt` khi muốn **text chính xác tuyệt đối**: lấy text từ
-**OCR phụ đề cứng** (ground-truth), LLM **chỉ thêm dấu câu** (không đổi chữ), rồi
-**Qwen3-ForcedAligner** ngắt block + lấy timestamp. Gồm **3 bước CLI rời, độc lập** — mỗi bước retry/
-debug riêng được, không CLI nào đọc `flow.yaml` của CLI khác:
+**OCR phụ đề cứng** (ground-truth), LLM **chỉ thêm dấu câu** (không đổi chữ), rồi `align-srt`
+gom các block subtitle liên tiếp thành câu hoàn chỉnh theo dấu ngắt câu. Gồm **3 bước CLI rời,
+độc lập** — mỗi bước retry/debug riêng được, không CLI nào đọc `flow.yaml` của CLI khác:
 
 ```
-video-ocr <video> --config flow.yaml          → <stem>_<box>.srt           (chỉ OCR)
-punctuate-srt <stem>_<box>.srt                → <stem>_<box>_punct.srt + <stem>_<box>_punct_flat.txt
-align-srt <stem>_<box>_punct_flat.txt --video <video>
-                                              → tự tách vocal (audio-separator) → <stem>_<box>_punct_flat_aligned.srt
+video-ocr <video> --config flow.yaml  → <stem>_<box>.srt           (chỉ OCR)
+punctuate-srt <stem>_<box>.srt        → <stem>_<box>_punct.srt
+align-srt <stem>_<box>_punct.srt      → <stem>_<box>_punct_seg.srt
 ```
+
+> **`align-srt` v2 — thuần CPU, không model, không GPU:** đọc `_punct.srt`, gom các block liên
+> tiếp cho tới khi gặp block kết thúc bằng dấu ngắt câu (`.!?:。！？：；`), tạo 1 block câu mới.
+> Timestamp lấy thẳng từ biên block OCR gốc — không nội suy, không tách vocal, không VRAM.
+> Thêm `--split-on-comma` để cắt cả tại dấu phẩy (，、,;) — mặc định tắt.
+>
+> **NOTE (hoãn lại):** Dấu ngắt câu nằm GIỮA một block subtitle (vd `去学校。然后`) → v1 mặc kệ,
+> không cắt tại đó. Khi cần: nội suy timestamp theo tỉ lệ ký tự trong block.
 
 #### Bước phục hồi dấu câu — `punctuate-srt` (CLI riêng)
 
@@ -312,6 +319,9 @@ config khác bằng `--task-config <path>`; override nhanh bằng `--lang`, `--b
 >
 > Hạ tầng batch (vòng lặp lô + context cache + integrity retry) dùng chung với `translate-srt` qua
 > `llm_ai/srt_batch/`; `punctuate-srt` chỉ là wrapper mỏng thêm validator chống ảo giác.
+>
+> Cờ `--flatten` (mặc định bật) sinh thêm `_flat.txt` — không còn cần cho `align-srt` v2 nhưng
+> vẫn hữu ích nếu dùng forced-aligner của `sync-video`.
 
 #### Chạy
 
@@ -320,16 +330,10 @@ config khác bằng `--task-config <path>`; override nhanh bằng `--lang`, `--b
 !uv run video-ocr /content/video.mp4 --config /content/flow.yaml
 
 # Bước 2: Phục hồi dấu câu (cần vertexAI ADC). Retry chỉ cần chạy lại đúng lệnh này.
-#   --flatten (mặc định bật) sinh thêm _flat.txt 1 dòng cho align-srt.
 !uv run punctuate-srt /content/video_subtitle.srt --lang Chinese
 
-# Bước 3: Forced-align text đã có dấu với vocals tách từ video
-#   Cài 1 lần vào .venv chính:
-#   !uv pip install qwen-asr audio-separator
-!uv run align-srt \
-  /content/video_subtitle_punct_flat.txt \
-  --video /content/video.mp4 \
-  --language Chinese
+# Bước 3: Tách câu theo dấu câu (thuần CPU, không cần GPU/model)
+!uv run align-srt /content/video_subtitle_punct.srt
 ```
 
 #### Bảng tham số `punctuate-srt`
@@ -343,39 +347,28 @@ config khác bằng `--task-config <path>`; override nhanh bằng `--lang`, `--b
 | `--lang`, `-l`      | Ngôn ngữ nguồn (override task config)                                                                 | task config → `Chinese`                         |
 | `--batch`, `-b`     | Số block SRT mỗi batch (override task config)                                                         | task config → `30`                              |
 | `--no-context`      | Tắt full-context (mặc định bật)                                                                       | (context bật)                                   |
-| `--no-flatten`      | Không sinh `_flat.txt` cho forced aligner (mặc định sinh)                                             | (flatten bật)                                   |
+| `--no-flatten`      | Không sinh `_flat.txt` (mặc định sinh; không còn cần cho `align-srt` v2)                              | (flatten bật)                                   |
 | `--provider`, `-p`  | Override provider (gemini/openai/vertexai)                                                            | task config / provider_chain                    |
 | `--model`, `-m`     | Override model name                                                                                   | task config                                     |
 | `--wait`            | Tuần tự: giây chờ giữa batch. Song song: trần nhịp request, tối đa 1 request mỗi `min_interval` giây. | task config → `0`                               |
 | `--workers`, `-w`   | Số batch chạy song song (batch đầu warm-up tuần tự)                                                   | task config (`max_workers`) → `1`               |
 | `--verbose`, `-v`   | Bật log chi tiết                                                                                      | (tắt)                                           |
 
-> `align-srt` gọi `Qwen3ForcedAligner` qua `from qwen_asr import ...` (xem `utils/forced_aligner.py`),
-> **bắt buộc cần `qwen-asr`** + `audio-separator` (tách vocal) — đúng bộ deps mà forced-align của
-> `sync-video` (Phase 3.5) dùng. **KHÔNG cần `flash-attn`**: aligner để `attn_implementation=None` nên
-> không gọi `flash_attention_2` (flash-attn chỉ cho Qwen3-ASR transcription ở Mục 2.0b). Chạy ở `.venv`
-> chính như `sync-video` thì cài 2 deps này vào `.venv` chính. Có vocals sẵn thì truyền
-> `--vocals /content/vocals.wav --no-separate` để bỏ bước tách (vẫn cần `qwen-asr` cho aligner).
-
 #### Bảng tham số `align-srt`
 
-| Tham số               | Mô tả                                                                           | Mặc định                        |
-| --------------------- | ------------------------------------------------------------------------------- | ------------------------------- |
-| `transcript` / `-i`   | File text PHẲNG 1 dòng (đã có dấu), vd `<stem>_flat.txt`                        | (bắt buộc nếu không task-file)  |
-| `--video`, `-V`       | Video/audio nguồn để tách vocal & align                                         | (bắt buộc nếu không `--vocals`) |
-| `--vocals`            | File vocals có sẵn → bỏ qua bước tách                                           | (không dùng)                    |
-| `--no-separate`       | Không tách vocal, align thẳng audio nguồn (nhanh hơn, kém chính xác nếu có BGM) | (tắt)                           |
-| `--output`, `-o`      | File .srt hoặc folder đầu ra                                                    | `<transcript>_aligned.srt`      |
-| `--task-file`, `-t`   | JSON `[{"input": transcript, "video": ..., "output": ...}]`                     | (không dùng)                    |
-| `--language`, `-l`    | Ngôn ngữ nguồn                                                                  | `Chinese`                       |
-| `--max-chars`         | Số ký tự tối đa mỗi block (CJK ~18, Latin ~42)                                  | `18`                            |
-| `--min-chars`         | Số ký tự tối thiểu mỗi block                                                    | `0`                             |
-| `--no-split-on-comma` | Tắt cắt block tại dấu phẩy (mặc định bật)                                       | (tắt → split bật)               |
-| `--offset-seconds`    | Offset bù trừ timestamp (giây)                                                  | `0.0`                           |
-| `--separator-preset`  | Preset trong `config/audio_separator_config.yaml`                               | `vocal_extraction`              |
-| `--model-path`        | Đường dẫn model aligner                                                         | `Qwen/Qwen3-ForcedAligner-0.6B` |
-| `--device`, `-d`      | Thiết bị chạy                                                                   | `cuda:0`                        |
-| `--verbose`, `-v`     | Bật log chi tiết                                                                | (tắt)                           |
+> **Không cần `qwen-asr`, `audio-separator`, hay GPU.** Chạy thẳng trong `.venv` chính.
+
+| Tham số               | Mô tả                                                                                      | Mặc định              |
+| --------------------- | ------------------------------------------------------------------------------------------ | --------------------- |
+| `input_srt` / `-i`   | File `_punct.srt` (đã có dấu câu từ `punctuate-srt`)                                       | (bắt buộc nếu không `--task-file`) |
+| `--output`, `-o`      | File `.srt` hoặc folder đầu ra                                                             | `<input>_seg.srt`     |
+| `--task-file`, `-t`   | JSON `[{"input": "..._punct.srt", "output": "..."}]`                                       | (không dùng)          |
+| `--offset-seconds`    | Offset cộng vào timestamp (giây)                                                           | `0.0`                 |
+| `--split-on-comma`    | Cắt câu tại dấu phẩy (，、,;) — mặc định **tắt** (chỉ cắt tại `.!?:。！？：；`)             | (tắt)                 |
+| `--verbose`, `-v`     | Bật log chi tiết                                                                           | (tắt)                 |
+
+> **Auto-detect ngôn ngữ:** `align-srt` tự nhận biết CJK hay Latin từ nội dung SRT và in ra
+> trong output (vd `[CJK]` hay `[Latin]`). CJK được nối không khoảng trắng; Latin nối bằng space.
 
 ### 2.1. Mute Audio (mute-srt)
 

@@ -643,3 +643,15 @@ tests:
     pytest_args: ["-v", "-s"]
     tags: ["integration"]
     enabled: true
+
+  # ──────────────────────────────────────────────────────────
+  # SRT SENTENCE SEGMENTER — utils/srt_sentence_segmenter.py
+  # ──────────────────────────────────────────────────────────
+
+  - name: "SRT Sentence Segmenter — Layer 1: Sentence Break Detection & Block Merging"
+    file: "tests/utils/test_srt_sentence_segmenter.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
