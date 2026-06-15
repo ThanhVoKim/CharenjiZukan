@@ -46,18 +46,20 @@ Phase 6: LLM Metadata (post-render, nếu llm_metadata.enabled=true)
 assemble_audio_track() hoàn tất → mixed_audio.wav
     ↓
 if forced_alignment_subtitle.enabled:
-    run_forced_alignment_subtitle()
-        ├── Đọc flat_transcript.txt
-        ├── Load Qwen3ForcedAligner model
-        ├── align(audio=mixed_audio.wav, text=transcript)
-        ├── merge_punctuation() — gộp dấu câu vào word items
-        ├── segment_words_to_subtitles() — chia subtitle blocks
-        ├── write_subtitle_srt() → ghi <output-name>_synced.srt
-        ├── del aligner + clear_vram()
-        └── return stats | None (nếu fail_policy=warn)
+    run_forced_alignment_subtitle(timeline, subtitle_segments, mute_segments)
+        ├── Dựng clip list từ timeline: zip tts_only ↔ TTS TimelineSegment
+        │     ↓ Mỗi clip: {audio_path=dubb-N.wav, text, offset_ms=new_start, audio_speed}
+        ├── execute_forced_alignment_clips()  ← Load aligner 1 lần, loop batch clip
+        │     ├── aligner.align(audio=[clip], text=[line])  ← ~vài giây/clip, không OOM
+        │     ├── word_ms + offset_ms / audio_speed → timestamp tuyệt đối trên timeline cuối
+        │     ├── merge_punctuation() + segment_words_to_subtitles() per clip
+        │     └── try/finally: del aligner + clear_vram()  ← LUÔN giải phóng GPU
+        ├── Dòng vùng mute / clip thiếu → recalculate_segments() (remap timeline)
+        ├── Gộp aligned + remap, sort theo thời gian
+        └── ghi <output-name>_synced.srt (đầy đủ, không sót dòng mute)
     ↓
     Nếu alignment thất bại + fail_policy=warn:
-        → Fallback sang recalculate_srt() (remap timestamp)
+        → Fallback sang recalculate_srt() (remap timestamp toàn bộ)
     ↓
 Phase 4 tiếp tục bình thường
 ```
@@ -491,7 +493,8 @@ Block `video_encoding` trong render config chỉ còn vai trò mô tả/tương 
     "split_on_comma": true,
     "offset_seconds": 0.24,
     "keep_tts_synced_debug": false,
-    "fail_policy": "warn"
+    "fail_policy": "warn",
+    "batch_size": 16
   }
 }
 ```
@@ -510,6 +513,7 @@ Block `video_encoding` trong render config chỉ còn vai trò mô tả/tương 
 | `offset_seconds`        | float       | 0.24        | Offset (giây) dịch chuyển timestamp subtitle so với audio                           |
 | `keep_tts_synced_debug` | bool        | false       | Giữ file `<name>_tts_synced.srt` (remap) để debug, ngay cả khi alignment thành công |
 | `fail_policy`           | str         | `"warn"`    | `warn` → fallback sang remap SRT; `raise`/`error`/`fail` → dừng pipeline            |
+| `batch_size`            | int         | 16          | Số clip TTS align đồng thời trong một lần gọi `aligner.align()`. Giảm nếu OOM       |
 
 **Lưu ý quan trọng về segmentation:**
 
@@ -517,6 +521,10 @@ Block `video_encoding` trong render config chỉ còn vai trò mô tả/tương 
 - `min_chars = 0` có nghĩa là không có giới hạn tối thiểu — cho phép block rất ngắn (vd chỉ chứa 1 từ).
 - Khi `enabled = true` và alignment thành công, file `<output-name>_synced.srt` sẽ chứa kết quả forced alignment thay vì remap timestamp.
 - Khi `enabled = true` nhưng alignment thất bại với `fail_policy = "warn"`, hệ thống tự động fallback sang `recalculate_srt()` (remap timestamp) như cũ.
+
+**Cơ chế per-clip (từ phiên bản mới):**
+
+Pipeline align **từng clip TTS `dubb-N.wav`** (đã sinh ở Phase 0) thay vì cả file `mixed_audio.wav`. Mỗi clip chỉ vài giây nên không bao giờ chạm giới hạn ~5 phút của `Qwen3ForcedAligner`, cho phép chạy video dài tùy ý. Dòng phụ đề trong vùng **mute** (không có clip TTS) tự động được remap timeline rồi gộp vào `_synced.srt` — không sót dòng nào. Giảm `batch_size` nếu gặp OOM khi align nhiều clip cùng lúc.
 
 ---
 
@@ -594,13 +602,20 @@ Renderer deduplicate static image theo absolute path. Nếu cùng một ảnh xu
 
 ### 3.1 Tổng quan
 
-Forced alignment subtitle sử dụng model `Qwen3ForcedAligner` để căn chỉnh chính xác từng từ trong transcript với timestamp audio. Kết quả thay thế SRT remap (recalculate) thông thường, cho phép subtitle đồng bộ chính xác với audio đã mix.
+Forced alignment subtitle sử dụng model `Qwen3ForcedAligner` để căn chỉnh chính xác từng từ trong transcript với timestamp audio. Kết quả thay thế SRT remap (recalculate) thông thường, cho phép subtitle đồng bộ chính xác với audio.
+
+Pipeline align **từng clip TTS `dubb-N.wav`** (Phase 0 đã sinh, 1:1 mỗi dòng phụ đề) thay vì toàn bộ `mixed_audio.wav`. Lợi ích:
+
+- Mỗi clip vài giây → không bao giờ OOM, chạy được video dài bất kỳ (model chỉ chịu ~5 phút/lần).
+- Aligner nghe clip TTS sạch (không lẫn BGM/ambient) → chính xác hơn.
+- Dòng phụ đề vùng **mute** (không có clip TTS) tự remap timeline rồi gộp vào SRT — không sót dòng.
+- GPU được giải phóng hoàn toàn sau khi align (`try/finally clear_vram`) → không ảnh hưởng các bước NVENC phía sau.
 
 **Điều kiện chạy:**
 
 - `forced_alignment_subtitle.enabled = true` trong `render_config.json`
-- Phase 3 (Audio Assembly) đã hoàn tất → file `mixed_audio.wav` tồn tại
-- File `flat_transcript.txt` đã được ghi ở đầu pipeline
+- Phase 0 (TTS) đã hoàn tất → các file `tts_clips/dubb-N.wav` tồn tại
+- Phase 1 (Analysis) đã hoàn tất → `timeline` sẵn sàng để offset word timing
 
 ---
 

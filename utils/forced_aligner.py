@@ -20,9 +20,14 @@ glue đọc YAML của flow OCR nằm ở `cli/align_srt.py`.
 Phụ thuộc: `qwen_asr` (model) + `utils/asr_subtitle_utils.py` (helper chung).
 """
 
+import os
 import sys
 from pathlib import Path
 from typing import Any, Optional
+
+# expandable_segments giảm phân mảnh VRAM khi align audio dài; phải set TRƯỚC khi
+# torch khởi tạo CUDA allocator (load_forced_aligner import torch lazily bên dưới).
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
@@ -148,22 +153,24 @@ def execute_forced_alignment(
 
     language = align_cfg.get("language", "English")
 
-    # Chạy alignment
+    # Chạy alignment — bọc try/finally để LUÔN giải phóng VRAM kể cả khi align()
+    # ném OOM. Nếu không, model + activations kẹt lại trong GPU và làm hỏng các
+    # bước GPU phía sau (vd FFmpeg hevc_nvenc ở final render).
     logger.info(f"Đang chạy forced alignment: audio={audio_path}, language={language}")
-    results = aligner.align(
-        audio=audio_path,
-        text=full_text,
-        language=language,
-    )
-
-    # Giải phóng model
-    del aligner
     try:
-        from utils.media_utils import clear_vram
-        clear_vram()
-        logger.info("Đã giải phóng VRAM sau forced alignment.")
-    except Exception:
-        pass
+        results = aligner.align(
+            audio=audio_path,
+            text=full_text,
+            language=language,
+        )
+    finally:
+        del aligner
+        try:
+            from utils.media_utils import clear_vram
+            clear_vram()
+            logger.info("Đã giải phóng VRAM sau forced alignment.")
+        except Exception:
+            pass
 
     # Xử lý kết quả
     if not results or not results[0]:
@@ -197,3 +204,148 @@ def execute_forced_alignment(
         "subtitle_blocks": len(subtitle_blocks),
         "total_words": len(merged_words),
     }
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Per-clip execution (cho flow sync-video: align từng clip TTS dubb-N.wav)
+# ═════════════════════════════════════════════════════════════════════
+
+def _chunked(seq: list, size: int):
+    """Chia list thành các batch kích thước `size` (size <= 0 → 1 batch)."""
+    if size <= 0:
+        yield seq
+        return
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
+
+
+def execute_forced_alignment_clips(
+    *,
+    clips: list[dict[str, Any]],
+    align_cfg: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[int]]:
+    """Forced alignment theo TỪNG clip TTS thay vì cả mixed audio.
+
+    Mỗi clip ngắn (vài giây) nên không bao giờ chạm giới hạn ~5 phút của
+    Qwen3-ForcedAligner → không OOM, chạy được video dài bất kỳ. Word timing
+    của từng clip được offset về timeline cuối qua `offset_ms` + `audio_speed`.
+
+    Args:
+        clips: list dict, mỗi clip gồm:
+            - audio_path (str): đường dẫn dubb-N.wav,
+            - text (str): text của dòng phụ đề tương ứng,
+            - offset_ms (float): vị trí đầu clip trên timeline cuối (= seg.new_start),
+            - audio_speed (float): hệ số atempo đã áp lên clip (voicevox = 1.0),
+            - line (int): id dòng gốc (để báo cáo clip nào fail → caller remap).
+        align_cfg: dict config (model/device/segmentation/language) đã resolve.
+
+    Returns:
+        (aligned_segments, failed_lines):
+            - aligned_segments: list segment dict {line, start_time(ms), end_time(ms), text},
+              line tạm thời, caller sẽ đánh số lại sau khi gộp + sort.
+            - failed_lines: list `line` của các clip align rỗng → caller chuyển sang remap.
+    """
+    if not clips:
+        return [], []
+
+    # Load model
+    model_path = align_cfg.get("model_path") or "Qwen/Qwen3-ForcedAligner-0.6B"
+    device = align_cfg.get("device") or "cuda:0"
+    dtype_name = align_cfg.get("dtype")
+    attn_impl = align_cfg.get("attn_implementation")
+    language = align_cfg.get("language", "English")
+    batch_size = int(align_cfg.get("batch_size", 16) or 16)
+
+    max_chars = align_cfg.get("max_chars", 42)
+    min_chars = align_cfg.get("min_chars", 0)
+    split_on_comma = align_cfg.get("split_on_comma", True)
+    offset_seconds = align_cfg.get("offset_seconds", 0.24)
+
+    aligner = load_forced_aligner(
+        model_path=model_path,
+        dtype_name=dtype_name,
+        device_map=device,
+        attn_implementation=attn_impl,
+    )
+
+    aligned_segments: list[dict[str, Any]] = []
+    failed_lines: list[int] = []
+    seq = 0
+
+    logger.info(
+        f"Đang chạy forced alignment per-clip: {len(clips)} clip, "
+        f"batch_size={batch_size}, language={language}"
+    )
+    try:
+        for batch in _chunked(clips, batch_size):
+            audios = [c["audio_path"] for c in batch]
+            texts = [c["text"] for c in batch]
+            results = aligner.align(audio=audios, text=texts, language=language)
+
+            for clip, res in zip(batch, results or []):
+                if not res:
+                    failed_lines.append(clip["line"])
+                    continue
+
+                spd = clip.get("audio_speed") or 1.0
+                if spd <= 0:
+                    spd = 1.0
+                off_ms = clip.get("offset_ms", 0.0)
+
+                # Đưa word timing (giây, trong clip) về ms tuyệt đối trên timeline cuối.
+                words = []
+                for w in res:
+                    if isinstance(w, dict):
+                        w_text = w.get("text", "")
+                        w_s = w.get("start_time", 0.0)
+                        w_e = w.get("end_time", 0.0)
+                    else:
+                        w_text = w.text
+                        w_s = w.start_time
+                        w_e = w.end_time
+                    words.append({
+                        "text": w_text,
+                        "start_time": off_ms + (w_s * 1000.0) / spd,
+                        "end_time": off_ms + (w_e * 1000.0) / spd,
+                    })
+
+                merged = merge_punctuation(words, clip["text"])
+                blocks = segment_words_to_subtitles(
+                    merged,
+                    max_chars=max_chars,
+                    min_chars=min_chars,
+                    split_on_comma=split_on_comma,
+                )
+
+                for block in blocks:
+                    if not block:
+                        continue
+                    seq += 1
+                    start_ms = block[0].get("start_time", 0.0) + offset_seconds * 1000.0
+                    end_ms = block[-1].get("end_time", 0.0) + offset_seconds * 1000.0
+                    start_ms = max(0.0, start_ms)
+                    if end_ms <= start_ms:
+                        end_ms = start_ms + 100
+                    text = "".join(w.get("text", "") for w in block).strip()
+                    if not text:
+                        continue
+                    aligned_segments.append({
+                        "line": seq,
+                        "start_time": int(round(start_ms)),
+                        "end_time": int(round(end_ms)),
+                        "text": text,
+                    })
+    finally:
+        del aligner
+        try:
+            from utils.media_utils import clear_vram
+            clear_vram()
+            logger.info("Đã giải phóng VRAM sau forced alignment per-clip.")
+        except Exception:
+            pass
+
+    logger.info(
+        f"Forced alignment per-clip xong: {len(aligned_segments)} block, "
+        f"{len(failed_lines)} clip fail (sẽ remap)."
+    )
+    return aligned_segments, failed_lines

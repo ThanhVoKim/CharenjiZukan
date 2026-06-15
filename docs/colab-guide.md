@@ -1180,7 +1180,7 @@ CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS the
 
 #### Forced Alignment Subtitle (Phase 3.5)
 
-Khi bật `forced_alignment_subtitle.enabled = true` trong `render_config.json`, pipeline sẽ chạy Qwen3ForcedAligner trên `mixed_audio.wav` sau khi audio assembly hoàn tất, tạo SRT với timestamp chính xác cho từng từ.
+Khi bật `forced_alignment_subtitle.enabled = true` trong `render_config.json`, pipeline sẽ align **từng clip TTS `dubb-N.wav`** (Phase 0 đã sinh) bằng `Qwen3ForcedAligner`, tạo SRT với timestamp chính xác cho từng từ. Mỗi clip chỉ vài giây nên không OOM dù video dài nhiều tiếng. Dòng phụ đề vùng mute tự động remap timeline rồi gộp vào SRT cuối — không sót dòng nào.
 
 **Cấu hình forced alignment trong `render_config.json`:**
 

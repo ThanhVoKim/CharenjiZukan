@@ -401,6 +401,11 @@ def run_sync_pipeline(args):
                 transcript_path=str(transcript_input_path),
                 output_srt_path=subtitle_synced,
                 render_config=render_config,
+                timeline=timeline,
+                subtitle_segments=subtitle_segments,
+                mute_segments=mute_segments,
+                fps_float=fps_float,
+                remap_max_chars=args.subtitle_max_chars,
             )
             align_success = align_result is not None
 

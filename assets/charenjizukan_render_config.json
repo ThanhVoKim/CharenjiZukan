@@ -84,6 +84,7 @@
     "split_on_comma": true,
     "offset_seconds": 0.24,
     "keep_tts_synced_debug": false,
-    "fail_policy": "warn"
+    "fail_policy": "warn",
+    "batch_size": 16
   }
 }

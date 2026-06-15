@@ -1,5 +1,62 @@
 # Project Journal
 
+## 2026-06-15: Forced Alignment per-clip TTS — sửa OOM dây chuyền + không sót dòng mute
+
+### Tóm tắt
+
+Pipeline `sync-video` cho video dài (76 phút) chết tại Phase 5 (tuber NVENC) do **CUDA OOM dây
+chuyền**: Phase 3.5 đưa cả `mixed_audio` vào `Qwen3ForcedAligner.align()` (giới hạn ~5 phút/call);
+align() ném OOM; thiếu `try/finally` nên model kẹt ~16 GiB trong GPU; FFmpeg `hevc_nvenc` cùng process
+không xin được CUDA context → chết.
+
+**Giải pháp:** Đổi hướng sang **align từng clip TTS `dubb-{i}.wav`** (đã sinh sẵn ở Phase 0, 1:1 mỗi
+dòng phụ đề). Clip chỉ vài giây → không bao giờ OOM, chạy video dài tùy ý. Word timing của mỗi clip
+được offset về timeline cuối qua `seg.new_start + word_ms / audio_speed`. Voicevox family dùng `no_cap`
+nên `audio_speed=1.0`, map thẳng không cần scale. Dòng phụ đề trong **vùng mute** (không có clip TTS)
+tự động được **remap timeline rồi gộp** vào SRT cuối (không sót dòng nào).
+
+### Thay đổi
+
+- **`utils/forced_aligner.py`**:
+  - Set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` đầu module (giảm phân mảnh VRAM).
+  - Bọc `align()` trong **try/finally** → `del aligner + clear_vram()` luôn chạy, kể cả khi OOM. Sửa
+    bug domino sang NVENC Phase 5.
+  - Thêm `execute_forced_alignment_clips(clips, align_cfg)`: load aligner 1 lần, loop batch clip, offset
+    word timing, gọi `merge_punctuation → segment_words_to_subtitles` per-clip, trả `(aligned_segs, failed_lines)`.
+
+- **`sync_engine/forced_alignment_subtitle.py`**:
+  - Re-export `execute_forced_alignment_clips`.
+  - `_resolve_aligner_config` thêm `batch_size` (default 16).
+  - Thêm `_build_clips_from_timeline(timeline, subtitle_segments, mute_segments)`: zip tts_only ↔
+    TTS TimelineSegments, nhận diện dòng mute và clip thiếu → remap_lines.
+  - Thêm `_run_forced_alignment_clips(...)`: align per-clip + remap dòng còn lại (mute/fail) + gộp +
+    sort theo time + ghi SRT hoàn chỉnh.
+  - `run_forced_alignment_subtitle` nhận thêm `timeline, subtitle_segments, mute_segments, fps_float,
+    remap_max_chars`. Khi có `timeline` → per-clip mode; khi không → nhánh cũ (backward compat cho
+    test cũ và `align_srt.py`).
+
+- **`sync_engine/timestamp_remapper.py`**: tách `recalculate_segments(...)` (trả list dict, không ghi
+  file) từ `recalculate_srt` để dùng lại trong per-clip flow.
+
+- **`cli/sync_video.py`** Phase 3.5: truyền `timeline, subtitle_segments, mute_segments, fps_float,
+  remap_max_chars` vào `run_forced_alignment_subtitle`.
+
+- **Config JSON** (`assets/*render_config.json` × 3): thêm `"batch_size": 16`.
+
+- **Tests** (`tests/sync_engine/test_forced_alignment_subtitle.py`): thêm
+  `TestLayer1_PerClipBuildClips` (5 test: mute→remap, missing clip, offset_ms, batch_size config) và
+  `TestLayer2_PerClipAlignMerge` (5 test: offset đúng, mute present trong SRT, VRAM freed on OOM,
+  empty clip skip, fallback to mixed-audio khi không có timeline).
+
+- **`tests/test_matrix.yaml`**: thêm 2 entry mới (`Layer1_PerClip`, `Layer2_PerClip`).
+
+### Pending
+
+- Xác minh end-to-end trên Colab GPU với video 76 phút: Phase 3.5 align per-clip, không OOM, Phase 5
+  NVENC chạy được, `*_synced.srt` có đủ dòng (cả vùng mute), timing word-level khớp giọng.
+- edge/qwen với `audio_speed > 1.0`: xác minh chiều scale `word_offset / audio_speed` đúng (atempo
+  tăng tốc → word cùng offset trong clip raw → vị trí nhỏ hơn trên timeline cuối).
+
 ## 2026-06-14: Fan-out song song cho SRT batch (translate/punctuate) + an-toàn-thread cho cache/anchor
 
 ### Tóm tắt

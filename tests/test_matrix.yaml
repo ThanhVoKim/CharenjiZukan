@@ -225,6 +225,22 @@ tests:
     tags: ["integration", "sync_engine"]
     enabled: true
 
+  - name: "Forced Alignment Subtitle — Layer 1: Per-Clip Logic & Completeness"
+    file: "tests/sync_engine/test_forced_alignment_subtitle.py"
+    keyword: "Layer1_PerClip"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit", "sync_engine"]
+    enabled: true
+
+  - name: "Forced Alignment Subtitle — Layer 2: Per-Clip Align + Remap Merge"
+    file: "tests/sync_engine/test_forced_alignment_subtitle.py"
+    keyword: "Layer2_PerClip"
+    timeout_sec: 60
+    pytest_args: ["-v", "-s"]
+    tags: ["integration", "sync_engine"]
+    enabled: true
+
   # ──────────────────────────────────────────────
   # GPU TESTS — Cần CUDA GPU + VRAM đủ lớn
   # ──────────────────────────────────────────────
