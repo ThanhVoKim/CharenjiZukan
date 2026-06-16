@@ -224,6 +224,14 @@ def _posix(p) -> str:
     return str(p).replace("\\", "/")
 
 
+def _fmt_duration(seconds: float) -> str:
+    """Chuyển giây → 'HH:MM:SS' để log dễ đọc."""
+    s = int(seconds)
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{sec:02d}"
+
+
 def _run_segment(task: Tuple[int, List[str], str]) -> Tuple[int, str, str]:
     idx, cmd, out_path = task
     logger.debug("Segment %d: %s", idx, " ".join(cmd))
@@ -323,6 +331,7 @@ def process_one(
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
     tasks: List[Tuple[int, List[str], str]] = []
+    seg_durations_s: List[float] = []
     for i, (start_frame, num_frames) in enumerate(segments):
         out = str(tmp_dir / f"seg_{i:03d}.mp4")
         cmd = build_segment_cmd(
@@ -332,25 +341,40 @@ def process_one(
             width=width, height=height,
             blend_mode=args.mode, opacity=args.opacity,
         )
+        dur_s = num_frames / fps_float
+        seg_durations_s.append(dur_s)
         tasks.append((i, cmd, out))
+        logger.info(
+            "Segment %d/%d — %s (%.2fs)",
+            i + 1, len(segments), _fmt_duration(dur_s), dur_s,
+        )
 
-    # In ra câu lệnh từng đoạn để theo dõi / chạy lại thủ công khi cần.
-    for i, cmd, _ in tasks:
-        logger.info("Segment %d:\n%s\n", i, " ".join(cmd))
+    total_seg_s = sum(seg_durations_s)
+    video_dur_s = total_frames / fps_float
+    logger.info(
+        "Tổng segment: %s (%.2fs) | Video gốc: %s (%.2fs) | Chênh lệch: %.3fs",
+        _fmt_duration(total_seg_s), total_seg_s,
+        _fmt_duration(video_dur_s), video_dur_s,
+        total_seg_s - video_dur_s,
+    )
 
     results: dict = {}
     failed: dict = {}
-    logger.info("Render %d đoạn song song (max_workers=%d)...", len(tasks), args.workers)
+    done_count = 0
+    n_tasks = len(tasks)
+    logger.info("Render %d đoạn song song (max_workers=%d)...", n_tasks, args.workers)
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {pool.submit(_run_segment, t): t[0] for t in tasks}
         for fut in as_completed(futures):
             idx, out_path, err = fut.result()
+            done_count += 1
+            pct = done_count * 100 // n_tasks
             if err:
                 failed[idx] = err
-                logger.error("Segment %d lỗi: %s", idx, err)
+                logger.error("[%3d%%] Segment %d/%d lỗi: %s", pct, idx + 1, n_tasks, err)
             else:
                 results[idx] = out_path
-                logger.info("Segment %d xong → %s", idx, out_path)
+                logger.info("[%3d%%] Segment %d/%d xong", pct, idx + 1, n_tasks)
 
     try:
         if failed:
