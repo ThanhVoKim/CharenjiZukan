@@ -37,6 +37,7 @@ qwen3-asr-srt = "cli.qwen3_asr:main"
 align-srt = "cli.align_srt:main"
 pre-cut-video = "cli.pre_cut_video:main"
 tuber-repair = "cli.tuber_repair:main"
+blend-overlay-parallel = "cli.blend_overlay_parallel:main"
 
 [tool.setuptools.packages.find]
 include = ["cli*", "utils*", "sync_engine*", "video_subtitle_extractor*", "translation*", "llm_ai*", "tts*"]

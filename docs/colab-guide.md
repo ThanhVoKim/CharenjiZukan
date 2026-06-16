@@ -358,14 +358,14 @@ config khác bằng `--task-config <path>`; override nhanh bằng `--lang`, `--b
 
 > **Không cần `qwen-asr`, `audio-separator`, hay GPU.** Chạy thẳng trong `.venv` chính.
 
-| Tham số               | Mô tả                                                                                      | Mặc định              |
-| --------------------- | ------------------------------------------------------------------------------------------ | --------------------- |
-| `input_srt` / `-i`   | File `_punct.srt` (đã có dấu câu từ `punctuate-srt`)                                       | (bắt buộc nếu không `--task-file`) |
-| `--output`, `-o`      | File `.srt` hoặc folder đầu ra                                                             | `<input>_seg.srt`     |
-| `--task-file`, `-t`   | JSON `[{"input": "..._punct.srt", "output": "..."}]`                                       | (không dùng)          |
-| `--offset-seconds`    | Offset cộng vào timestamp (giây)                                                           | `0.0`                 |
-| `--split-on-comma`    | Cắt câu tại dấu phẩy (，、,;) — mặc định **tắt** (chỉ cắt tại `.!?:。！？：；`)             | (tắt)                 |
-| `--verbose`, `-v`     | Bật log chi tiết                                                                           | (tắt)                 |
+| Tham số             | Mô tả                                                                           | Mặc định                           |
+| ------------------- | ------------------------------------------------------------------------------- | ---------------------------------- |
+| `input_srt` / `-i`  | File `_punct.srt` (đã có dấu câu từ `punctuate-srt`)                            | (bắt buộc nếu không `--task-file`) |
+| `--output`, `-o`    | File `.srt` hoặc folder đầu ra                                                  | `<input>_seg.srt`                  |
+| `--task-file`, `-t` | JSON `[{"input": "..._punct.srt", "output": "..."}]`                            | (không dùng)                       |
+| `--offset-seconds`  | Offset cộng vào timestamp (giây)                                                | `0.0`                              |
+| `--split-on-comma`  | Cắt câu tại dấu phẩy (，、,;) — mặc định **tắt** (chỉ cắt tại `.!?:。！？：；`) | (tắt)                              |
+| `--verbose`, `-v`   | Bật log chi tiết                                                                | (tắt)                              |
 
 > **Auto-detect ngôn ngữ:** `align-srt` tự nhận biết CJK hay Latin từ nội dung SRT và in ra
 > trong output (vd `[CJK]` hay `[Latin]`). CJK được nối không khoảng trắng; Latin nối bằng space.
@@ -1478,6 +1478,69 @@ CUT sponsor
 | `--verbose`, `-v`      | Bật log chi tiết (DEBUG level)                       | (tắt)                        |
 
 > **Lưu ý:** Sau pre-cut, tất cả timestamp đều thuộc timeline của video clean. Không dùng lại timestamp của video gốc cho các bước sau.
+
+---
+
+### 2.14. Blend Overlay Parallel (blend-overlay-parallel)
+
+**An toàn timeline (không lệch, không render vô hạn):**
+
+- Mọi mốc cắt quy về **số frame nguyên** + ép CFR (`fps=`) + đồng nhất `-video_track_timescale 90000` → concat `-c:v copy` frame-exact, không drift.
+- Mỗi đoạn chốt cứng `-frames:v N` thay vì tin vào `shortest` của blend loop → **không bao giờ render vô hạn**.
+- Audio gốc ghép cuối bằng `-c:a copy` (không encode lại) → **zero drift**, output dài đúng bằng video gốc.
+- Điểm nối nội bộ luôn rơi đúng `k·L` nên lớp blend **liền mạch** qua mối nối dù mỗi đoạn loop blend lại từ 0; phần dư lẻ dồn vào đoạn cuối. Video gốc **giữ nguyên độ phân giải** (full W×H); blend được scale-crop cho khớp.
+
+#### Một video
+
+```colab
+!uv run blend-overlay-parallel \
+    --video /content/Project/1/youtube.mp4 \
+    --blend "/content/Scratch And Dust Screen.mp4" \
+    --output /content/Project/1/youtube__flipped.mp4 \
+    --workers 4
+```
+
+#### Nhiều video qua task-file
+
+`tasks.json` là một JSON array các object `{input, output}`:
+
+```json
+[
+  {
+    "input": "/content/Project/1/a.mp4",
+    "output": "/content/Project/1/a__flipped.mp4"
+  },
+  {
+    "input": "/content/Project/2/b.mp4",
+    "output": "/content/Project/2/b__flipped.mp4"
+  }
+]
+```
+
+```colab
+!uv run blend-overlay-parallel \
+    --blend "/content/Scratch And Dust Screen.mp4" \
+    --task-file /content/tasks.json \
+    --workers 4
+```
+
+#### Tham số
+
+| Tham số             | Mô tả                                                         | Mặc định   |
+| ------------------- | ------------------------------------------------------------- | ---------- |
+| `--video`           | Video gốc (mang timeline + audio). Bỏ qua nếu dùng task-file. | (tùy)      |
+| `--output`          | File output. Bỏ qua nếu dùng task-file.                       | (tùy)      |
+| `--task-file`, `-t` | JSON array `[{"input","output"}]` để xử lý nhiều video.       | (tùy)      |
+| `--blend`           | Video blend phủ lên (loop, cosmetic).                         | (bắt buộc) |
+| `--workers`         | Số đoạn render song song.                                     | `4`        |
+| `--mode`            | FFmpeg blend `all_mode` (vd `subtract`, `screen`...).         | `subtract` |
+| `--opacity`         | FFmpeg blend `all_opacity` (0–1).                             | `0.9`      |
+| `--keep-tmp`        | Giữ thư mục đoạn tạm `tmp/blend_*`.                           | (tắt)      |
+| `--verbose`, `-v`   | Log chi tiết (DEBUG) + in từng lệnh ffmpeg đoạn.              | (tắt)      |
+
+> **GPU NVENC:** `--workers N` = N phiên `hevc_nvenc` đồng thời. GPU GeForce consumer giới hạn ~3–8 phiên; nếu gặp `OpenEncodeSessionEx failed` → giảm `--workers`. Colab (T4/L4) thường không bị giới hạn này.
+>
+> **File tạm:** các đoạn nằm trong `tmp/blend_<timestamp>_<uid>/` ở project root, tự xoá sau khi xong (trừ khi `--keep-tmp`).
 
 ---
 

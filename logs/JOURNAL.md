@@ -1,5 +1,54 @@
 # Project Journal
 
+## 2026-06-16: blend-overlay-parallel — phủ blend video song song, frame-accurate
+
+### Tóm tắt
+
+CLI mới `cli/blend_overlay_parallel.py`: phủ một video **blend** (scratch/dust/noise loop) lên
+video gốc bằng FFmpeg blend mode, nhưng **render SONG SONG** nhiều tiến trình thay cho lệnh
+1-pass. Nút thắt của lệnh gốc KHÔNG ở encode (đã NVENC) mà ở **filter_complex chạy đơn luồng**
+phải xử lý tuần tự cả tiếng video → mô hình fan-out nhiều tiến trình ffmpeg mới là nguồn
+concurrency thật (bản thân ffmpeg không có batch/queue/async ở tầng CLI).
+
+### Quyết định kiến trúc
+
+- **Chia đoạn theo bội số NGUYÊN của độ dài blend (L):** mọi điểm nối nội bộ rơi đúng `k·L` nên
+  khi mỗi đoạn loop blend lại từ 0, pha texture tự khớp như 1-pass → **liền mạch qua mối nối**
+  mà không cần seek vào giữa blend. Phần dư lẻ (vd 0.5·L) dồn vào **đoạn cuối** (sau nó không
+  còn mối nối nên vô hại). Chia đều `integer_loops` cho `workers` (vd 10.5L/4w → [3,3,2,2.5]).
+- **An toàn timeline:** quy mọi mốc cắt về **frame nguyên** + ép CFR (`fps=`) + đồng nhất
+  `-video_track_timescale 90000` → concat `-c:v copy` frame-exact, không drift (cùng tư duy
+  `sync_engine/video_processor.py`).
+- **Chống render vô hạn:** mỗi đoạn chốt cứng `-frames:v N` thay vì tin vào `shortest` của blend
+  loop (`-stream_loop -1`). Đây là nguyên nhân gốc của hiện tượng "render mãi" ở lệnh 1-pass.
+- **Audio zero-drift:** mỗi đoạn render `-an`; audio gốc ghép cuối trong `concat_and_mux` bằng
+  `-c:a copy` (không encode lại) → output dài đúng bằng video gốc.
+- **Giữ nguyên độ phân giải gốc:** main KHÔNG scale (full W×H probe được); chỉ blend được
+  scale-crop cho khớp W×H gốc. (Bỏ tham số `--width/--height` cứng 1920×1080 của bản nháp.)
+
+### CLI
+
+`--video/--output` cho 1 video, hoặc `--task-file` JSON `[{input, output}]` cho batch nhiều
+video (dùng chung 1 `--blend`). Tham số: `--workers` (mặc định 4), `--mode` (subtract),
+`--opacity` (0.9), `--keep-tmp`, `-v`. File tạm vào `tmp/blend_<ts>_<uid>/`, tự xoá sau khi xong.
+Đăng ký script `blend-overlay-parallel` trong `pyproject.toml`.
+
+### Lưu ý vận hành
+
+`--workers N` = N phiên `hevc_nvenc` đồng thời. GPU GeForce consumer giới hạn ~3–8 phiên NVENC;
+`OpenEncodeSessionEx failed` → giảm `--workers`. Colab T4/L4 thường không bị giới hạn.
+
+### File thay đổi
+
+- `cli/blend_overlay_parallel.py` — TẠO MỚI: probe (fps/W×H/duration), `plan_segments`,
+  `build_segment_cmd`, `concat_and_mux`, `resolve_tasks`, orchestration song song.
+- `tests/cli/test_blend_overlay_parallel.py` — TẠO MỚI: 30 tests (Layer 1 + Layer 2), 30/30 pass.
+- `tests/test_matrix.yaml` — thêm 2 entry `unit` (Layer 1, Layer 2).
+- `pyproject.toml` — thêm script `blend-overlay-parallel`.
+- `docs/colab-guide.md` — thêm Mục 2.14: flow + an-toàn-timeline + bảng tham số + task-file.
+
+---
+
 ## 2026-06-16: align-srt v2 — bỏ Forced Aligner, thay bằng tách câu thuần CPU
 
 ### Tóm tắt

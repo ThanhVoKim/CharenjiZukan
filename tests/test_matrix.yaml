@@ -655,3 +655,23 @@ tests:
     pytest_args: ["-v"]
     tags: ["unit"]
     enabled: true
+
+  # ──────────────────────────────────────────────────────────
+  # BLEND OVERLAY PARALLEL — cli/blend_overlay_parallel.py
+  # ──────────────────────────────────────────────────────────
+
+  - name: "Blend Overlay Parallel — Layer 1: Parser, Segment Planning, Tasks & Command Build"
+    file: "tests/cli/test_blend_overlay_parallel.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
+  - name: "Blend Overlay Parallel — Layer 2: Concat + Audio Mux Command (Mock Subprocess)"
+    file: "tests/cli/test_blend_overlay_parallel.py"
+    keyword: "Layer2"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
