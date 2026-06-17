@@ -17,8 +17,8 @@ def mock_yaml_config(tmp_path):
         "roi": {"boxes": [{"name": "test", "x": 1, "y": 2, "w": 3, "h": 4}]},
         "scene_detection": {"threshold": 25.0, "min_scene_frames": 5},
         "ocr": {"model": "test-model", "device": "cpu", "batch_size": 16},
-        "chinese_filter": {"enabled": True, "keep_punctuation": False, "min_char_count": 3},
-        "output": {"format": "txt", "include_timestamp": False, "deduplicate": False, "default_duration": 5.0, "min_duration": 2.0, "max_duration": 10.0}
+        "chinese_filter": {"enabled": True, "min_char_count": 3},
+        "output": {"format": "txt", "include_timestamp": False, "deduplicate": False, "default_duration": 5.0, "min_duration": 2.0, "max_duration": 10.0, "strip_punctuation": True}
     }
     
     config_file = tmp_path / "test_config.yaml"
@@ -83,7 +83,7 @@ def test_boolean_flags_precedence(mock_yaml_config):
     test_args = [
         "cli/video_ocr.py", "video.mp4",
         "--config", config_path,
-        "--no-punctuation",
+        "--strip-punctuation",
         "--no-timestamp"
     ]
     
@@ -110,9 +110,9 @@ def test_boolean_flags_precedence(mock_yaml_config):
     deduplicate_output = not hasattr(args, "no_deduplicate") if hasattr(args, "no_deduplicate") else get_param("deduplicate", ("output", "deduplicate"), True)
     assert deduplicate_output == False # from yaml
     
-    # YAML says keep_punctuation=False, CLI says --no-punctuation -> False (CLI win)
-    keep_punct = not hasattr(args, "no_punctuation") if hasattr(args, "no_punctuation") else get_param("keep_punctuation", ("chinese_filter", "keep_punctuation"), True)
-    assert keep_punct == False
+    # CLI --strip-punctuation -> True (store_true có mặt nên override mọi default/yaml)
+    strip_punct = get_param("strip_punctuation", ("output", "strip_punctuation"), False)
+    assert strip_punct == True
     
     # CLI --no-timestamp -> False (overrides any default/yaml)
     include_timestamp = not hasattr(args, "no_timestamp") if hasattr(args, "no_timestamp") else get_param("include_timestamp", ("output", "include_timestamp"), True)

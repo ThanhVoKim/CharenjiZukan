@@ -79,9 +79,6 @@ chinese_filter:
   # Bật/tắt bộ lọc tiếng Trung. (Mặc định: false - lấy text của mọi ngôn ngữ)
   enabled: false
 
-  # Giữ dấu câu tiếng Trung
-  keep_punctuation: true
-
   # Số ký tự tối thiểu để text hợp lệ
   min_char_count: 2
 
@@ -89,6 +86,10 @@ chinese_filter:
 output:
   # Format: "srt" hoặc "txt"
   format: "srt"
+
+  # Bỏ MỌI dấu câu (Unicode P*) khỏi text OCR — input sạch cho punctuate-srt.
+  # Nguồn DUY NHẤT xử lý dấu câu (thay cho keep_punctuation cũ). Mặc định: false.
+  strip_punctuation: false
 
   # Có bao gồm timestamp không (chỉ áp dụng cho txt format)
   include_timestamp: true

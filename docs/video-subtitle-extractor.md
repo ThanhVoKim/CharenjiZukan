@@ -150,7 +150,7 @@ uv run python cli/video_ocr.py video.mp4
 | `--min-chars`             | Số ký tự tối thiểu để ghi nhận                             | `2`                                                         |
 | `--no-scene-detection`    | Tắt bỏ tính năng Scene detection (tương đương threshold=0) | (tắt)                                                       |
 | `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung                         | (tắt)                                                       |
-| `--no-punctuation`        | Không giữ dấu câu tiếng Trung (khi bật filter)             | (tắt)                                                       |
+| `--strip-punctuation`     | Bỏ MỌI dấu câu (Unicode P*) khỏi text OCR — input sạch cho punctuate-srt; độc lập filter | (tắt)                            |
 | `--ocr-model`             | Tên model trên Hugging Face                                | `deepseek-ai/DeepSeek-OCR-2`                                |
 | `--device`                | Thiết bị xử lý (cuda/cpu)                                  | `cuda`                                                      |
 | `--hf-token`              | Hugging Face Token                                         | (không dùng)                                                |

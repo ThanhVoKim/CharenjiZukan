@@ -5,7 +5,39 @@ Tests for utils/srt_parser.py
 """
 
 import pytest
-from utils.srt_parser import parse_srt, parse_srt_file, ts_to_ms, segments_to_srt
+from utils.srt_parser import (
+    parse_srt,
+    parse_srt_file,
+    ts_to_ms,
+    segments_to_srt,
+    strip_punctuation,
+)
+
+
+class TestLayer1_StripPunctuation:
+    """Tests for strip_punctuation — bỏ mọi dấu câu Unicode P*."""
+
+    def test_removes_ascii_punctuation(self):
+        assert strip_punctuation("a.b,c-d/e:f") == "abcdef"
+
+    def test_removes_cjk_fullwidth_punctuation(self):
+        # Dấu ảo giác giữa các ký tự Hán bị bỏ, chữ Hán nối liền (không space)
+        assert strip_punctuation("你好，世界。") == "你好世界"
+        assert strip_punctuation("第·一/集") == "第一集"
+
+    def test_keeps_letters_digits_and_collapses_space(self):
+        # Chữ/số giữ nguyên; khoảng trắng thừa do bỏ dấu gom về 1 space
+        assert strip_punctuation("Episode 1: Hello, World!") == "Episode 1 Hello World"
+
+    def test_does_not_strip_symbols(self):
+        # Nhóm ký hiệu S* (~ + = < >) KHÔNG bị bỏ
+        assert strip_punctuation("a+b=c") == "a+b=c"
+
+    def test_empty_string(self):
+        assert strip_punctuation("") == ""
+
+    def test_only_punctuation_returns_empty(self):
+        assert strip_punctuation("，。！？…") == ""
 
 
 class TestTsToMs:

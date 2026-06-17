@@ -998,7 +998,7 @@ Mỗi dòng gồm `box_name x y w h`.
 | `--min-chars`             | Số ký tự tối thiểu để ghi nhận                                                   | `2`                                                         |
 | `--no-scene-detection`    | Tắt bỏ tính năng Scene detection (tương đương threshold=0)                       | (tắt)                                                       |
 | `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung                                               | (tắt)                                                       |
-| `--no-punctuation`        | Không giữ dấu câu tiếng Trung (khi bật filter)                                   | (tắt)                                                       |
+| `--strip-punctuation`     | Bỏ MỌI dấu câu (Unicode P*) khỏi text OCR — input sạch cho punctuate-srt; độc lập filter | (tắt)                            |
 | `--ocr-model`             | Tên model Hugging Face (DeepSeek-OCR-2 hoặc Qwen3-VL)                            | `deepseek-ai/DeepSeek-OCR-2`                                |
 | `--qwen-max-new-tokens`   | [Chỉ Qwen3-VL] Số token tối đa sinh ra                                           | `256`                                                       |
 | `--qwen-min-pixels`       | [Chỉ Qwen3-VL] Pixel blocks tối thiểu (ảnh hưởng VRAM)                           | `256`                                                       |

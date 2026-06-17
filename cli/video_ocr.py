@@ -205,10 +205,11 @@ Examples:
         help="Số ký tự tối thiểu để ghi nhận (mặc định: 2)"
     )
     parser.add_argument(
-        "--no-punctuation",
+        "--strip-punctuation",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="Không giữ dấu câu (nếu dùng chinese filter)"
+        help="Bỏ MỌI dấu câu (Unicode P*) khỏi text OCR — input sạch cho punctuate-srt. "
+             "Hoạt động độc lập, không cần bật chinese filter."
     )
     parser.add_argument(
         "--enable-chinese-filter",
@@ -502,9 +503,11 @@ def main():
         cv_edge_high=get_param("cv_edge_high", ("cv_prefilter", "edge_high_threshold"), 150),
         
         # Chinese filter
-        keep_punctuation=not hasattr(args, "no_punctuation") if hasattr(args, "no_punctuation") else get_param("keep_punctuation", ("chinese_filter", "keep_punctuation"), True),
         min_char_count=get_param("min_chars", ("chinese_filter", "min_char_count"), 2),
         enable_chinese_filter=get_param("enable_chinese_filter", ("chinese_filter", "enabled"), False),
+
+        # Punctuation
+        strip_punctuation=get_param("strip_punctuation", ("output", "strip_punctuation"), False),
         
         # Text isolation (lọc watermark/overlay mờ trước OCR)
         text_isolation=build_text_isolation_config(args, config),

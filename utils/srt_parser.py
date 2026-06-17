@@ -17,6 +17,7 @@ Ví dụ:
 """
 
 import re
+import unicodedata
 from pathlib import Path
 from typing import List, Dict, Optional
 import textwrap
@@ -25,6 +26,26 @@ import textwrap
 def is_cjk(text: str) -> bool:
     """Kiểm tra xem chuỗi có chứa ký tự CJK (Chinese, Japanese, Korean) hay không."""
     return bool(re.search(r'[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]', text))
+
+
+def strip_punctuation(text: str) -> str:
+    """B\u1ecf M\u1eccI d\u1ea5u c\u00e2u Unicode (nh\u00f3m category P*) kh\u1ecfi text, gi\u1eef nguy\u00ean ch\u1eef/s\u1ed1.
+
+    Ph\u1ee7 tr\u1ecdn 7 nh\u00f3m d\u1ea5u c\u00e2u Unicode (Pc Pd Ps Pe Pi Pf Po) \u2014 g\u1ed3m c\u1ea3 ASCII
+    (\u00b7 . , - / : ; ! ?) l\u1eabn fullwidth CJK (\uff0c\u3002\u3001\uff01\uff1f\u2026\uff08\uff09\u3010\u3011\u300a\u300b). KH\u00d4NG \u0111\u1ee5ng
+    nh\u00f3m k\u00fd hi\u1ec7u S* (~ + = < > | ^ $). Trung l\u1eadp ng\u00f4n ng\u1eef, c\u00f9ng c\u00e1ch nh\u1eadn di\u1ec7n
+    d\u1ea5u c\u00e2u v\u1edbi `cli/punctuate_srt.py::_content_signature`.
+
+    D\u00f9ng \u0111\u1ec3 l\u00e0m s\u1ea1ch text OCR (qua --strip-punctuation) tr\u01b0\u1edbc khi \u0111\u01b0a v\u00e0o
+    punctuate-srt, tr\u00e1nh d\u1ea5u c\u00e2u \u1ea3o gi\u00e1c l\u1ecdt v\u00e0o input.
+
+    Kho\u1ea3ng tr\u1eafng do d\u1ea5u c\u00e2u \u0111\u1ec3 l\u1ea1i \u0111\u01b0\u1ee3c gom v\u1ec1 1 space v\u00e0 strip hai \u0111\u1ea7u; v\u1edbi
+    CJK kh\u00f4ng c\u00f3 space n\u00ean k\u1ebft qu\u1ea3 n\u1ed1i li\u1ec1n t\u1ef1 nhi\u00ean.
+    """
+    cleaned = "".join(
+        ch for ch in text if not unicodedata.category(ch).startswith("P")
+    )
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 def wrap_subtitle_text(text: str, max_chars: int) -> str:

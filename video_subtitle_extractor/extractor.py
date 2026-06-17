@@ -26,6 +26,7 @@ import time
 # Thêm project root vào path để import utils
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.logger import get_logger
+from utils.srt_parser import strip_punctuation as strip_punctuation_text
 
 from .frame_processor import FrameProcessor
 from .chinese_filter import ChineseFilter
@@ -83,9 +84,11 @@ class VideoSubtitleExtractor:
         cv_edge_high: int = 150,
         
         # Chinese filter
-        keep_punctuation: bool = True,
         min_char_count: int = 2,
         enable_chinese_filter: bool = False,
+
+        # Punctuation
+        strip_punctuation: bool = False,
         
         # OCR settings
         ocr_model: str = "deepseek-ai/DeepSeek-OCR-2",
@@ -129,10 +132,10 @@ class VideoSubtitleExtractor:
         self.cv_edge_high = cv_edge_high
         
         self.chinese_filter = ChineseFilter(
-            keep_punctuation=keep_punctuation,
             min_char_count=min_char_count
         )
         self.enable_chinese_filter = enable_chinese_filter
+        self.strip_punctuation = strip_punctuation
 
         # Text isolation: mask watermark/overlay mờ trước khi đưa ảnh đi OCR.
         # None hoặc enabled=False → bỏ qua hoàn toàn, luồng chạy như cũ.
@@ -363,10 +366,12 @@ class VideoSubtitleExtractor:
                         processed_text = self.chinese_filter.filter_text(text)
                     else:
                         processed_text = text.strip() if text else ""
+                    if self.strip_punctuation and processed_text:
+                        processed_text = strip_punctuation_text(processed_text)
                     task["entry"].text = processed_text
-                    
+
                 pending_ocr_tasks.clear()
-            
+
             # Progress callback
             if progress_callback and processed_frames_count % 10 == 0:
                 progress_callback(frame_number, total_frames, ocr_total_calls)
@@ -386,10 +391,12 @@ class VideoSubtitleExtractor:
                     processed_text = self.chinese_filter.filter_text(text)
                 else:
                     processed_text = text.strip() if text else ""
+                if self.strip_punctuation and processed_text:
+                    processed_text = strip_punctuation_text(processed_text)
                 task["entry"].text = processed_text
-                
+
             pending_ocr_tasks.clear()
-            
+
         # Dọn dẹp các entry rỗng (do OCR không ra chữ hoặc bị filter)
         for box_name, state in self.box_states.items():
             state.entries = [entry for entry in state.entries if entry.text]

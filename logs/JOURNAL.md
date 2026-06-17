@@ -1,5 +1,41 @@
 # Project Journal
 
+## 2026-06-17: video-ocr — `--strip-punctuation` thay cho `keep_punctuation`
+
+### Tóm tắt
+
+OCR (Qwen3-VL/DeepSeek) hay ảo giác chèn dấu câu (`· . - ， / :`) vào subtitle dù video không
+có. Input bẩn này phá bước `punctuate-srt` (vốn cần text sạch để LLM tự khôi phục dấu). Thêm flag
+`--strip-punctuation` cho `video-ocr` để bỏ MỌI dấu câu khỏi text OCR.
+
+### Quyết định kiến trúc
+
+- **Nhận diện dấu câu bằng `unicodedata.category(ch).startswith("P")`** (helper mới
+  `utils/srt_parser.py::strip_punctuation`), trung lập ngôn ngữ — phủ trọn 7 nhóm P* (ASCII
+  `. , - / : ; ! ?` lẫn fullwidth CJK `， 。 、 ！ ？ … （ ） 【 】 《 》`). Cùng cách nhận diện với
+  `cli/punctuate_srt.py::_content_signature`. KHÔNG đụng nhóm ký hiệu S* (`~ + = < >`).
+- **`--strip-punctuation` là NGUỒN DUY NHẤT xử lý dấu câu.** Gỡ hẳn cơ chế `keep_punctuation` cũ
+  (param `ChineseFilter`/`extractor`, flag `--no-punctuation`, key YAML) để tránh hai đường bỏ-dấu
+  song song. `ChineseFilter` giờ LUÔN giữ dấu câu CJK; việc bỏ dấu tách riêng, độc lập
+  `--enable-chinese-filter` (chạy cả khi filter tắt — vá đúng chỗ mặc định text chỉ `.strip()`).
+- Áp dụng strip **sau** nhánh filter/`.strip()` ở cả 2 vòng OCR (batch giữa chừng + tail) trong
+  `extractor.py`, nên xếp chồng đúng khi bật kèm chinese-filter.
+
+### Files
+
+- `utils/srt_parser.py` — thêm `strip_punctuation()` (+ `import unicodedata`).
+- `video_subtitle_extractor/chinese_filter.py` — gỡ param `keep_punctuation`, luôn giữ dấu CJK.
+- `video_subtitle_extractor/extractor.py` — gỡ `keep_punctuation`, thêm param `strip_punctuation`.
+- `cli/video_ocr.py` — gỡ `--no-punctuation`, thêm `--strip-punctuation` (YAML: `output.strip_punctuation`).
+- `config/extractor_config.yaml` — bỏ `chinese_filter.keep_punctuation`, thêm `output.strip_punctuation`.
+- Tests: `tests/utils/test_srt_parser.py` (Layer1 cho strip_punctuation), `tests/cli/test_extractor_config.py`.
+- Docs: `docs/video-subtitle-extractor.md`, `docs/colab-guide.md` (bảng tham số).
+
+### Pending / Next
+
+- Nếu OCR ảo giác cả ký hiệu S* (`~ + =`), cân nhắc mở rộng `strip_punctuation` (hiện chỉ P*).
+- Test `tests/cli/test_extractor_config.py` cần `cv2` → chỉ pass trên Colab/GPU env (local skip).
+
 ## 2026-06-16: blend-overlay-parallel — phủ blend video song song, frame-accurate
 
 ### Tóm tắt

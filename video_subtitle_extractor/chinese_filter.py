@@ -42,8 +42,12 @@ class ChineseFilter:
     - \\uff00-\\uffef: Halfwidth and Fullwidth Forms
     
     Attributes:
-        keep_punctuation: Có giữ dấu câu tiếng Trung không (default: True)
         min_char_count: Số ký tự tối thiểu để text hợp lệ (default: 2)
+
+    Note:
+        Filter này LUÔN giữ dấu câu CJK. Việc bỏ dấu câu (nếu cần input sạch
+        cho punctuate-srt) do flag --strip-punctuation đảm nhiệm — nguồn DUY
+        NHẤT xử lý dấu câu, không gắn vào filter này.
     """
     
     # Regex pattern cho Chinese characters (CJK Unified Ideographs)
@@ -58,16 +62,11 @@ class ChineseFilter:
     
     def __init__(
         self,
-        keep_punctuation: bool = True,
         min_char_count: int = 2
     ):
-        self.keep_punctuation = keep_punctuation
         self.min_char_count = min_char_count
-        
-        logger.info(
-            f"ChineseFilter initialized: punctuation={keep_punctuation}, "
-            f"min_chars={min_char_count}"
-        )
+
+        logger.info(f"ChineseFilter initialized: min_chars={min_char_count}")
     
     def extract_chinese(self, text: str) -> ChineseText:
         """
@@ -94,8 +93,8 @@ class ChineseFilter:
         chinese_matches = self.CHINESE_CHAR_PATTERN.findall(text)
         chinese_only = ''.join(chinese_matches)
         
-        # Thêm punctuation nếu cần
-        if self.keep_punctuation and chinese_only:
+        # Luôn giữ dấu câu CJK (việc bỏ dấu do --strip-punctuation đảm nhiệm)
+        if chinese_only:
             punct_matches = self.CHINESE_PUNCTUATION_PATTERN.findall(text)
             chinese_only = chinese_only + ''.join(punct_matches)
         
@@ -268,7 +267,7 @@ if __name__ == "__main__":
     from utils.logger import setup_logging
     setup_logging(level=10)  # DEBUG
     
-    filter = ChineseFilter(keep_punctuation=True, min_char_count=2)
+    filter = ChineseFilter(min_char_count=2)
     
     # Test cases
     test_texts = [
