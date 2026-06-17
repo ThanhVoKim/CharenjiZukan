@@ -16,9 +16,9 @@
     "enabled": true,
     "text": "@CharenjiZukan",
     "font_path": "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
-    "fontsize": 40,
+    "fontsize": 36,
     "color": "white",
-    "alpha": 0.8,
+    "alpha": 0.7,
     "x": "10",
     "y": "h-th-10"
   },
@@ -48,7 +48,7 @@
   },
   "audio_mix": {
     "mute_audio_volume": 1.0,
-    "ambient_volume": 0.04,
+    "ambient_volume": 0.05,
     "bgm_volume": 0
   },
   "audio_policies": {

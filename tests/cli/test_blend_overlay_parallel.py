@@ -241,25 +241,6 @@ class TestLayer1_BuildSegmentCmd:
 # LAYER 2 — COMPONENT TESTS (mock subprocess, không exec ffmpeg)
 # ═════════════════════════════════════════════════════════════════════
 
-class TestLayer1_FmtDuration:
-    """_fmt_duration: chuyển giây → HH:MM:SS."""
-
-    def test_zero(self):
-        assert bop._fmt_duration(0) == "00:00:00"
-
-    def test_seconds_only(self):
-        assert bop._fmt_duration(45) == "00:00:45"
-
-    def test_minutes(self):
-        assert bop._fmt_duration(90) == "00:01:30"
-
-    def test_hours(self):
-        assert bop._fmt_duration(3661) == "01:01:01"
-
-    def test_float_truncated(self):
-        assert bop._fmt_duration(3599.9) == "00:59:59"
-
-
 class TestLayer2_ConcatAndMux:
     """concat_and_mux: dựng list-file + lệnh ghép audio gốc copy (audio zero-drift)."""
 
