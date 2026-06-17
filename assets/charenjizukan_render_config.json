@@ -75,7 +75,17 @@
     "note": "sync_video forces FFmpeg video render with -c:v hevc_nvenc -preset p4 -tune hq -cq 28"
   },
   "llm_metadata": {
-    "enabled": false
+    "enabled": true,
+    "task_config": "config/llm_tasks/seo_metadata.yaml",
+    "input": {
+      "write_debug_input": true,
+      "debug_input_filename_template": "{video_stem}_metadata_input.txt"
+    },
+    "output": {
+      "directory_policy": "/",
+      "filename_template": "metadata.md"
+    },
+    "fail_policy": "warn"
   },
   "forced_alignment_subtitle": {
     "enabled": true,
