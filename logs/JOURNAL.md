@@ -1,5 +1,98 @@
 # Project Journal
 
+## 2026-06-17: srt_batch — Refactor I/O sang định dạng Numbered-Line
+
+### Vấn đề
+
+Payload gửi LLM mỗi batch là SRT đầy đủ (`N\nTIMESTAMP\nTEXT` × block, nối `\n\n`). Timestamp
+LLM KHÔNG dùng (map kết quả theo vị trí, timestamp cuối lấy từ bản gốc) → token thừa + "rác" làm
+loãng mạch văn.
+
+### Quyết định
+
+Đổi I/O batch sang **numbered-line**: mỗi block một dòng `"N. text"`, N = `item['line']` (chỉ số
+SRT toàn cục, duy nhất). Bỏ timestamp khỏi cả input lẫn output. N giữ vai trò **neo chống lệch
+hàng**: map theo SỐ (không theo vị trí mù).
+
+- `runner.py` (`_process_one_batch`): builder mới `f"{item['line']}. {item['text'].strip()}"`, nối `\n`.
+- `batching.py`: thêm `parse_numbered_lines()` (regex `^\s*(\d+)\.\s?(.*)$`, orphan-line nối vào
+  entry đang mở, số lặp → raise). `merge_translated_batch()` map theo line id; integrity: tập số
+  parse được PHẢI khớp ĐÚNG tập `item['line']` của batch (thiếu/thừa → BatchIntegrityError). Giữ
+  chữ ký hàm `(translated_str, original_batch) -> list[dict]` nên không đụng caller/validator.
+  KHÔNG còn dùng `parse_srt` để parse output LLM.
+- Lỗi batch sau retry: GIỮ NGUYÊN cả batch (all-or-nothing, như cũ — quyết định của user).
+
+### Prompt (đồng bộ hợp đồng LLM)
+
+Sửa cả 3: `prompts/translation/srt_translate_ja.txt`, `srt_translate.txt`,
+`prompts/llm_tasks/punctuation_restoration.txt`. Bỏ "Copy Index/Timestamp", mô tả input `N. text`
+(N là id ổn định), yêu cầu output `N. <kết quả>` giữ nguyên tập id, không gộp/tách dòng, không
+chèn timestamp, không xuống dòng giữa entry. Thay ví dụ SRT 3-dòng bằng ví dụ numbered-line. Bản
+Nhật giữ Fragment-Mapping (SOV); punctuation giữ rule #6 (neo "dấu cuối mỗi dòng").
+
+### Test (docs/testing-guide.md — Domain-Based, TestLayer*)
+
+- MỚI `tests/llm_ai/test_srt_batch_batching.py` (Layer 1): parse_numbered_lines (orphan line,
+  digit giữa câu, số lặp) + merge map-by-id (đảo thứ tự vẫn đúng, thiếu/thừa raise, id không bắt
+  đầu từ 1, không mutate batch gốc). Thêm entry `test_matrix.yaml` (tags: unit).
+- Sửa `test_srt_batch_concurrency.py` (FakeProvider echo theo dòng `N. text`),
+  `test_punctuate_srt.py` (mock response numbered-line; mismatch = thiếu id),
+  `test_translation_providers.py` (FakeProvider Layer 2 trả numbered-line).
+- Input SRT thật (file `.srt`) vẫn parse bằng `parse_srt` như cũ — chỉ payload/response LLM đổi.
+
+### Kết quả
+
+`tests/translation/ tests/llm_ai/` (trừ api/probe): 81 passed, 3 skipped. Bộ liên quan
+(batching + concurrency + punctuate + translation L2): 49 passed.
+
+### Không đụng
+
+`<FULL_SOURCE_CONTEXT>` (text-trần, đã cache provider), `parse_srt`/`segments_to_srt`, timestamp,
+`align-srt`/`resegment_srt_by_sentence`.
+
+---
+
+## 2026-06-17: punctuate-srt — Rule #6 clause-chaining cho TTS tự nhiên
+
+### Vấn đề
+
+Block OCR sau OCR rất ngắn (mỗi caption 1 mảnh). Bước gom câu `resegment_srt_by_sentence`
+(`cli/align_srt.py`) chỉ cắt block khi gặp ký tự kết thúc câu `DEFAULT_GRAMMAR_SPLIT_CHARS =
+".!?:。！？：；"` — **dấu phẩy KHÔNG cắt**. Nhưng LLM ở `punctuate-srt` lại có xu hướng đóng mỗi
+mệnh đề ngắn bằng `。`, khiến resegment cắt vụn → TTS đọc giật từng câu, mất tự nhiên.
+
+### Quyết định
+
+Đòn bẩy đúng là **prompt punctuation**, không phải sửa logic gom câu. Thêm Rule #6 vào
+`prompts/llm_tasks/punctuation_restoration.txt`: hướng dẫn LLM đặt `。！？` đúng nơi ý trọn vẹn,
+nối các mệnh đề cùng một ý bằng dấu phẩy (，/、). Nhờ vậy resegment gộp các mệnh đề nối-phẩy thành
+1 block dài → TTS đọc liền mạch. Rule vẫn tuân Rule #1 (chỉ chèn dấu, không đổi chữ) nên validator
+`_validate_content_preserved` không bị vi phạm.
+
+**Sửa lại Rule #6 (cùng ngày):** Bản đầu có guardrail "~3 mệnh đề/câu" và biện minh "tránh tường
+chữ trên màn hình" — cả hai SAI. File này KHÔNG dùng làm subtitle hiển thị (chỉ feed TTS) nên không
+có ràng buộc độ-dài-đọc; và cap theo số mệnh đề là tùy tiện, ép đóng câu khi ý chưa trọn → flow
+gượng ép, đổi "giật vì ngắn" thành "đứt vì cắt máy móc". Ranh giới câu phải do NGỮ NGHĨA quyết định:
+đặt dấu kết thúc đúng nơi tác giả/người nói tự nhiên dừng, không cap bằng số đếm, đồng thời không
+fuse các ý khác nhau thành run-on.
+
+**Làm rõ Rule #6 (cùng ngày):** LLM bị Rule #3 + validator `merge_translated_batch`
+(`llm_ai/srt_batch/batching.py`) BẮT giữ nguyên số block (1 vào → 1 ra), KHÔNG được tự gộp text.
+Việc gộp vật lý xảy ra ở bước sau (`align-srt` → `resegment_srt_by_sentence`), và hàm đó CHỈ nhìn
+KÝ TỰ CUỐI mỗi block: `。！？` → cắt; `，`/`、`/không dấu → gộp tiếp. Vậy đòn bẩy thật sự là dấu
+LLM đặt ở RANH GIỚI block, không phải dấu bên trong. Đã sửa Rule #6 nhấn mạnh điều này + nhắc rõ
+vẫn tuân Rule #1 (chỉ chèn dấu) và Rule #3 (giữ cấu trúc 1-block, không tự merge).
+
+**Bonus — giải toả hiểu lầm:** input text-trần (không index/timestamp) chỉ là
+`<FULL_SOURCE_CONTEXT>` do `build_global_context` join `it["text"]`. Phần LLM thật sự xử lý là
+`<INPUT>` = `batch_srt_str` (`runner.py:116`) CÓ đủ index + timestamp + text. Nên các hướng dẫn
+nói về "blocks/Index/Timestamp" trong prompt vẫn chính xác.
+
+### Knob liên quan
+
+`align-srt --split-on-comma` → `EXTENDED_GRAMMAR_SPLIT_CHARS` (gồm dấu phẩy) là hướng NGƯỢC lại,
+cắt nhỏ hơn khi cần.
+
 ## 2026-06-17: video-ocr — `--strip-punctuation` thay cho `keep_punctuation`
 
 ### Tóm tắt

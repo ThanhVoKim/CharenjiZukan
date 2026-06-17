@@ -107,8 +107,8 @@ class TestLayer2_RestorePunctuation:
         src = _write_srt(tmp_path / "in.srt", [(_TS1, "你好世界"), (_TS2, "这是测试")])
         response = (
             "<PUNCT_TEXT>\n"
-            f"1\n{_TS1}\n你好世界，\n\n"
-            f"2\n{_TS2}\n这是测试。\n"
+            "1. 你好世界，\n"
+            "2. 这是测试。\n"
             "</PUNCT_TEXT>"
         )
         provider = _MockProvider(response)
@@ -131,8 +131,8 @@ class TestLayer2_RestorePunctuation:
         src = _write_srt(tmp_path / "in.srt", [(_TS1, "你好世界"), (_TS2, "这是测试")])
         response = (
             "<PUNCT_TEXT>\n"
-            f"1\n{_TS1}\n你好星界，\n\n"   # 世 → 星 (đổi chữ — không hợp lệ)
-            f"2\n{_TS2}\n这是测试。\n"
+            "1. 你好星界，\n"   # 世 → 星 (đổi chữ — không hợp lệ)
+            "2. 这是测试。\n"
             "</PUNCT_TEXT>"
         )
         provider = _MockProvider(response)
@@ -151,9 +151,9 @@ class TestLayer2_RestorePunctuation:
         assert "你好星界" not in content    # KHÔNG nhận text bị đổi
 
     def test_block_count_mismatch_reverts(self, tmp_path):
-        """LLM trả thiếu block → BatchIntegrityError → revert."""
+        """LLM trả thiếu line (thiếu id) → BatchIntegrityError → revert."""
         src = _write_srt(tmp_path / "in.srt", [(_TS1, "你好世界"), (_TS2, "这是测试")])
-        response = f"<PUNCT_TEXT>\n1\n{_TS1}\n你好世界。\n</PUNCT_TEXT>"  # chỉ 1 block
+        response = "<PUNCT_TEXT>\n1. 你好世界。\n</PUNCT_TEXT>"  # chỉ 1 line (thiếu id 2)
         provider = _MockProvider(response)
         out = tmp_path / "out_punct.srt"
 
@@ -220,8 +220,8 @@ class TestLayer3_Pipeline:
         src = _write_srt(tmp_path / "ocr.srt", [(_TS1, "你好世界"), (_TS2, "这是测试")])
         response = (
             "<PUNCT_TEXT>\n"
-            f"1\n{_TS1}\n你好世界，\n\n"
-            f"2\n{_TS2}\n这是测试。\n"
+            "1. 你好世界，\n"
+            "2. 这是测试。\n"
             "</PUNCT_TEXT>"
         )
         provider = _MockProvider(response)
@@ -241,7 +241,7 @@ class TestLayer3_Pipeline:
 
     def test_no_flatten_skips_flat_txt(self, tmp_path, monkeypatch):
         src = _write_srt(tmp_path / "ocr.srt", [(_TS1, "你好世界")])
-        response = f"<PUNCT_TEXT>\n1\n{_TS1}\n你好世界。\n</PUNCT_TEXT>"
+        response = "<PUNCT_TEXT>\n1. 你好世界。\n</PUNCT_TEXT>"
         provider = _MockProvider(response)
         out = tmp_path / "ocr_punct.srt"
 
@@ -258,8 +258,8 @@ class TestLayer3_Pipeline:
         src = _write_srt(tmp_path / "ocr.srt", [(_TS1, "你好世界"), (_TS2, "这是测试")])
         response = (
             "<PUNCT_TEXT>\n"
-            f"1\n{_TS1}\n你好星界，\n\n"   # 世 → 星 (đổi chữ)
-            f"2\n{_TS2}\n这是测试。\n"
+            "1. 你好星界，\n"   # 世 → 星 (đổi chữ)
+            "2. 这是测试。\n"
             "</PUNCT_TEXT>"
         )
         provider = _MockProvider(response)

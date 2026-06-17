@@ -113,8 +113,8 @@ def _process_one_batch(
     Thuần hàm theo nghĩa KHÔNG ghi vào state chia sẻ (result_srt/counter); chỉ trả
     `_BatchOutcome` để main thread áp dụng. An toàn chạy trong ThreadPoolExecutor.
     """
-    batch_srt_str = "\n\n".join(
-        f"{item['line']}\n{item['time']}\n{item['text'].strip()}"
+    batch_srt_str = "\n".join(
+        f"{item['line']}. {item['text'].strip()}"
         for item in batch
     )
     prompt_message = render_batch_prompt(

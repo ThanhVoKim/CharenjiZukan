@@ -109,10 +109,10 @@ class FakeProvider(BaseLLMProvider):
         try:
             if self._delay:
                 time.sleep(self._delay)
-            # Parse các block "N\nTIME\nTEXT" từ message INPUT để echo lại đúng.
+            # Parse các dòng numbered-line "N. text" từ message INPUT để echo lại đúng.
             input_part = message.split("INPUT:", 1)[-1]
-            blocks = [b for b in input_part.strip().split("\n\n") if b.strip()]
-            body = "\n\n".join(blocks)
+            lines = [ln for ln in input_part.strip().splitlines() if ln.strip()]
+            body = "\n".join(lines)
             self._tls.record = {
                 "prompt_tokens": self._prompt_tokens,
                 "cached_tokens": self._cached_tokens,

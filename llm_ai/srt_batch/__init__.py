@@ -12,6 +12,7 @@ from llm_ai.srt_batch.batching import (
     get_retry_attempts,
     get_retry_wait_seconds,
     merge_translated_batch,
+    parse_numbered_lines,
 )
 from llm_ai.srt_batch.prompting import (
     build_global_context,
@@ -25,6 +26,7 @@ __all__ = [
     "BatchIntegrityError",
     "CacheTelemetryAccumulator",
     "merge_translated_batch",
+    "parse_numbered_lines",
     "get_retry_attempts",
     "get_retry_wait_seconds",
     "build_global_context",

@@ -169,19 +169,14 @@ class FakeProvider(BaseTranslationProvider):
         return self._name
 
     def call(self, message: str) -> str:
-        # Giả lập trả về đúng format với tag
+        # Giả lập trả về đúng format numbered-line với tag
         return """
 <think>
 This is a thought process.
 </think>
 <TRANSLATE_TEXT>
-1
-00:00:01,000 --> 00:00:03,500
-Xin chào thế giới
-
-2
-00:00:05,000 --> 00:00:08,000
-Đây là phụ đề thử nghiệm
+1. Xin chào thế giới
+2. Đây là phụ đề thử nghiệm
 </TRANSLATE_TEXT>
 """
 

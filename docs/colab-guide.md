@@ -330,7 +330,14 @@ config khác bằng `--task-config <path>`; override nhanh bằng `--lang`, `--b
 !uv run video-ocr /content/video.mp4 --config /content/flow.yaml
 
 # Bước 2: Phục hồi dấu câu (cần vertexAI ADC). Retry chỉ cần chạy lại đúng lệnh này.
-!uv run punctuate-srt /content/video_subtitle.srt --lang Chinese
+!uv run punctuate-srt \
+  --input /content/Project/youtube.srt \
+  --output /content/Project/youtube_punct.srt \
+  --task-config config/llm_tasks/punctuation_restoration.yaml \
+  --lang Chinese \
+  --batch 20 \
+  --wait 3 \
+  --workers 3
 
 # Bước 3: Tách câu theo dấu câu (thuần CPU, không cần GPU/model)
 !uv run align-srt /content/video_subtitle_punct.srt
@@ -981,48 +988,48 @@ Mỗi dòng gồm `box_name x y w h`.
 
 #### Tham số
 
-| Tham số                   | Mô tả                                                                            | Mặc định                                                    |
-| ------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `input_video`             | File video đầu vào (hoặc directory nếu dùng --input-dir)                         | (bắt buộc)                                                  |
-| `--boxes-file`            | File cấu hình các vùng OCR theo format `name x y w h`                            | `assets/boxesOCR.txt` (nếu có config yaml thì config > cli) |
-| `--output-dir`            | Thư mục output cho các file theo box                                             | cùng thư mục video                                          |
-| `--frame-interval`        | Số frame bỏ qua giữa mỗi lần xử lý                                               | `30`                                                        |
-| `--scene-threshold`       | Ngưỡng phần trăm thay đổi pixel trên tổng diện tích box để phát hiện chuyển cảnh | `1.5`                                                       |
-| `--min-scene-frames`      | Số frame tối thiểu giữa 2 lần chuyển cảnh để tránh nhiễu                         | `3`                                                         |
-| `--phash-threshold`       | Ngưỡng Hamming distance cho perceptual hash                                      | `4`                                                         |
-| `--noise-threshold`       | Ngưỡng loại bỏ nhiễu nén video khi so sánh pixel                                 | `25`                                                        |
-| `--cv-prefilter`          | Bật tiền lọc OpenCV để bỏ qua ROI không có dấu hiệu chữ                          | (tắt)                                                       |
-| `--cv-min-edge-density`   | Ngưỡng mật độ cạnh tối thiểu cho CV prefilter                                    | `0.03`                                                      |
-| `--cv-edge-low`           | Ngưỡng thấp Canny edge detector                                                  | `50`                                                        |
-| `--cv-edge-high`          | Ngưỡng cao Canny edge detector                                                   | `150`                                                       |
-| `--min-chars`             | Số ký tự tối thiểu để ghi nhận                                                   | `2`                                                         |
-| `--no-scene-detection`    | Tắt bỏ tính năng Scene detection (tương đương threshold=0)                       | (tắt)                                                       |
-| `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung                                               | (tắt)                                                       |
-| `--strip-punctuation`     | Bỏ MỌI dấu câu (Unicode P*) khỏi text OCR — input sạch cho punctuate-srt; độc lập filter | (tắt)                            |
-| `--ocr-model`             | Tên model Hugging Face (DeepSeek-OCR-2 hoặc Qwen3-VL)                            | `deepseek-ai/DeepSeek-OCR-2`                                |
-| `--qwen-max-new-tokens`   | [Chỉ Qwen3-VL] Số token tối đa sinh ra                                           | `256`                                                       |
-| `--qwen-min-pixels`       | [Chỉ Qwen3-VL] Pixel blocks tối thiểu (ảnh hưởng VRAM)                           | `256`                                                       |
-| `--qwen-max-pixels`       | [Chỉ Qwen3-VL] Pixel blocks tối đa (ảnh hưởng VRAM)                              | `1280`                                                      |
-| `--device`                | Thiết bị xử lý (cuda/cpu)                                                        | `cuda`                                                      |
-| `--hf-token`              | Hugging Face Token                                                               | (không dùng)                                                |
-| `--batch-size`            | Batch size cho OCR batching                                                      | `8`                                                         |
-| `--format`                | Định dạng output theo box (srt/txt)                                              | `srt`                                                       |
-| `--default-duration`      | Thời lượng mặc định mỗi subtitle                                                 | `3.0s`                                                      |
-| `--min-duration`          | Thời lượng tối thiểu sau deduplicate                                             | `1.0s`                                                      |
-| `--max-duration`          | Thời lượng tối đa sau deduplicate                                                | `7.0s`                                                      |
-| `--no-deduplicate`        | Tắt gộp subtitle trùng lặp                                                       | (tắt)                                                       |
-| `--warn-english`          | Tạo file cảnh báo riêng nếu subtitle chứa tiếng Anh/số                           | (tắt)                                                       |
-| `--save-minify-txt`       | Lưu file `<video>_script.txt` thuần văn bản, mỗi câu 1 dòng                      | (tắt)                                                       |
-| `--no-timestamp`          | Tắt timestamp (chỉ với format=txt)                                               | (tắt)                                                       |
-| `--isolate-text`          | Bật lọc watermark/overlay mờ (opacity masking) trước khi OCR                     | (tắt)                                                       |
-| `--isolate-config`        | File JSON ngưỡng từ `tools/calibrate_text_isolation.py`                          | (không dùng)                                                |
-| `--subtitle-colors`       | Màu phụ đề chỉ định: `"white,#FFD700"` hoặc `"255,255,255"`                      | (rỗng → dựa độ sáng)                                        |
-| `--color-tolerance`       | Sai số khoảng cách màu Lab                                                       | `40`                                                        |
-| `--subtitle-min-contrast` | Ngưỡng tương phản (proxy opacity); component mờ hơn bị xóa                       | `40`                                                        |
-| `--stroke-max-luminance`  | Ngưỡng độ sáng coi là viền tối                                                   | `80`                                                        |
-| `--min-component-area`    | Diện tích tối thiểu giữ component — chỉ diệt nhiễu, đặt nhỏ                      | `8`                                                         |
-| `--no-require-stroke`     | Tắt kiểm tra viền tối (phụ đề không có viền)                                     | (tắt)                                                       |
-| `--config`                | Đường dẫn file cấu hình `.yaml`                                                  | (không dùng)                                                |
+| Tham số                   | Mô tả                                                                                     | Mặc định                                                    |
+| ------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `input_video`             | File video đầu vào (hoặc directory nếu dùng --input-dir)                                  | (bắt buộc)                                                  |
+| `--boxes-file`            | File cấu hình các vùng OCR theo format `name x y w h`                                     | `assets/boxesOCR.txt` (nếu có config yaml thì config > cli) |
+| `--output-dir`            | Thư mục output cho các file theo box                                                      | cùng thư mục video                                          |
+| `--frame-interval`        | Số frame bỏ qua giữa mỗi lần xử lý                                                        | `30`                                                        |
+| `--scene-threshold`       | Ngưỡng phần trăm thay đổi pixel trên tổng diện tích box để phát hiện chuyển cảnh          | `1.5`                                                       |
+| `--min-scene-frames`      | Số frame tối thiểu giữa 2 lần chuyển cảnh để tránh nhiễu                                  | `3`                                                         |
+| `--phash-threshold`       | Ngưỡng Hamming distance cho perceptual hash                                               | `4`                                                         |
+| `--noise-threshold`       | Ngưỡng loại bỏ nhiễu nén video khi so sánh pixel                                          | `25`                                                        |
+| `--cv-prefilter`          | Bật tiền lọc OpenCV để bỏ qua ROI không có dấu hiệu chữ                                   | (tắt)                                                       |
+| `--cv-min-edge-density`   | Ngưỡng mật độ cạnh tối thiểu cho CV prefilter                                             | `0.03`                                                      |
+| `--cv-edge-low`           | Ngưỡng thấp Canny edge detector                                                           | `50`                                                        |
+| `--cv-edge-high`          | Ngưỡng cao Canny edge detector                                                            | `150`                                                       |
+| `--min-chars`             | Số ký tự tối thiểu để ghi nhận                                                            | `2`                                                         |
+| `--no-scene-detection`    | Tắt bỏ tính năng Scene detection (tương đương threshold=0)                                | (tắt)                                                       |
+| `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung                                                        | (tắt)                                                       |
+| `--strip-punctuation`     | Bỏ MỌI dấu câu (Unicode P\*) khỏi text OCR — input sạch cho punctuate-srt; độc lập filter | (tắt)                                                       |
+| `--ocr-model`             | Tên model Hugging Face (DeepSeek-OCR-2 hoặc Qwen3-VL)                                     | `deepseek-ai/DeepSeek-OCR-2`                                |
+| `--qwen-max-new-tokens`   | [Chỉ Qwen3-VL] Số token tối đa sinh ra                                                    | `256`                                                       |
+| `--qwen-min-pixels`       | [Chỉ Qwen3-VL] Pixel blocks tối thiểu (ảnh hưởng VRAM)                                    | `256`                                                       |
+| `--qwen-max-pixels`       | [Chỉ Qwen3-VL] Pixel blocks tối đa (ảnh hưởng VRAM)                                       | `1280`                                                      |
+| `--device`                | Thiết bị xử lý (cuda/cpu)                                                                 | `cuda`                                                      |
+| `--hf-token`              | Hugging Face Token                                                                        | (không dùng)                                                |
+| `--batch-size`            | Batch size cho OCR batching                                                               | `8`                                                         |
+| `--format`                | Định dạng output theo box (srt/txt)                                                       | `srt`                                                       |
+| `--default-duration`      | Thời lượng mặc định mỗi subtitle                                                          | `3.0s`                                                      |
+| `--min-duration`          | Thời lượng tối thiểu sau deduplicate                                                      | `1.0s`                                                      |
+| `--max-duration`          | Thời lượng tối đa sau deduplicate                                                         | `7.0s`                                                      |
+| `--no-deduplicate`        | Tắt gộp subtitle trùng lặp                                                                | (tắt)                                                       |
+| `--warn-english`          | Tạo file cảnh báo riêng nếu subtitle chứa tiếng Anh/số                                    | (tắt)                                                       |
+| `--save-minify-txt`       | Lưu file `<video>_script.txt` thuần văn bản, mỗi câu 1 dòng                               | (tắt)                                                       |
+| `--no-timestamp`          | Tắt timestamp (chỉ với format=txt)                                                        | (tắt)                                                       |
+| `--isolate-text`          | Bật lọc watermark/overlay mờ (opacity masking) trước khi OCR                              | (tắt)                                                       |
+| `--isolate-config`        | File JSON ngưỡng từ `tools/calibrate_text_isolation.py`                                   | (không dùng)                                                |
+| `--subtitle-colors`       | Màu phụ đề chỉ định: `"white,#FFD700"` hoặc `"255,255,255"`                               | (rỗng → dựa độ sáng)                                        |
+| `--color-tolerance`       | Sai số khoảng cách màu Lab                                                                | `40`                                                        |
+| `--subtitle-min-contrast` | Ngưỡng tương phản (proxy opacity); component mờ hơn bị xóa                                | `40`                                                        |
+| `--stroke-max-luminance`  | Ngưỡng độ sáng coi là viền tối                                                            | `80`                                                        |
+| `--min-component-area`    | Diện tích tối thiểu giữ component — chỉ diệt nhiễu, đặt nhỏ                               | `8`                                                         |
+| `--no-require-stroke`     | Tắt kiểm tra viền tối (phụ đề không có viền)                                              | (tắt)                                                       |
+| `--config`                | Đường dẫn file cấu hình `.yaml`                                                           | (không dùng)                                                |
 
 > **Mức ưu tiên Cấu hình**: CLI parameters có mức ưu tiên cao nhất, sau đó là tham số khai báo trong `--config`, và cuối cùng là Default values.
 

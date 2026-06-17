@@ -4,49 +4,45 @@ The input is OCR-extracted subtitle text. The text content is GROUND TRUTH and m
 Your ONLY job: insert correct punctuation marks. You translate nothing and rewrite nothing.
 
 # INPUT DATA
-[Global Context]: See `<FULL_SOURCE_CONTEXT>` (if provided). Use it ONLY to understand the flow of the whole script so you place punctuation correctly across block boundaries. DO NOT output it.
-[Target Batch]: See `<INPUT>`. This is the ONLY data you must process and return.
+[Global Context]: See `<FULL_SOURCE_CONTEXT>` (if provided). Use it ONLY to understand the flow of the whole script so you place punctuation correctly across line boundaries. DO NOT output it.
+[Target Batch]: See `<INPUT>`. Each line has the form `N. text`, where `N` is a stable numeric id for that subtitle line and `text` is its content. This is the ONLY data you must process and return.
 
 # ABSOLUTE RULES (Non-Negotiable)
-1. **Letters are immutable**: Never add, delete, replace, reorder, or "fix" any letter/word/number/character. If you strip every punctuation mark from your output, it MUST be byte-for-byte identical to the input text. The ONLY characters you may insert are punctuation marks.
+1. **Text content is immutable**: Within each line's `text`, never add, delete, replace, reorder, or "fix" any letter/word/number/character. If you strip every punctuation mark you inserted, the text content MUST be byte-for-byte identical to the input. The ONLY characters you may insert are punctuation marks. (The leading `N. ` id is metadata — keep it exactly, do not treat it as content to punctuate.)
 2. **Punctuation only, correct for {language}**: Insert natural punctuation following {language} conventions (e.g. full-width 。，？！、：「」 for Chinese/Japanese; ASCII `. , ? ! : "` for Latin scripts). Never mix the wrong script's punctuation set.
 3. **Structure is immutable**:
-   - Output the EXACT same number of blocks as the input.
-   - Copy every Index number and every Timestamp line EXACTLY.
-   - Keep the one-block-per-subtitle structure and blank lines.
-4. **Blocks may be sentence FRAGMENTS** (a caption can be cut mid-sentence by on-screen line breaks or length limits):
-   - Do NOT force a block to be a complete sentence.
-   - A block MAY end with NO terminal punctuation if its sentence continues into the next block. In that case leave the end un-punctuated (or use a comma only if clearly warranted).
-   - Use the surrounding blocks / global context to decide where sentences truly end.
+   - Output the EXACT same set of ids `N` as the input — none added, dropped, merged, or split.
+   - Copy each id `N` exactly, keeping its `N. ` prefix at the start of the line.
+   - Output one line per id, in ascending id order. Do NOT output timestamps or blank lines, and do NOT insert a line break inside a single entry.
+4. **Lines may be sentence FRAGMENTS** (a caption can be cut mid-sentence by on-screen line breaks or length limits):
+   - Do NOT force a line to be a complete sentence.
+   - A line MAY end with NO terminal punctuation if its sentence continues into the next line. In that case leave the end un-punctuated (or use a comma only if clearly warranted).
+   - Use the surrounding lines / global context to decide where sentences truly end.
 5. **When unsure, add nothing.** It is better to leave a spot un-punctuated than to risk altering meaning.
+6. **Restore NATURAL sentence boundaries for fluent narration**: This text is consumed by a TTS engine (it is NOT shown on screen), so sentence rhythm matters more than line length — there is no "too long to read" constraint. Place sentence-ending marks (。！？ / `.!?`) ONLY where a thought genuinely completes, exactly where the original speaker/author would naturally end the sentence. Connect the intermediate clauses of one continuous thought with commas (，/、 for CJK; `,` for Latin).
+   - Do NOT close every short clause with a terminal mark — fragmenting one thought across many periods makes TTS read in choppy, unnatural bursts.
+   - Do NOT force a sentence to end by clause count or length. Let MEANING decide the boundary, not an arbitrary cap — ending a sentence before its thought completes sounds just as unnatural as fragmenting it.
+   - Equally, do NOT fuse unrelated thoughts into one run-on. A genuinely new thought begins a new sentence.
+   - **What matters most is the mark at the END of each line** (a downstream step decides where to merge lines purely by that final character): end a line with 。！？ ONLY when the thought truly completes there; end it with a comma — or no mark at all (see Rule #4) — when the thought continues into the next line. This is how related lines get read as one fluent TTS sentence.
+   - This still obeys Rules #1 and #3: you only INSERT punctuation (a comma where you might have put a period) and you keep one line per id — never merge lines or change characters yourself.
 
 {context_block}
 
 # OUTPUT FORMAT
-Return ONLY the processed batch, in the SAME SRT structure, wrapped in `<PUNCT_TEXT>` tags.
+Return ONLY the processed batch, one line per id as `N. text`, in ascending id order, wrapped in `<PUNCT_TEXT>` tags. No timestamps, no blank lines.
 
 **Example (Chinese, fragment-aware):**
 *Input:*
-1
-00:00:01,000 --> 00:00:02,000
-我昨天去了
-
-2
-00:00:02,500 --> 00:00:04,000
-那家新开的店
+1. 我昨天去了
+2. 那家新开的店
 
 *Correct Output:*
 <PUNCT_TEXT>
-1
-00:00:01,000 --> 00:00:02,000
-我昨天去了
-
-2
-00:00:02,500 --> 00:00:04,000
-那家新开的店。
+1. 我昨天去了
+2. 那家新开的店。
 </PUNCT_TEXT>
 
-(Block 1 stays un-punctuated because the sentence continues into block 2.)
+(Line 1 stays un-punctuated because the sentence continues into line 2.)
 
 ---
 

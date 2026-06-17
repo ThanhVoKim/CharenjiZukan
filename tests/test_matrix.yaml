@@ -523,6 +523,14 @@ tests:
   # SRT BATCH CONCURRENCY — llm_ai/srt_batch/ + retry + provider thread-safety
   # ──────────────────────────────────────────────
 
+  - name: "SRT Batch Batching — Layer 1: Numbered-Line Parser & Map-by-Line-Id"
+    file: "tests/llm_ai/test_srt_batch_batching.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit"]
+    enabled: true
+
   - name: "SRT Batch Concurrency — Layer 1: Exponential Backoff, RateLimiter, Telemetry"
     file: "tests/llm_ai/test_srt_batch_concurrency.py"
     keyword: "Layer1"
