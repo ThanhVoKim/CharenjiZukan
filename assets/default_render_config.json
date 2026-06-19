@@ -204,6 +204,6 @@
     "offset_seconds": 0.24,
     "keep_tts_synced_debug": false,
     "fail_policy": "warn",
-    "batch_size": 16
+    "batch_size": 32
   }
 }

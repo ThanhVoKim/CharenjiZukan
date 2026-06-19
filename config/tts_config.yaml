@@ -20,9 +20,9 @@ voicevox_nemo:
   host: "127.0.0.1"
   port: 50121
   speed_scale: 1.1
-  pitch_scale: -0.05
-  intonation_scale: 1.0
-  volume_scale: 2.0
+  pitch_scale: 0
+  intonation_scale: 1
+  volume_scale: 1.75
   output_sampling_rate: 48000
   concurrent_requests: 100
   max_retries: 3
@@ -33,9 +33,9 @@ voicevox:
   host: "127.0.0.1"
   port: 50021
   speed_scale: 1.1
-  pitch_scale: -0.05
-  intonation_scale: 1.0
-  volume_scale: 2.0
+  pitch_scale: 0
+  intonation_scale: 1
+  volume_scale: 1.75
   output_sampling_rate: 48000
   concurrent_requests: 100
   max_retries: 3
