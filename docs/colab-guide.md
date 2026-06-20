@@ -64,48 +64,38 @@ token = userdata.get('github_token')
 
 > **Lưu ý:** Sử dụng `userdata.get()` để lấy token từ Secrets, không hardcode token vào code để tránh lộ thông tin nhạy cảm.
 
-### 1.3. Cài đặt môi trường cho DeepSeek-OCR-2 (tùy chọn - cho trích xuất phụ đề cứng)
+### 1.3. Cài đặt môi trường cho OCR (DeepSeek-OCR-2 / Qwen3-VL)
 
-DeepSeek-OCR-2 là mô hình AI trên Hugging Face, không phải là một package Python thông thường. Mã nguồn và weights của mô hình sẽ được tự động tải về thông qua thư viện `transformers` khi chạy script.
-
-Các thư viện nền (như `transformers`, `torch`, `einops`, `PyMuPDF`) đã được cấu hình trong `pyproject.toml` và sẽ tự động cài đặt khi chạy `!uv pip install -e .`. Tuy nhiên, bạn cần cài thêm `flash-attn` để tăng tốc xử lý:
-
-```colab
-# Cài đặt Flash Attention (yêu cầu cho DeepSeek-OCR-2)
-!uv pip install -p .venv/bin/python flash-attn==2.7.3 --no-build-isolation
-```
+> **Xem [docs/colab-setup.md](colab-setup.md) mục A.3** để dựng `.venv-ocr` và tạo lock file.
+> Sau khi có lock, mỗi runtime chỉ cần restore bằng mục B.3.
+>
+> Lý do dùng venv riêng: `video-ocr` cần `transformers>=4.57.0` và có thể xung đột với các gói
+> khác trong env gốc. Venv cô lập tránh được tất cả.
 
 ### 1.4. Cài đặt Qwen3-VL OCR (tùy chọn)
 
-Nếu muốn dùng Qwen3-VL thay cho DeepSeek-OCR-2 (có tốc độ chậm hơn nhưng đọc chính xác hơn, đặc biệt khi dùng bản Thinking), cần cài đặt thủ công do yêu cầu phiên bản `transformers` khác với DeepSeek:
+Qwen3-VL được cài trong cùng `.venv-ocr` (xem §1.3 / `docs/colab-setup.md` mục A.3). Không cần
+env riêng thêm — cùng venv, khác `--ocr-model` khi chạy.
 
-> **⚠️ Lưu ý phiên bản transformers:**
->
-> - DeepSeek-OCR-2: yêu cầu `transformers==4.45.2`
-> - Qwen3-VL: yêu cầu `transformers>=4.57.0`
->   Hai model **không thể dùng chung** một phiên bản `transformers` cùng lúc.
-
-```colab
-# Nâng transformers cho Qwen3-VL
-!uv pip install --upgrade "transformers>=4.57.0"
-
-# Cài qwen-vl-utils (phiên bản khuyến nghị)
-!uv pip install qwen-vl-utils==0.0.14
-```
-
-**Chạy với Qwen3-VL (Bước 2):**
-
-```colab
-# Đọc nhanh (Instruct)
-!uv run video-ocr /content/video.mp4 --ocr-model Qwen/Qwen3-VL-8B-Instruct --device cuda
-
-# Đọc chính xác với suy luận (Thinking)
-!uv run video-ocr /content/video.mp4 --ocr-model Qwen/Qwen3-VL-8B-Thinking --device cuda
-```
+> **Lưu ý phiên bản transformers:** DeepSeek-OCR-2 yêu cầu `transformers==4.45.2`, Qwen3-VL yêu
+> cầu `>=4.57.0`. Hai model **không thể dùng chung** một version. Lock file (A.3) ghim version
+> phù hợp với model bạn chọn khi setup lần đầu.
 
 ---
 
 ## 2. Các script chính
+
+> **Môi trường chạy — tra nhanh trước khi dùng:**
+>
+> | Tool                                | Venv             | Prefix lệnh                                   | Dựng env                      |
+> | ----------------------------------- | ---------------- | --------------------------------------------- | ----------------------------- |
+> | `sync-video`, `tts --provider qwen` | `.venv-sync`     | `.venv-sync/bin/<cmd>`                        | `docs/colab-setup.md` mục A.1 |
+> | `qwen3-asr-srt`                     | `.venv-qwen3asr` | `.venv-qwen3asr/bin/python cli/qwen3_asr.py`  | `docs/colab-setup.md` mục A.2 |
+> | `video-ocr`, `video-ocr-native`     | `.venv-ocr`      | `.venv-ocr/bin/<cmd>`                         | `docs/colab-setup.md` mục A.3 |
+> | `whisper-srt`                       | `.venv-whisper`  | `.venv-whisper/bin/python cli/whisper_srt.py` | §2.0 bên dưới                 |
+> | Mọi tool còn lại                    | env gốc          | `uv run <cmd>`                                | §1.2 bên trên                 |
+>
+> Chưa có lock/venv → xem [docs/colab-setup.md](colab-setup.md) để dựng lần đầu.
 
 ### 2.0 Speech-to-Text với WhisperX (cho video có giọng đọc rõ ràng)
 
@@ -766,21 +756,17 @@ Cấu hình engine được đặt trong file YAML (`config/tts_config.yaml`). C
 
 #### Sử dụng Qwen3-TTS (Voice Clone)
 
-#### Cài đặt môi trường
+> **Môi trường:** Qwen3-TTS chạy trong `.venv-sync`. Xem [docs/colab-setup.md](colab-setup.md)
+> mục A.1 để dựng lần đầu (bao gồm cả `sox libsox-fmt-all` và `rubberband-cli`).
 
 ```colab
-!uv pip install -e .[qwen-tts]
-!apt-get -y install sox libsox-fmt-all
-```
-
-```colab
-!uv run tts \
+!.venv-sync/bin/tts \
     --input /content/script.txt \
     --provider qwen \
     --config /content/CharenjiZukan/config/tts_config.yaml
 ```
 
-> **Lưu ý:** Qwen3-TTS yêu cầu cài đặt `qwen-tts`, `transformers`, `accelerate`, `soundfile` và `flash-attn`. Cấu hình `ref_audio` và `ref_text` trong `config/tts_config.yaml` để voice-clone.
+> **Lưu ý:** Cấu hình `ref_audio` và `ref_text` trong `config/tts_config.yaml` để voice-clone.
 
 #### Chạy hàng loạt (Batch JSON)
 
@@ -940,13 +926,15 @@ Thay đổi tốc độ media (video, audio, SRT, ASS). Hỗ trợ cả slow dow
 
 Trích xuất phụ đề (hardsub) trực tiếp từ khung hình video sử dụng mô hình DeepSeek-OCR-2, hỗ trợ nhiều vùng box độc lập.
 
+> **Môi trường:** chạy trong `.venv-ocr`. Xem [docs/colab-setup.md](colab-setup.md) mục A.3.
+
 #### Trích xuất nhanh (với Secrets)
 
 ```colab
 from google.colab import userdata
 hf_token = userdata.get('hf_token')
 
-!uv run video-ocr /content/video.mp4 \
+!.venv-ocr/bin/video-ocr /content/video.mp4 \
     --boxes-file /content/CharenjiZukan/assets/boxesOCR.txt \
     --hf-token "{hf_token}"
 ```
@@ -957,7 +945,7 @@ hf_token = userdata.get('hf_token')
 from google.colab import userdata
 hf_token = userdata.get('hf_token')
 
-!uv run video-ocr /content/video.mp4 \
+!.venv-ocr/bin/video-ocr /content/video.mp4 \
     --boxes-file /content/CharenjiZukan/assets/boxesOCR.txt \
     --output-dir /content \
     --frame-interval 3 \
@@ -1042,7 +1030,7 @@ Khi video có **watermark / text overlay mờ** (opacity < 70%) lọt vào vùng
 ```colab
 # samples/subtitle/  : crop phụ đề sạch + crop phụ đề bị watermark ĐÈ chồng
 # samples/watermark/ : crop CHỈ watermark/overlay
-!uv run python /content/CharenjiZukan/tools/calibrate_text_isolation.py \
+!.venv-ocr/bin/python /content/CharenjiZukan/tools/calibrate_text_isolation.py \
     --subtitle-samples /content/samples/subtitle/ \
     --watermark-samples /content/samples/watermark/ \
     --subtitle-colors "white,#FFD700" \
@@ -1053,7 +1041,7 @@ Khi video có **watermark / text overlay mờ** (opacity < 70%) lọt vào vùng
 **Bước 2 — Chạy OCR với config đã hiệu chỉnh:**
 
 ```colab
-!uv run video-ocr /content/video.mp4 \
+!.venv-ocr/bin/video-ocr /content/video.mp4 \
     --boxes-file /content/CharenjiZukan/assets/boxesOCR.txt \
     --ocr-model Qwen/Qwen3-VL-8B-Instruct \
     --isolate-text \
@@ -1065,7 +1053,7 @@ Khi video có **watermark / text overlay mờ** (opacity < 70%) lọt vào vùng
 Hoặc truyền tay ngưỡng (không cần file JSON):
 
 ```colab
-!uv run video-ocr /content/video.mp4 \
+!.venv-ocr/bin/video-ocr /content/video.mp4 \
     --isolate-text \
     --subtitle-colors "white,#FFD700" \
     --color-tolerance 40 \
@@ -1103,13 +1091,15 @@ Ví dụ input là `/content/video.mp4` với 2 box `subtitle` và `note`, outpu
 
 CLI này dùng Qwen3-VL Native Video mode để xử lý subtitle theo từng batch video (mặc định 60 giây), giữ context theo chiến lược multi-turn giữa các batch.
 
+> **Môi trường:** chạy trong `.venv-ocr`. Xem [docs/colab-setup.md](colab-setup.md) mục A.3.
+
 #### Chạy nhanh (khuyến nghị cho Colab)
 
 ```colab
 from google.colab import userdata
 hf_token = userdata.get('hf_token')
 
-!uv run video-ocr-native /content/video.mp4 \
+!.venv-ocr/bin/video-ocr-native /content/video.mp4 \
     --hf-token "{hf_token}" \
     --device cuda
 ```
@@ -1120,7 +1110,7 @@ hf_token = userdata.get('hf_token')
 from google.colab import userdata
 hf_token = userdata.get('hf_token')
 
-!uv run video-ocr-native /content/video.mp4 \
+!.venv-ocr/bin/video-ocr-native /content/video.mp4 \
     --config /content/CharenjiZukan/config/native_video_ocr_config.yaml \
     --boxes-file /content/CharenjiZukan/assets/boxesOCR.txt \
     --output-dir /content \
@@ -1178,6 +1168,10 @@ Với input `/content/video.mp4`:
 
 CLI `sync-video` dùng pipeline `sync_engine` để đồng bộ video + TTS theo timeline subtitle (gồm 7 phase: phân tích timeline, xử lý video chunks, ghép audio, forced alignment subtitle (optional), remap timestamps, render final, LLM metadata (optional)).
 
+> **Môi trường:** chạy trong `.venv-sync`. Xem [docs/colab-setup.md](colab-setup.md) mục A.1 để
+> dựng lần đầu, mục B.1 để restore hằng ngày. Nhớ cài hệ thống:
+> `!apt-get -y install sox libsox-fmt-all rubberband-cli`
+
 #### Forced Alignment Subtitle (Phase 3.5)
 
 Khi bật `forced_alignment_subtitle.enabled = true` trong `render_config.json`, pipeline sẽ align **từng clip TTS `dubb-N.wav`** (Phase 0 đã sinh) bằng `Qwen3ForcedAligner`, tạo SRT với timestamp chính xác cho từng từ. Mỗi clip chỉ vài giây nên không OOM dù video dài nhiều tiếng. Dòng phụ đề vùng mute tự động remap timeline rồi gộp vào SRT cuối — không sót dòng nào.
@@ -1192,24 +1186,11 @@ Khi bật `forced_alignment_subtitle.enabled = true` trong `render_config.json`,
 #### Chạy nhanh
 
 ```colab
-!uv run sync-video \
+!.venv-sync/bin/sync-video \
     --video /content/video.mp4 \
     --subtitle /content/subtitle_translated.srt \
     --tts-provider edge \
     --tts-voice ja-JP-KeitaNeural \
-    --output-dir /content/output_sync
-```
-
-#### Chạy nhanh với Voicevox Nemo
-
-Yêu cầu đã bật server Voicevox Nemo ngầm (xem phần 2.6).
-
-```colab
-!uv run sync-video \
-    --video /content/video.mp4 \
-    --subtitle /content/subtitle_translated.srt \
-    --tts-provider voicevox_nemo \
-    --tts-voice 10008 \
     --output-dir /content/output_sync
 ```
 
@@ -1218,7 +1199,7 @@ Yêu cầu đã bật server Voicevox Nemo ngầm (xem phần 2.6).
 Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
 
 ```colab
-!uv run sync-video \
+!.venv-sync/bin/sync-video \
     --video /content/video.mp4 \
     --subtitle /content/subtitle_translated.srt \
     --tts-provider voicevox \
@@ -1231,7 +1212,7 @@ Yêu cầu đã bật server Voicevox ngầm (xem phần 2.6).
 Yêu cầu đã cài đặt `qwen-tts` và `transformers` (xem phần 2.6).
 
 ```colab
-!uv run sync-video \
+!.venv-sync/bin/sync-video \
     --video /content/video.mp4 \
     --subtitle /content/subtitle_translated.srt \
     --tts-provider qwen \
@@ -1275,7 +1256,7 @@ Lưu ý vận hành trên Colab:
 #### Chạy đầy đủ tham số
 
 ```colab
-!uv run sync-video \
+!.venv-sync/bin/sync-video \
     --video /content/video.mp4 \
     --subtitle /content/subtitle_translated.srt \
     --tts-provider edge \
@@ -1399,7 +1380,7 @@ Thêm overlay nhân vật ảo PNGTuber vào video output. Pipeline thuần Pyth
 #### Chạy sync-video với tuber overlay
 
 ```colab
-!uv run sync-video \
+!.venv-sync/bin/sync-video \
     --video /content/video.mp4 \
     --subtitle /content/subtitle_ja.srt \
     --tuber-config /content/CharenjiZukan/assets/tuber_overlay_config.json
@@ -1410,7 +1391,7 @@ Thêm overlay nhân vật ảo PNGTuber vào video output. Pipeline thuần Pyth
 #### Late repair (sau khi fallback non-tuber)
 
 ```colab
-!uv run tuber-repair --tuber-root tuber-output/<job>/tuber
+!.venv-sync/bin/tuber-repair --tuber-root tuber-output/<job>/tuber
 ```
 
 #### File cấu hình `assets/tuber_overlay_config.json`

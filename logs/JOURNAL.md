@@ -1,5 +1,150 @@
 # Project Journal
 
+## 2026-06-20: Colab — 2 quy luật venv cô lập + sửa override 4.57.6 + fix `.venv-ocr` thiếu torchvision
+
+### Bối cảnh
+
+Sau chuỗi lỗi "hôm qua chạy hôm nay không" trên mọi venv cô lập, gom lại rút **2 quy luật** dùng
+chung cho cả `.venv-sync` / `.venv-qwen3asr` / `.venv-ocr`:
+
+- **Quy luật A — gói "Colab cài ngầm":** code (hoặc *thư viện khác*) import gói Colab có sẵn nhưng
+  `pyproject.toml` không khai báo → venv cô lập thiếu. Gồm cả gói *cần ngầm*: `qwen_tts`→`torchaudio`,
+  `transformers VL`→`torchvision`, `edgetts`→`aiohttp`, `video_subtitle_extractor`→`cv2`/`PIL`.
+- **Quy luật B — đồng bộ CUDA:** mọi gói họ-torch (`torch`/`torchvision`/`torchaudio`) **và**
+  `onnxruntime-gpu` phải cùng `cu128`. **Mọi** lệnh `uv pip install` đụng chúng phải mang
+  `-c /content/cuda-base.txt` + `--extra-index-url ...cu128` + `--index-strategy unsafe-best-match`.
+
+### Sửa `.venv-sync` (đính chính entry 2026-06-19 ngay dưới)
+
+- **Override transformers đúng là `4.57.6`, KHÔNG phải `4.57.3`.** Entry dưới ghi `4.57.3` là sai:
+  `qwen-asr` cũng pin **cứng** `==4.57.6`, nên ép `4.57.3` làm qwen-asr unsatisfiable. Ép `4.57.6`
+  (qwen-asr cần; qwen-tts vẫn chạy tốt). Override 2 dòng: `onnxruntime-gpu==1.26.0` + `transformers==4.57.6`.
+- **Lỗi torch-drift CUDA-13:** cài tách (`audio-separator`, `qwen-asr` không kèm `-c cuda-base.txt`)
+  làm `torch` trôi lên bản CUDA-13 PyPI → `RuntimeError: PyTorch and TorchAudio compiled with
+  different CUDA versions` (torch cu13 vs torchaudio cu128). → Chốt dùng **1 lệnh gộp** mang đủ
+  `-c cuda-base.txt` + index cu128 (giữ cả họ torch đồng bộ trong một resolve).
+- Lock vẫn "phạm luật" graph (qwen-tts metadata đòi 4.57.3) → restore **bắt buộc `--no-deps`**.
+
+### Fix `.venv-ocr` (áp Quy luật A + B)
+
+- Lỗi `ModuleNotFoundError: cv2`, rồi `Qwen3VLVideoProcessor requires the Torchvision library`. `cv2`
+  là import top-level của `video_subtitle_extractor`; `torchvision` là gói `transformers` cần **ngầm**
+  cho Qwen3-VL (code không import trực tiếp nên dễ sót — y hệt `torchaudio` của `qwen_tts`).
+- **Thêm extra `ocr` vào `pyproject.toml`:** opencv-python-headless + Pillow + torch + **torchvision**
+  + transformers + accelerate + qwen-vl-utils + matplotlib. `torch` để unversioned (ghim bởi
+  cuda-base lúc cài). Không thêm torchcodec (OCR đưa frame ảnh, không decode video).
+- **A.3 thêm bộ index cu128 + `-c cuda-base.txt`** và dùng `-e ".[ocr]"`; verify `import cv2,
+  torchvision` + `torch.version.cuda==12.8` trước khi freeze `ocr_lock.txt`.
+
+Chi tiết: **`docs/colab-setup.md`** mục A.1 (Option A), A.3, và 2 quy luật ở phần "Nguyên tắc".
+
+## 2026-06-19: Colab — Đưa lại `qwen-asr` vào `.venv-sync` cho forced alignment (override transformers)
+
+### Triệu chứng
+
+`.venv-sync/bin/sync-video` chạy được nhưng log:
+`WARNING - Forced alignment thất bại ... ModuleNotFoundError: No module named 'qwen_asr'`.
+Pipeline không chết (fail_policy mặc định = warn → fallback remap SRT), nhưng mất tính năng
+forced-alignment subtitle (timestamp word-level). Nguyên do: entry trước đã **bỏ `qwen-asr`** khỏi
+`.venv-sync`, trong khi `Qwen3ForcedAligner` lại được gọi trong tiến trình sync-video.
+
+### Quyết định / thay đổi workflow (đảo lại một phần entry "bỏ qwen-asr" bên dưới)
+
+- **Đưa lại `qwen-asr` (TRƠN, không `[vllm]`) vào `.venv-sync`.** Chỉ cần `Qwen3ForcedAligner`,
+  không cần vllm/torch nặng của bản ASR đầy đủ.
+- **Xung đột `transformers` quay lại** (`qwen-tts==4.57.3` vs `qwen-asr==4.57.6`, cả hai `==` →
+  loại trừ nhau bằng resolve thường → "your requirements are unsatisfiable"). Xử lý bằng
+  **`--override transformers==4.57.3`** (ép về bản qwen-tts; chênh `.3`→`.6` chỉ là patch nên
+  `Qwen3ForcedAligner` vẫn chạy). Override giờ gồm 2 dòng: `onnxruntime-gpu==1.26.0` +
+  `transformers==4.57.3`.
+- **Gộp cả 3 vào 1 lệnh resolve** (`-e ".[qwen-tts,...]" "audio-separator[gpu]" "qwen-asr"`); cài lẻ
+  từng lệnh sẽ resolve lại từ đầu mỗi lần → đảo/trôi version. `--override` phải lặp lại ở **mọi**
+  lệnh `uv pip install` đụng các gói này (kể cả bước `--reinstall-package onnxruntime-gpu`).
+- **Tùy chọn gọn:** nếu render config để `forced_alignment_subtitle.enabled: false` thì bỏ
+  `qwen-asr` + bỏ override transformers → quay về trạng thái entry bên dưới (qwen-tts tự dùng 4.57.3).
+- Phân biệt: `.venv-qwen3asr` vẫn là `qwen-asr[vllm]` đầy đủ cho CLI `qwen3_asr`; `.venv-sync` chỉ
+  mượn phần aligner.
+
+Chi tiết quy trình: **`docs/colab-setup.md`** mục A.1.
+
+## 2026-06-19: Colab — `sync-video` chuyển từ `--system` sang venv riêng `.venv-sync`
+
+### Triệu chứng
+
+Restore lock `sync_lock.txt` (freeze từ `--system`) chết khi resolve:
+`cudf-cu12==26.2.1 → cuda-toolkit[nvcc]==12.* → nvidia-cuda-nvcc-cu12==12.8.93`, nhưng lock ghim
+`nvidia-cuda-nvcc-cu12==12.5.82` → "your requirements are unsatisfiable".
+
+### Nguyên nhân gốc
+
+`uv pip freeze --system` **chụp luôn toàn bộ môi trường Colab**, gồm cả bộ RAPIDS/CUDA tiền cài
+(`cudf-cu12`, `cuda-toolkit`, `nvidia-cuda-nvcc-cu12`...). Lúc freeze chỉ là "đang cài" nên không
+ai kiểm tra; lúc restore, `uv pip install -r` resolve lại và phát hiện các pin này **mâu thuẫn nội
+bộ** với nhau. ASR/OCR không dính vì chúng là **venv** — `uv pip freeze` trên venv chỉ liệt kê gói
+cài trong venv, không nhìn xuyên xuống `--system-site-packages` (xác nhận: astral-sh/uv#2500).
+
+### Quyết định / thay đổi workflow
+
+- `sync-video` **bỏ `--system`**, dùng venv riêng **CÔ LẬP** `.venv-sync` (KHÔNG
+  `--system-site-packages`) — đồng nhất với `.venv-qwen3asr` và `.venv-ocr`. Lock sinh ra sạch
+  (không còn cudf/cuda-toolkit). → **Thay thế** ghi chú "`uv pip install --system`" ở entry
+  2026-06-19 (onnxruntime) bên dưới.
+- **Vì sao KHÔNG `--system-site-packages`:** dù để cờ này, `uv` vẫn cài lại torch riêng vào venv
+  (uv#2500) → không tiết kiệm gì, mà còn rò **TensorFlow/keras Colab** vào venv → `transformers`
+  4.57.6 dò nhầm backend TF (lệch version) → `ImportError: cannot import name 'AutoProcessor' from
+  'transformers'` (dấu hiệu: log nạp TF cuFFT/cuDNN xuất hiện khi `import qwen_tts`). Venv cô lập:
+  `is_tf_available()` = False → đường torch-only → import sạch. Cái giá: mỗi venv tự tải torch ~2GB.
+- Lệnh gọi đổi thành `.venv-sync/bin/sync-video`. Đã xác minh an toàn: sync-video spawn tiến trình
+  con bằng `multiprocessing.get_context('spawn')` ([cli/sync_video.py:756]), không giả định Python
+  hệ thống, không hardcode interpreter.
+- **Bỏ `qwen-asr` khỏi env sync-video.** Trước đây nó bị nhét chung → kéo `transformers==4.57.6`
+  đụng `qwen-tts==4.57.3` → phải `--override`. Venv cô lập siết chặt nên báo "unsatisfiable". ASR
+  đã có `.venv-qwen3asr` riêng → sync-video chỉ cần qwen-tts (dùng đúng `transformers==4.57.3`,
+  bỏ luôn override transformers; chỉ còn override `onnxruntime-gpu==1.26.0`).
+- Restore lock 2-nguồn (gói `+cu128` ở index pytorch, phần còn lại ở PyPI) bắt buộc
+  `--index-strategy unsafe-best-match`, nếu không uv chỉ tra index đầu tiên → fail gói chỉ có ở PyPI.
+- `pyproject.toml`: `pyrubberband` đã ở base deps → bỏ khỏi dòng lệnh cài (thừa). `all-providers`
+  hiện trùng `openai-provider` (cả hai chỉ `openai`) vì `vertexai-provider` rỗng — alias, giữ được.
+
+Chi tiết quy trình: **`docs/colab-setup.md`**.
+
+## 2026-06-19: Colab — Lỗi `libcudart.so.13` do `onnxruntime-gpu` trôi version
+
+### Triệu chứng
+
+`sync-video --tts-provider qwen` chết với:
+`ERROR:qwen_tts: ❌ Thiếu thư viện cho QwenTTS: libcudart.so.13: cannot open shared object file`.
+Kiểu lỗi "hôm qua chạy, hôm nay không" — script không đổi.
+
+### Chẩn đoán (loại trừ từng lớp)
+
+- `torch 2.10.0+cu128` import OK; `flash_attn` import OK; trên máy **chỉ có `libcudart.so.12`**
+  (CUDA 12.8), không có `.so.13`; **không** gói `*-cu13` nào trong `pip list`. → Không phải
+  torch/CUDA.
+- `grep -rl 'libcudart.so.13'` site-packages + traceback đầy đủ của `import qwen_tts` chỉ thẳng:
+  `qwen_tts → core/tokenizer_25hz/vq/speech_vq.py → import onnxruntime →
+  onnxruntime/capi/onnxruntime_pybind11_state.so → libcudart.so.13`.
+
+### Nguyên nhân gốc
+
+**`onnxruntime-gpu` tự nhảy `1.26.0` → `1.27.0` qua đêm** (flow không khoá version, `uv`/`pip`
+nhặt bản mới nhất). Bản `1.27.0` build cho **CUDA 13** (`libcudart.so.13`), trong khi Colab là
+CUDA 12.8. Không phải Colab đổi, không phải torch, không phải Qwen3-TTS đổi version (qwen-tts vẫn
+0.1.1). Bản chạy được: **`onnxruntime-gpu==1.26.0`** (CUDA 12).
+
+### Bài học / phòng ngừa
+
+- Stack TTS trên Colab phải **khoá version**. Hai pin tối thiểu hiện tại: `transformers==4.57.6`
+  (giải xung đột `qwen-tts==4.57.3` vs `qwen-asr==4.57.6` bằng `--override`) và
+  `onnxruntime-gpu==1.26.0` (CUDA 12).
+- `uv pip install --system` để cài vào python Colab (giữ torch tiền cài), **không** dùng `uv run`
+  (nó sync lại lockfile → kéo torch/onnxruntime mới). `--reinstall-package onnxruntime-gpu` cuối
+  cùng để bản CUDA-12 thắng trên đĩa (vì cả `onnxruntime` lẫn `onnxruntime-gpu` ghi đè cùng thư mục).
+- Giải pháp bền vững: **1 môi trường = 1 file lock** (`uv pip freeze`). Quy trình đầy đủ cho cả 3
+  CLI (`sync-video` / `qwen3_asr` / `video-ocr`) đã viết ở **`docs/colab-setup.md`**.
+- KHÔNG hard-code `torch` trong `pyproject.toml` (Colab có thể đổi base torch 2.10↔2.11) — để
+  `cuda-base.txt` chụp torch thật mỗi runtime quyết định.
+
 ## 2026-06-17: srt_batch — Refactor I/O sang định dạng Numbered-Line
 
 ### Vấn đề

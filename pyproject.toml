@@ -57,6 +57,16 @@ qwen-tts = [
     "accelerate",
     "soundfile"
 ]
+ocr = [
+    "opencv-python-headless",   # cv2  (gói Colab cài ngầm — top-level ở 9 file OCR)
+    "Pillow",                   # PIL  (top-level ở qwen3vl / native extractor)
+    "torch",                    # version do -c cuda-base.txt ghim lúc cài (không pin ở đây)
+    "torchvision",              # transformers Qwen3VLVideoProcessor cần ngầm (giống torchaudio cho qwen_tts)
+    "transformers",
+    "accelerate",
+    "qwen-vl-utils",
+    "matplotlib"                # deepseek backend (matplotlib.use('Agg'))
+]
 
 [dependency-groups]
 dev = [

@@ -9,7 +9,7 @@ qwen:
   model_path: "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
   ref_audio: "/content/assets/Minimax - Japanese_GracefulMaiden.wav"
   ref_text: "一方、マイクは興奮した顔で、これで食料が手に入ると言っています。本当の死因は特定できず、病死の可能性もあります。これを撒き餌にして釣りをすれば最高ではないですか？約1ヶ月かけて作った「デリケート号」が、今日ついに重要な 役割を果たしました。"
-  batch_size: 24
+  batch_size: 32
   device: "cuda:0"
   dtype: "bfloat16"
   attn_implementation: "flash_attention_2"

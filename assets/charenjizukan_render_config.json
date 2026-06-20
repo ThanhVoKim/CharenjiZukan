@@ -47,8 +47,9 @@
     }
   },
   "audio_mix": {
+    "non_voicevox_tts_volume": 1.4,
     "mute_audio_volume": 0.7,
-    "ambient_volume": 0.03,
+    "ambient_volume": 0.04,
     "bgm_volume": 0
   },
   "audio_policies": {
