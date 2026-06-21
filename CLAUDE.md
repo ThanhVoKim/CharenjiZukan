@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## MANDATORY: Web search & URL fetch must use the `web-haiku` subagent
+
+To keep web research fast and cheap, you MUST NOT call the `WebSearch` or `WebFetch` tools directly. Instead, ALWAYS delegate any task that needs a web search or URL fetch to the `web-haiku` subagent (it runs on the Haiku model) via the Agent tool.
+
+- Need to search the web for information → spawn `web-haiku`.
+- Need to fetch/read/summarize a URL → spawn `web-haiku`.
+- This applies even for a single quick lookup. The only exception is authenticated/private URLs that `WebFetch` cannot access (use the appropriate MCP tool or `gh` for those).
+
+Pass the full query or URL plus what you need extracted, and act on the results the subagent returns.
+
 ## Overview
 
 This is a **video dubbing pipeline** that redubs Chinese (or other source-language) videos into another language. The primary runtime environment is **Google Colab** with GPU.
