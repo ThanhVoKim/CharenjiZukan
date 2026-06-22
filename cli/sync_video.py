@@ -203,6 +203,7 @@ def run_sync_pipeline(args):
         from tts.voicevox import VoicevoxTTSEngine
         from tts.voicevox_nemo import VoicevoxNemoTTSEngine
         from tts.qwen import QwenTTSEngine
+        from tts.qwen_custom import QwenCustomTTSEngine
         
         tts_only = filter_tts_subtitles(subtitle_segments, mute_segments)
         queue_tts = []
@@ -232,6 +233,7 @@ def run_sync_pipeline(args):
                 strip_silence=edge_cfg.get("strip_silence", True),
                 max_concurrent=edge_cfg.get("concurrent", 10),
                 min_silence_len_ms=edge_cfg.get("min_silence_len_ms", 300),
+                speed_scale=edge_cfg.get("speed_scale", 1.0),
             )
         elif args.tts_provider == "voicevox_nemo":
             vv_cfg = tts_cfg_full.get("voicevox_nemo", {})
@@ -273,6 +275,12 @@ def run_sync_pipeline(args):
                 queue_tts=queue_tts,
                 **qwen_cfg
             )
+        elif args.tts_provider == "qwen_custom":
+            qc_cfg = tts_cfg_full.get("qwen_custom", {})
+            engine = QwenCustomTTSEngine(
+                queue_tts=queue_tts,
+                **qc_cfg
+            )
         else:
             raise ValueError(f"Provider không hợp lệ: {args.tts_provider}")
 
@@ -288,18 +296,17 @@ def run_sync_pipeline(args):
         )
         logger.info(f"Tìm thấy {len(blocks)} blocks (bao gồm tts, mute, gap).")
         
-        is_voicevox_family = args.tts_provider in ("voicevox", "voicevox_nemo")
-        if is_voicevox_family:
-            logger.info("Voicevox family mode: no_cap=True, video có thể slow xuống dưới %.1fx", args.slow_cap)
+        # Flow mới: audio (đã áp speed_scale ở engine) → video stretch TỰ DO khớp audio.
+        # no_cap=True cho MỌI provider: không giới hạn mức kéo chậm, không bao giờ nén audio.
+        logger.info("Stretch mode: no_cap=True (video kéo chậm tự do khớp audio, không compress audio)")
 
         speeds = []
         for b in blocks:
             vs, as_, new_dur = compute_speeds(
                 tts_ms        = b.tts_duration,
                 slot_ms       = b.slot_duration,
-                cap           = args.slow_cap,
                 hard_limit_ms = b.hard_limit_ms,
-                no_cap        = is_voicevox_family,
+                no_cap        = True,
             )
             speeds.append((vs, as_, new_dur))
             
@@ -697,7 +704,7 @@ def main():
     parser.add_argument("--subtitle", help="File subtitle.srt đầy đủ (kể cả vùng mute)")
     
     # TTS Settings
-    parser.add_argument("--tts-provider", choices=["edge", "voicevox_nemo", "voicevox", "qwen"], default="edge", help="Chọn TTS engine: edge, voicevox_nemo, voicevox, qwen (mặc định: edge)")
+    parser.add_argument("--tts-provider", choices=["edge", "voicevox_nemo", "voicevox", "qwen", "qwen_custom"], default="edge", help="Chọn TTS engine: edge, voicevox_nemo, voicevox, qwen, qwen_custom (mặc định: edge)")
     parser.add_argument("--tts-voice", default=None, help="Tên giọng EdgeTTS hoặc ID nhân vật Voicevox/Voicevox Nemo (ghi đè YAML)")
     parser.add_argument("--tts-config", default=str(PROJECT_ROOT / "config" / "tts_config.yaml"),
                         help="File YAML cấu hình TTS (mặc định: config/tts_config.yaml)")
@@ -716,9 +723,6 @@ def main():
     # Tuber overlay (MotionPNGTuber qua Remotion). Không truyền → tuber disabled.
     parser.add_argument("--tuber-config", default=None,
                         help="File JSON cấu hình tuber overlay (vd assets/tuber_overlay_config.json). Bỏ trống = tắt tuber.")
-    
-    # Algorithm
-    parser.add_argument("--slow-cap", type=float, default=0.5, help="Video speed tối thiểu (mặc định: 0.5)")
     
     # Output
     parser.add_argument("--output-dir", default="./sync_output/", help="Thư mục output")

@@ -129,6 +129,7 @@ class EdgeTTSEngine(BaseTTSEngine):
         silence_thresh_dbfs: int = -50,      # Ngưỡng silence
         min_silence_len_ms: int = 100,       # Silence tối thiểu để detect
         keep_padding_ms: int = 60,           # Padding giữ lại ở viền
+        speed_scale: float = 1.0,            # >1.0 = tăng tốc audio sau synth (giữ pitch)
         **kwargs
     ):
         super().__init__(queue_tts, **kwargs)
@@ -138,11 +139,12 @@ class EdgeTTSEngine(BaseTTSEngine):
         self.pitch          = pitch
         self.proxy          = proxy or None
         self.max_concurrent = max_concurrent
-        
+
         self.strip_silence       = strip_silence
         self.silence_thresh_dbfs = silence_thresh_dbfs
         self.min_silence_len_ms  = min_silence_len_ms
         self.keep_padding_ms     = keep_padding_ms
+        self.speed_scale         = speed_scale
 
         self._stop_event  = asyncio.Event()
         self._lock        = asyncio.Lock()
@@ -329,6 +331,9 @@ class EdgeTTSEngine(BaseTTSEngine):
                 f"[StripSilence] Đã cắt tổng {total_trimmed_ms}ms "
                 f"({total_trimmed_ms/1000:.1f}s) silence từ {len(wav_paths)} clips"
             )
+
+        # Tăng tốc theo speed_scale (giữ pitch) — sau strip silence, trước khi trả kết quả.
+        self.apply_speed_scale()
 
         logger.info(f"[EdgeTTS] Xong: {ok_count} thành công, {err_count} lỗi")
         return {"ok": ok_count, "err": err_count}

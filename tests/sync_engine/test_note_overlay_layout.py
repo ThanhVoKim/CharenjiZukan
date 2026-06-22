@@ -469,10 +469,13 @@ class TestLayer3_SyncPipelineNoteOverlay:
         fake_voicevox_nemo_module.VoicevoxNemoTTSEngine = FakeVoicevoxEngine
         fake_qwen_module = ModuleType("tts.qwen")
         fake_qwen_module.QwenTTSEngine = FakeVoicevoxEngine
+        fake_qwen_custom_module = ModuleType("tts.qwen_custom")
+        fake_qwen_custom_module.QwenCustomTTSEngine = FakeVoicevoxEngine
         monkeypatch.setitem(sys.modules, "tts.edgetts", fake_edgetts_module)
         monkeypatch.setitem(sys.modules, "tts.voicevox", fake_voicevox_module)
         monkeypatch.setitem(sys.modules, "tts.voicevox_nemo", fake_voicevox_nemo_module)
         monkeypatch.setitem(sys.modules, "tts.qwen", fake_qwen_module)
+        monkeypatch.setitem(sys.modules, "tts.qwen_custom", fake_qwen_custom_module)
         monkeypatch.setattr(sync_video_cli.subprocess, "run", fake_run)
         monkeypatch.setattr(sync_video_cli, "classify_and_compute_slots", lambda *args, **kwargs: [SimpleNamespace(tts_duration=1000, slot_duration=4000, hard_limit_ms=None)])
         monkeypatch.setattr(sync_video_cli, "compute_speeds", lambda *args, **kwargs: (1.0, 1.0, 4000.0))
@@ -492,7 +495,6 @@ class TestLayer3_SyncPipelineNoteOverlay:
             note_overlay_ass=str(note_path),
             ambient=None,
             render_config=str(render_config_path),
-            slow_cap=0.5,
             output_dir=str(output_dir),
             output_name="video_synced",
             no_hardsub=True,

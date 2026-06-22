@@ -1,5 +1,74 @@
 # Project Journal
 
+## 2026-06-22: Provider `qwen_custom` + `speed_scale` toàn cục + bỏ `--slow-cap`
+
+### Bối cảnh
+
+Checkpoint fine-tune Qwen3-TTS giọng Karlsson DE (từ session trước) dùng
+`generate_custom_voice(speaker="karlsson_de")` — khác với engine `qwen` hiện tại vốn gọi
+`generate_voice_clone(ref_audio=, ref_text=)`. Cần tích hợp ngược vào pipeline dubbing.
+Đồng thời đổi chiến lược stretch video: thay vì dùng `--slow-cap` giới hạn mức kéo chậm
+(kéo theo nén audio khi TTS quá dài), chuyển sang **audio `speed_scale` làm đòn bẩy duy nhất**
+và video stretch tự do không giới hạn.
+
+### Thay đổi kiến trúc
+
+**`tts/base.py`** — thêm `apply_speed_scale()` vào `BaseTTSEngine`: tăng tốc các clip đã
+sinh theo `self.speed_scale` (rubberband giữ pitch, fallback atempo). Voicevox không gọi
+(đã có `speedScale` native). Engine edge/qwen/qwen_custom gọi cuối `run()`.
+
+**`speed_rate.py`** — thêm public `speedup_to_factor(wav_path, speed_scale)`: quy đổi
+factor → `target_ms` rồi tái dùng `_speedup_audio` nội bộ. `speed_scale <= 1.0` → no-op.
+
+**`tts/qwen.py`** — refactor:
+- Tách `DEFAULT_QWEN_GEN_KWARGS` thành hằng module-level (dùng chung với `qwen_custom`).
+- Thêm `@staticmethod _postprocess(wav, sr, clean_tail, pre, post, fade_ms, top_db)`: gói
+  logic clean_tail-vs-pad để tái dùng.
+- Thêm `speed_scale: float = 1.0`, gọi `apply_speed_scale()` cuối `run()`.
+
+**`tts/qwen_custom.py`** (FILE MỚI) — `QwenCustomTTSEngine`:
+- Gọi `model.generate_custom_voice(text=, speaker=, language=)`.
+- `_resolve_model_path()`: ưu tiên `local_ckpt`; nếu chưa có thì copy `drive_ckpt→local_ckpt`
+  (Drive FUSE chậm + dễ lỗi I/O với file ~3.5GB khi `from_pretrained` mmap).
+- Tái dùng `QwenTTSEngine._postprocess` + `DEFAULT_QWEN_GEN_KWARGS`.
+- Gọi `apply_speed_scale()` cuối `run()`.
+
+**`tts/edgetts.py`** — thêm `speed_scale: float = 1.0`, gọi `apply_speed_scale()` cuối `run()`.
+
+**`cli/sync_video.py`** — flow stretch mới:
+- **Xóa `--slow-cap`** khỏi argparse.
+- `compute_speeds(..., no_cap=True)` cho **mọi provider** → video stretch tự do, audio không
+  bao giờ bị nén. `speed_scale` trong YAML là đòn bẩy duy nhất điều chỉnh tốc độ audio.
+- Thêm nhánh `qwen_custom`, import `QwenCustomTTSEngine`.
+- Nhánh `edge`: thêm `speed_scale=edge_cfg.get("speed_scale", 1.0)`.
+
+**`cli/tts.py`** — thêm nhánh `qwen_custom` + cập nhật `choices`.
+
+**`config/tts_config.yaml`** — thêm `speed_scale: 1.0` vào `edge` và `qwen`; thêm section
+`qwen_custom` với đủ tham số (drive_ckpt, local_ckpt, speaker, language, clean_tail, speed_scale…).
+
+### Fix đi kèm
+
+- `tests/tts/test_tts_edgetts.py` — sửa assertion sai từ trước: `test_engine_run_with_strip_silence`
+  kỳ vọng 1500ms nhưng `strip_audio_silence` cắt CẢ HAI ĐẦU nên kết quả đúng là 1000ms
+  (`start_ms = max(0, 500-0) = 500`, không phải 0 như comment cũ nói).
+- `tests/sync_engine/test_note_overlay_layout.py` — thêm mock `tts.qwen_custom` vào block
+  `sys.modules` (pipeline mới import module này nên test cần stub).
+- `tests/sync_engine/test_sync_video_pipeline.py` — xóa `slow_cap=0.5` thừa khỏi `Namespace`.
+- `docs/colab-guide.md` — xóa `--slow-cap` khỏi ví dụ lệnh + bảng tham số; thêm `qwen_custom`
+  vào danh sách provider.
+
+### Kết quả test
+
+**699 passed, 28 skipped** — toàn bộ test suite xanh sau thay đổi.
+
+### Pending
+
+- Chạy trên Colab với checkpoint Karlsson thật để xác nhận luồng copy Drive→local hoạt động.
+- Cân nhắc `speed_scale` phù hợp cho giọng Karlsson DE (bắt đầu từ 1.0, tăng nếu video kéo quá chậm).
+
+---
+
 ## 2026-06-20: Thêm script fine-tune Qwen3-TTS giọng Đức Karlsson (HUI Audio Corpus)
 
 ### Bối cảnh

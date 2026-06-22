@@ -197,11 +197,13 @@ class TestLayer2_EdgeTTSEngine:
         
         assert Path(filename).exists()
         
-        # Vì synthetic_wav_with_silence có độ dài 2000ms
-        # Với keep_padding_ms=0, start=0, đoạn non-silent kết thúc ở 1500ms
-        # Đoạn wav xuất ra cuối cùng sẽ có độ dài 1500ms thay vì 2000ms.
+        # synthetic_wav_with_silence: silence(500ms) + audio(1000ms) + silence(500ms) = 2000ms
+        # strip_audio_silence với keep_padding_ms=0 cắt CẢ HAI ĐẦU:
+        #   start_ms = max(0, 500 - 0) = 500
+        #   end_ms   = min(2000, 1500 + 0) = 1500
+        #   → seg[500:1500] = 1000ms (không phải 1500ms — cả đầu lẫn đuôi đều bị cắt)
         final_seg = AudioSegment.from_file(filename)
-        assert abs(len(final_seg) - 1500) < 5
+        assert abs(len(final_seg) - 1000) < 5
 
     @patch("tts.edgetts.convert_to_wav")
     def test_engine_run_without_strip_silence(self, mock_convert, mock_edgetts_communicate, synthetic_wav_with_silence, tmp_path):

@@ -36,6 +36,7 @@ from tts.edgetts import EdgeTTSEngine
 from tts.voicevox import VoicevoxTTSEngine
 from tts.voicevox_nemo import VoicevoxNemoTTSEngine
 from tts.qwen import QwenTTSEngine
+from tts.qwen_custom import QwenCustomTTSEngine
 
 logger = get_logger(__name__)
 
@@ -96,6 +97,8 @@ def get_engine(provider: str, queue_tts: list, config: dict):
         return VoicevoxTTSEngine(queue_tts, **provider_cfg)
     elif provider == "qwen":
         return QwenTTSEngine(queue_tts, **provider_cfg)
+    elif provider == "qwen_custom":
+        return QwenCustomTTSEngine(queue_tts, **provider_cfg)
     else:
         raise ValueError(f"Provider không hợp lệ: {provider}")
 
@@ -282,8 +285,8 @@ Xem danh sách giọng EdgeTTS:
     cfg = parser.add_argument_group("Config")
     cfg.add_argument("--config", "-c", default="config/tts_config.yaml", metavar="YAML",
                      help="File cấu hình YAML (mặc định: config/tts_config.yaml)")
-    cfg.add_argument("--provider", "-p", choices=["edge", "voicevox_nemo", "voicevox", "qwen"],
-                     help="TTS engine: edge (EdgeTTS), voicevox_nemo (Voicevox Nemo), voicevox (Voicevox chính thức), qwen (Qwen3-TTS)")
+    cfg.add_argument("--provider", "-p", choices=["edge", "voicevox_nemo", "voicevox", "qwen", "qwen_custom"],
+                     help="TTS engine: edge (EdgeTTS), voicevox_nemo (Voicevox Nemo), voicevox (Voicevox chính thức), qwen (Qwen3-TTS voice-clone), qwen_custom (Qwen3-TTS checkpoint fine-tune)")
 
     proc = parser.add_argument_group("Processing")
     proc.add_argument("--autorate", action="store_true",

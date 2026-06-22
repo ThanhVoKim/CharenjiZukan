@@ -219,6 +219,25 @@ def _speedup_audio(wav_path: str, target_ms: int) -> bool:
     return _speedup_with_atempo(wav_path, target_ms)
 
 
+def speedup_to_factor(wav_path: str, speed_scale: float) -> bool:
+    """Tăng tốc audio theo HỆ SỐ (speed_scale>1.0 = nhanh hơn = ngắn lại), GIỮ pitch.
+
+    Quy đổi factor → target_ms rồi tái dùng `_speedup_audio` (rubberband, fallback atempo).
+    speed_scale <= 1.0 → no-op trả True (helper chỉ tăng tốc, không làm chậm).
+    """
+    if not speed_scale or speed_scale <= 1.0:
+        return True
+    try:
+        cur_ms = len(AudioSegment.from_file(wav_path, format="wav"))
+    except Exception as e:
+        _safe_log("warning", f"[speed_scale] Đọc lỗi {Path(wav_path).name}: {e}")
+        return False
+    if cur_ms <= 0:
+        return True
+    target_ms = int(cur_ms / speed_scale)
+    return _speedup_audio(wav_path, target_ms)
+
+
 
 # ─────────────────────────────────────────────────────────────────────
 # HELPERS

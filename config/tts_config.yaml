@@ -13,6 +13,7 @@ edge:
   concurrent: 10
   strip_silence: true
   silence_thresh_dbfs: -50
+  speed_scale: 1.0 # >1.0 = tăng tốc audio sau synth (giữ pitch) → video đỡ kéo chậm
 
 # ── Voicevox Nemo ────────────────────────────────────────────────────
 voicevox_nemo:
@@ -49,5 +50,34 @@ qwen:
   device: "cuda:0"
   dtype: "bfloat16"
   attn_implementation: "flash_attention_2"
-  pre_phoneme_length: 0.1 # Thêm khoảng lặng 0 giây trước mỗi phoneme
-  post_phoneme_length: 0.1 # Thêm khoảng lặng 0.1 giây sau mỗi phoneme
+  pre_phoneme_length: 0.1 # silence (giây) thêm vào đầu mỗi clip (sau trim)
+  post_phoneme_length: 0.1 # silence (giây) thêm vào cuối mỗi clip (sau trim)
+
+  # ── Xử lý đuôi clip (Design A: trim + fade + pad) ──────────────────
+  # Diệt rè/bíp/bộp cuối clip + đồng nhất silence cuối (token codec OOD).
+  # Luồng: (1) trim silence/garbage 2 đầu → (2) fade-out/in N ms mép speech
+  #        → (3) pad silence cố định = pre/post_phoneme_length.
+  clean_tail: true # tắt (false) nếu muốn giữ hành vi pad thuần cũ
+  fade_ms: 8.0 # ms fade ở mép speech trước khi nối silence; tăng nếu vẫn còn click
+  trim_top_db: 30.0 # ngưỡng trim (dB dưới đỉnh); giảm (vd 25) nếu đuôi âm bị xén
+  speed_scale: 1.0 # >1.0 = tăng tốc audio sau synth (giữ pitch) → video đỡ kéo chậm
+
+# ── Qwen3-TTS Custom Voice (checkpoint fine-tune, generate_custom_voice) ──
+# Dùng checkpoint đã full-SFT thành 1 giọng cố định (vd Karlsson DE). Engine tự copy
+# checkpoint Drive→local rồi load từ local (Drive FUSE chậm + dễ lỗi I/O với file ~3.5GB).
+qwen_custom:
+  drive_ckpt: "/content/drive/MyDrive/qwen3tts_karlsson_de/export/qwen3tts-karlsson-de"
+  local_ckpt: "/content/qwen3tts-karlsson-de" # engine copy Drive→local rồi load từ đây
+  speaker: "karlsson_de"
+  language: "German"
+  batch_size: 32
+  device: "cuda:0"
+  dtype: "bfloat16"
+  attn_implementation: "flash_attention_2"
+  pre_phoneme_length: 0.1
+  post_phoneme_length: 0.1
+  # ── Xử lý đuôi clip (Design A: trim + fade + pad) — như provider qwen ──
+  clean_tail: true
+  fade_ms: 8.0
+  trim_top_db: 30.0
+  speed_scale: 1.1 # >1.0 = tăng tốc audio sau synth (giữ pitch) → video đỡ kéo chậm

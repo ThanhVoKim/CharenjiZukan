@@ -163,7 +163,6 @@ class TestLayer3_SyncVideoPipeline:
             black_bg=None,
             ambient=None,
             render_config=str(render_config_path),
-            slow_cap=0.5,
             output_dir=str(output_dir),
             output_name=output_name,
             no_hardsub=False,
