@@ -15,6 +15,21 @@ from tts.base import BaseTTSEngine
 
 logger = logging.getLogger("qwen_tts")
 
+# Tham số sinh audio mặc định — DÙNG CHUNG cho QwenTTSEngine (voice-clone) và
+# QwenCustomTTSEngine (custom voice). Sửa 1 nơi, cả 2 engine cùng nhận.
+DEFAULT_QWEN_GEN_KWARGS = {
+    "max_new_tokens": 2048,
+    "do_sample": True,
+    "top_k": 50,
+    "top_p": 1.0,
+    "temperature": 0.9,
+    "repetition_penalty": 1.05,
+    "subtalker_dosample": True,
+    "subtalker_top_k": 50,
+    "subtalker_top_p": 1.0,
+    "subtalker_temperature": 0.9,
+}
+
 
 class QwenTTSEngine(BaseTTSEngine):
     """
@@ -35,6 +50,10 @@ class QwenTTSEngine(BaseTTSEngine):
         gen_kwargs: Dict[str, Any] = None,
         pre_phoneme_length: float = 0.0,
         post_phoneme_length: float = 0.0,
+        clean_tail: bool = True,
+        fade_ms: float = 8.0,
+        trim_top_db: float = 30.0,
+        speed_scale: float = 1.0,
         **kwargs,
     ):
         super().__init__(queue_tts, **kwargs)
@@ -47,18 +66,59 @@ class QwenTTSEngine(BaseTTSEngine):
         self.attn_implementation = attn_implementation
         self.pre_phoneme_length = pre_phoneme_length
         self.post_phoneme_length = post_phoneme_length
-        self.gen_kwargs = gen_kwargs or {
-            "max_new_tokens": 2048,
-            "do_sample": True,
-            "top_k": 50,
-            "top_p": 1.0,
-            "temperature": 0.9,
-            "repetition_penalty": 1.05,
-            "subtalker_dosample": True,
-            "subtalker_top_k": 50,
-            "subtalker_top_p": 1.0,
-            "subtalker_temperature": 0.9,
-        }
+        self.clean_tail = clean_tail
+        self.fade_ms = fade_ms
+        self.trim_top_db = trim_top_db
+        self.speed_scale = speed_scale
+        self.gen_kwargs = gen_kwargs or dict(DEFAULT_QWEN_GEN_KWARGS)
+
+    @staticmethod
+    def _clean_tail(wav, sr, pre, post, fade_ms=8.0, top_db=30.0):
+        """Design A — 'thay thế' đuôi clip: diệt rè/bíp/bộp + đồng nhất silence cuối.
+
+        Luồng:
+          (1) trim sạch silence/garbage 2 đầu -> waveform kết thúc NGAY tại speech;
+          (2) fade-out N ms ở mép cuối + fade-in N ms ở mép đầu (về 0 trước khi nối
+              silence -> chống click/pop ở chỗ pad);
+          (3) pad silence cố định: pre ở đầu, post ở cuối.
+
+        Tail gốc (dài/ngắn tùy hứng) bị VỨT HẲN ở (1) — KHÔNG clamp/bù; post là silence
+        mới hoàn toàn. Thiếu librosa -> bỏ trim, vẫn fade + pad (không crash).
+        """
+        import numpy as np
+        y = np.asarray(wav, dtype="float32").reshape(-1)
+        if y.size:
+            try:
+                import librosa
+                yt, _ = librosa.effects.trim(y, top_db=top_db)
+                if yt.size:                                 # giữ gốc nếu trim ra rỗng (toàn silence)
+                    y = yt
+            except Exception:
+                pass                                        # không có librosa -> chỉ fade + pad
+            y = y.copy()                                    # tránh sửa in-place lên view của buffer gốc
+            f = min(int(sr * fade_ms / 1000), y.size)
+            if f > 0:
+                y[-f:] *= np.linspace(1.0, 0.0, f, dtype="float32")   # fade-out đuôi speech
+                y[:f] *= np.linspace(0.0, 1.0, f, dtype="float32")    # fade-in đầu (chống click khi pad)
+        return np.pad(y, (int(sr * pre), int(sr * post)))
+
+    @staticmethod
+    def _postprocess(wav, sr, clean_tail, pre, post, fade_ms=8.0, top_db=30.0):
+        """Hậu xử lý wav sinh ra: clean_tail (trim+fade+pad) nếu bật & mono; ngược lại chỉ pad.
+
+        Gói lại quyết định clean_tail-vs-pad để DÙNG CHUNG cho QwenTTSEngine và QwenCustomTTSEngine.
+        """
+        import numpy as np
+        if clean_tail and getattr(wav, "ndim", 1) == 1:
+            return QwenTTSEngine._clean_tail(wav, sr, pre, post, fade_ms=fade_ms, top_db=top_db)
+        if pre > 0 or post > 0:
+            pre_samples = int(sr * pre)
+            post_samples = int(sr * post)
+            if wav.ndim == 1:
+                return np.pad(wav, (pre_samples, post_samples), mode="constant")
+            if wav.ndim == 2:
+                return np.pad(wav, ((pre_samples, post_samples), (0, 0)), mode="constant")
+        return wav
 
     def run(self) -> Dict[str, int]:
         # Lazy import — chỉ load khi thực sự chạy
@@ -71,6 +131,15 @@ class QwenTTSEngine(BaseTTSEngine):
             logger.error(f"❌ Thiếu thư viện cho QwenTTS: {e}")
             logger.error("   Cài đặt: pip install qwen-tts transformers accelerate soundfile")
             return {"ok": 0, "err": len(self.queue_tts)}
+
+        if self.clean_tail:
+            try:
+                import librosa  # noqa: F401
+            except Exception:
+                logger.warning(
+                    "[QwenTTS] clean_tail bật nhưng thiếu librosa → bỏ trim, chỉ fade+pad "
+                    "(cài: pip install librosa)."
+                )
 
         model = None
         ok_count = 0
@@ -135,14 +204,13 @@ class QwenTTSEngine(BaseTTSEngine):
                     else:
                         wav_data_safe = np.copy(wav_data)
 
-                    # --- Thêm khoảng lặng (silence padding) ---
-                    if self.pre_phoneme_length > 0 or self.post_phoneme_length > 0:
-                        pre_samples = int(sr * self.pre_phoneme_length)
-                        post_samples = int(sr * self.post_phoneme_length)
-                        if wav_data_safe.ndim == 1:
-                            wav_data_safe = np.pad(wav_data_safe, (pre_samples, post_samples), mode='constant')
-                        elif wav_data_safe.ndim == 2:
-                            wav_data_safe = np.pad(wav_data_safe, ((pre_samples, post_samples), (0, 0)), mode='constant')
+                    # --- Hậu xử lý đuôi clip (Design A): trim silence/garbage + fade + pad cố định ---
+                    # Diệt rè/bíp/bộp cuối clip (token codec OOD) và đồng nhất độ dài silence cuối.
+                    wav_data_safe = self._postprocess(
+                        wav_data_safe, sr, self.clean_tail,
+                        self.pre_phoneme_length, self.post_phoneme_length,
+                        fade_ms=self.fade_ms, top_db=self.trim_top_db,
+                    )
 
                     sf.write(wav_path, wav_data_safe, sr)
                     ok_count += 1
@@ -151,6 +219,9 @@ class QwenTTSEngine(BaseTTSEngine):
                 del wav_outputs
                 gc.collect()
                 torch.cuda.empty_cache()
+
+            # Tăng tốc theo speed_scale (giữ pitch) — sau khi đã ghi hết clip.
+            self.apply_speed_scale()
 
         except Exception as e:
             logger.exception(f"[QwenTTS] Lỗi nghiêm trọng: {e}")

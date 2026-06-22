@@ -1,5 +1,44 @@
 # Project Journal
 
+## 2026-06-20: Thêm script fine-tune Qwen3-TTS giọng Đức Karlsson (HUI Audio Corpus)
+
+### Bối cảnh
+
+Dự án cần giọng TTS tiếng Đức chất lượng cao (khán giả Đức). Quyết định fine-tune
+`Qwen/Qwen3-TTS-12Hz-1.7B-Base` với dataset HUI Audio Corpus German, giọng Karlsson (clean, ~29h).
+
+### Quyết định kiến trúc
+
+- **Full SFT, single-speaker** via script chính thức `QwenLM/Qwen3-TTS/finetuning/` (không LoRA, không wrapper).
+- **Nhãn = transcript ground-truth HUI** — tuyệt đối không ASR phiên âm lại (làm bẩn nhãn).
+- **Drive vs local**: zip backup + manifest + checkpoint trên Drive (bền); wav giải nén trên local `/content` (nhanh, tạm). Không lưu thư mục wav lên Drive.
+- Chọn checkpoint bằng WER + speaker-similarity + nghe thử, không chỉ theo loss.
+
+### File tạo mới
+
+`qwen3tts_finetune_de_karlsson.py` — đặt ở gốc repo, nội dung độc lập với codebase. Cấu trúc:
+- Cell 1: env + mount Drive + định nghĩa đường dẫn (Drive + local)
+- Cell 2: cài đặt + clone repo + in `--help` để xác minh tên cờ CLI
+- Cell 3.0 EXPLORE: tải zip về Drive, giải nén vào local, khảo sát cấu trúc dataset
+- Cell 3: đảm bảo working copy local sẵn (dò zip backup Drive → giải nén vào local mỗi session)
+- Cell 4: dựng manifest từ transcript HUI + lọc + chọn ref_audio + tách val
+- Cell 5: trích audio codes (`prepare_data.py`)
+- Cell 6: train full SFT, checkpoint ra Drive, resumable
+- Cell 7: eval WER + speaker-sim + nghe thử để chọn checkpoint
+- Cell 8: export checkpoint tốt nhất ra Drive
+
+### Tích hợp ngược (chưa làm)
+
+Checkpoint SFT dùng `generate_custom_voice(speaker="karlsson_de")`, khác với engine hiện tại
+dùng `generate_voice_clone(...)`. Khi mang checkpoint về sẽ cần chỉnh lời gọi trong `tts/qwen.py`.
+
+### Pending
+
+- Chạy Cell 3.0 EXPLORE trên Colab để xác nhận URL tải, định dạng metadata, sample rate thực tế.
+- Đối chiếu tên cờ CLI từ `--help` trước khi chạy Cell 5/6.
+
+---
+
 ## 2026-06-20: Colab — 2 quy luật venv cô lập + sửa override 4.57.6 + fix `.venv-ocr` thiếu torchvision
 
 ### Bối cảnh
