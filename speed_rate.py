@@ -12,7 +12,7 @@ Hai chế độ:
       _prepare_data():   tính source_duration = slot thực tế mỗi sub
                          (từ end_time_source của sub trước → start_time của sub sau)
       _calculate():      nếu dubb_time > source_duration → cần nén audio
-      rubberband/atempo: time-stretch audio về đúng source_duration
+      atempo:            time-stretch audio về đúng source_duration (FFmpeg atempo chain)
       _concat_aligned(): ghép theo timeline mới, update start/end_time
 
 Không có remove_silent_mid.
@@ -53,27 +53,11 @@ MIN_CLIP_MS       = 40   # ms ngắn nhất chấp nhận
 
 
 # ─────────────────────────────────────────────────────────────────────
-# TIME-STRETCH ENGINE
+# TIME-STRETCH ENGINE (FFmpeg atempo)
 #
-# QUAN TRỌNG về pyrubberband:
-#   pyrubberband là Python wrapper GỌI BINARY `rubberband` trên hệ thống.
-#   Chỉ `pip install pyrubberband` là KHÔNG ĐỦ — cần thêm:
-#       apt-get install -y rubberband-cli   (Ubuntu/Colab)
-#   Nếu không có binary → dùng FFmpeg atempo (luôn có sẵn trên Colab).
-#
-# Priority tự động (detect tại load time):
-#   1. pyrubberband  — khi binary `rubberband` tồn tại trên PATH
-#                      Không đổi pitch, chất lượng cao nhất
-#   2. FFmpeg atempo — mặc định trên Colab, không cần binary ngoài
-#                      atempo [0.5, 2.0] → chain filter khi ngoài khoảng
+# Dùng FFmpeg atempo chain cho TTS speed-up.
+# atempo chỉ chấp nhận [0.5, 2.0] → chain nhiều filter khi ngoài khoảng.
 # ─────────────────────────────────────────────────────────────────────
-
-# Detect một lần duy nhất lúc import — tránh thử→fail hàng chục lần
-_RUBBERBAND_BIN: str = shutil.which("rubberband") or ""
-if _RUBBERBAND_BIN:
-    print(f"[SpeedRate] rubberband binary: {_RUBBERBAND_BIN} → pyrubberband ON")
-else:
-    print("[SpeedRate] Không tìm thấy rubberband binary → FFmpeg atempo")
 
 
 def _build_atempo_filter(speed_factor: float) -> str:
@@ -140,89 +124,14 @@ def _speedup_with_atempo(wav_path: str, target_ms: int) -> bool:
         return False
 
 
-def _has_rubberband_binary() -> bool:
-    """
-    Kiểm tra rubberband CLI binary có sẵn không.
-    pyrubberband Python lib chỉ là wrapper gọi binary này.
-    Dù `pip install pyrubberband` thành công, nếu binary không có
-    thì pyrb.time_stretch() vẫn raise RuntimeError/CalledProcessError.
-
-    Cài binary trên Colab/Ubuntu:
-        !apt-get install -y rubberband-cli
-    """
-    return shutil.which("rubberband") is not None
-
-
-def _speedup_rubberband(wav_path: str, target_ms: int) -> bool:
-    """
-    Time-stretch không đổi pitch bằng pyrubberband.
-    CHỈ gọi khi đã xác nhận binary `rubberband` tồn tại.
-    """
-    try:
-        import numpy as np
-        import soundfile as sf
-        import pyrubberband as pyrb
-
-        y, sr = sf.read(wav_path, always_2d=True)
-        current_ms = int(len(y) / sr * 1000)
-        if current_ms <= 0 or target_ms <= 0 or target_ms >= current_ms:
-            return True
-
-        stretch_rate = current_ms / target_ms
-        stretch_rate = max(0.2, min(stretch_rate, 50.0))
-
-        _safe_log("debug",
-            f"[rubberband] {Path(wav_path).name} "
-            f"{current_ms}ms → {target_ms}ms (rate={stretch_rate:.3f})"
-        )
-        y_out = pyrb.time_stretch(y, sr, stretch_rate)
-        if y_out.ndim == 1:
-            y_out = np.column_stack((y_out, y_out))
-        sf.write(wav_path, y_out, sr)
-        return True
-
-    except Exception as e:
-        _safe_log("warning", f"[rubberband] lỗi {Path(wav_path).name}: {e} → fallback atempo")
-        return _speedup_with_atempo(wav_path, target_ms)
-
-
-def _speedup_ffmpeg(wav_path: str, target_ms: int) -> bool:
-    """Alias backward compat → atempo."""
-    return _speedup_with_atempo(wav_path, target_ms)
-
-
-# Cache kiểm tra binary và library một lần duy nhất khi module load
-_RUBBERBAND_AVAILABLE = _has_rubberband_binary()
-_PYRUBBERBAND_INSTALLED = False
-
-if _RUBBERBAND_AVAILABLE:
-    try:
-        import pyrubberband  # noqa: F401
-        _PYRUBBERBAND_INSTALLED = True
-        print("[SpeedRate] ✅ rubberband binary + pyrubberband → dùng pyrubberband (pitch-preserving)")
-    except ImportError:
-        print("[SpeedRate] ⚠️ rubberband binary có, nhưng pyrubberband lib chưa cài → fallback FFmpeg atempo")
-        print("[SpeedRate] 💡 Cài đặt: pip install pyrubberband")
-else:
-    print("[SpeedRate] ℹ️ rubberband binary NOT found → dùng FFmpeg atempo")
-    print("[SpeedRate] 💡 Cài đặt: apt-get install -y rubberband-cli && pip install pyrubberband")
-
-
 def _speedup_audio(wav_path: str, target_ms: int) -> bool:
-    """
-    Entry point duy nhất cho time-stretch.
-    - Có rubberband binary + pyrubberband lib → dùng rubberband (pitch-preserving)
-    - Còn lại → FFmpeg atempo chain (luôn available)
-    """
-    if _RUBBERBAND_AVAILABLE and _PYRUBBERBAND_INSTALLED:
-        return _speedup_rubberband(wav_path, target_ms)
+    """Entry point cho time-stretch TTS — dùng FFmpeg atempo chain."""
     return _speedup_with_atempo(wav_path, target_ms)
 
 
 def speedup_to_factor(wav_path: str, speed_scale: float) -> bool:
-    """Tăng tốc audio theo HỆ SỐ (speed_scale>1.0 = nhanh hơn = ngắn lại), GIỮ pitch.
+    """Tăng tốc audio theo HỆ SỐ (speed_scale>1.0 = nhanh hơn = ngắn lại).
 
-    Quy đổi factor → target_ms rồi tái dùng `_speedup_audio` (rubberband, fallback atempo).
     speed_scale <= 1.0 → no-op trả True (helper chỉ tăng tốc, không làm chậm).
     """
     if not speed_scale or speed_scale <= 1.0:

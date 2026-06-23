@@ -1,5 +1,42 @@
 # Project Journal
 
+## 2026-06-23: Xóa rubberband khỏi TTS speed-up — dùng FFmpeg atempo thuần túy
+
+### Bối cảnh
+
+Provider `qwen_custom` + `speed_scale` đã được tích hợp (session 2026-06-22). Khi kiểm tra
+lại, `speed_rate.py` dùng rubberband (pitch-preserving) làm backend ưu tiên cho `speedup_to_factor()`
+và `SpeedRate._speedup_all()`, fallback sang FFmpeg atempo nếu binary không có. Người dùng
+quyết định **loại bỏ hoàn toàn rubberband khỏi TTS speed-up** và dùng atempo làm backend duy nhất.
+
+### Phân tích phạm vi
+
+Rubberband được dùng ở hai nơi **độc lập**:
+1. **`speed_rate.py`** — TTS path (`speedup_to_factor`, `_speedup_audio`, `SpeedRate._speedup_all`).
+2. **`utils/media_utils.py` + `cli/media_speed.py`** — general media audio stretching CLI.
+
+→ Chỉ xóa ở nơi 1; giữ nguyên nơi 2 (tính năng độc lập). `pyrubberband` trong `pyproject.toml`
+vẫn giữ vì `utils/media_utils.py` còn dùng.
+
+### Thay đổi
+
+**`speed_rate.py`**:
+- Xóa toàn bộ detection block lúc import: `_RUBBERBAND_BIN`, `_has_rubberband_binary()`,
+  `_RUBBERBAND_AVAILABLE`, `_PYRUBBERBAND_INSTALLED` và các print/log liên quan.
+- Xóa `_speedup_rubberband()` (pyrubberband wrapper).
+- Xóa `_speedup_ffmpeg()` (alias backward compat đã không dùng).
+- `_speedup_audio()` rút gọn thành thin wrapper gọi thẳng `_speedup_with_atempo()`.
+- Cập nhật docstring module-level và comment block: thay `rubberband/atempo` → `atempo`.
+
+Không thay đổi bất kỳ logic nào khác (atempo chain, `speedup_to_factor`, `SpeedRate`).
+
+### Kết quả test
+
+**706 passed, 28 skipped** — toàn bộ test suite xanh (tăng so với 695 trước do fix pre-existing
+test `test_engine_run_with_strip_silence` trong session 2026-06-22 đã được tính vào lần chạy này).
+
+---
+
 ## 2026-06-23: Fix `forced_alignment_subtitle` — dấu phân cách số bị mất (500.000 → 500000.000)
 
 ### Bối cảnh

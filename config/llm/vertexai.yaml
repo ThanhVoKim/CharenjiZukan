@@ -13,6 +13,6 @@ safety_settings:
   HARM_CATEGORY_SEXUALLY_EXPLICIT: "BLOCK_NONE"
   HARM_CATEGORY_DANGEROUS_CONTENT: "BLOCK_NONE"
 request_timeout: 300
-retry_attempts: 5
+retry_attempts: 3
 retry_wait_seconds: 10
 cache_ttl_seconds: 3599
