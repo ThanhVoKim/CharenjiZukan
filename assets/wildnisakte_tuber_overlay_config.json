@@ -19,8 +19,8 @@
     "bodySource": "loop_mouthless.mp4",
     "chromakey": {
       "enabled": true,
-      "color": "0x00ff18",
-      "similarity": 0.05,
+      "color": "0x0db917",
+      "similarity": 0.1,
       "blend": 0.05,
       "despill": "green"
     },
@@ -29,9 +29,9 @@
     }
   },
   "character": {
-    "left": 1408,
-    "top": 568,
-    "width": 512,
+    "left": 1470,
+    "top": 630,
+    "width": 450,
     "clipInset": "0px"
   },
   "grouping": {
