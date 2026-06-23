@@ -28,6 +28,12 @@ BRACKET_PAIRS = {"（": "）", "《": "》", "【": "】", "\u201c": "\u201d", "
 # Không bao gồm underscore vì thường là filename/key/code-like text, không phải subtitle tự nhiên.
 COMPOUND_DASH_CHARS = set("-\u2010\u2011\u2012\u2013\u2014")
 
+# Dấu phân cách hàng nghìn / thập phân nằm giữa hai chữ số (vd "500.000", "1,234.5",
+# fullwidth "１．５"). Aligner thường normalize bỏ các dấu này khi trả token
+# số — vd transcript "500.000" → token "500000". Cần khôi phục text gốc để không sinh ra
+# "500000.000".
+NUMERIC_SEPARATOR_CHARS = set(".,\uff0c\uff0e")
+
 
 def format_srt_time(seconds: float) -> str:
     """Định dạng thời gian SRT từ giây.
@@ -123,6 +129,65 @@ def _match_dash_compound_remainder(
     return compound_text, scan_idx, consumed_suffix
 
 
+def _is_numeric_separator_at(text: str, idx: int) -> bool:
+    """True nếu dấu chấm/phẩy ở idx là dấu phân cách nằm giữa hai chữ số."""
+    if idx <= 0 or idx + 1 >= len(text):
+        return False
+    return (
+        text[idx] in NUMERIC_SEPARATOR_CHARS
+        and text[idx - 1].isdigit()
+        and text[idx + 1].isdigit()
+    )
+
+
+def _match_numeric_separator_remainder(
+    full_text: str,
+    token_start_idx: int,
+    sep_idx: int,
+    clean_word: str,
+    match_len: int,
+) -> tuple[str, int, str] | None:
+    """Khôi phục số khi aligner normalize bỏ dấu phân cách hàng nghìn/thập phân.
+
+    Ví dụ transcript là "500.000" (dấu chấm = phân cách hàng nghìn kiểu Đức)
+    nhưng aligner trả token "500000". Sau khi partial-match "500", con trỏ đứng
+    tại ".". Hàm này xác nhận phần còn lại "000" khớp qua các dấu phân cách số,
+    trả về text gốc "500.000" để không sinh ra "500000.000".
+
+    Hỗ trợ nhiều dấu phân cách trong cùng một số (vd "1.234.567", "1,234.5").
+    """
+    if match_len <= 0 or match_len >= len(clean_word):
+        return None
+    if sep_idx >= len(full_text) or not _is_numeric_separator_at(full_text, sep_idx):
+        return None
+
+    remainder = clean_word[match_len:]
+    remainder_idx = 0
+    scan_idx = sep_idx
+    saw_separator = False
+
+    while scan_idx < len(full_text) and remainder_idx < len(remainder):
+        char = full_text[scan_idx]
+        if char in NUMERIC_SEPARATOR_CHARS:
+            if not _is_numeric_separator_at(full_text, scan_idx):
+                return None
+            saw_separator = True
+            scan_idx += 1
+            continue
+
+        if char != remainder[remainder_idx]:
+            return None
+        scan_idx += 1
+        remainder_idx += 1
+
+    if not saw_separator or remainder_idx != len(remainder):
+        return None
+
+    numeric_text = full_text[token_start_idx:scan_idx]
+    consumed_suffix = _normalize_compound_piece(remainder)
+    return numeric_text, scan_idx, consumed_suffix
+
+
 def merge_punctuation(words, full_text: str) -> List[Dict]:
     """Gắn dấu câu từ full_text vào mảng words timestamp.
 
@@ -216,6 +281,19 @@ def merge_punctuation(words, full_text: str) -> List[Dict]:
         if compound_match is not None:
             output_word, text_idx, consumed_suffix = compound_match
             skip_compound_suffix = consumed_suffix
+        else:
+            # Số bị aligner bỏ dấu phân cách hàng nghìn/thập phân
+            # (vd "500.000" → "500000"): khôi phục text gốc để không sinh "500000.000".
+            numeric_match = _match_numeric_separator_remainder(
+                full_text,
+                token_start_idx,
+                text_idx,
+                clean_word,
+                match_len,
+            )
+            if numeric_match is not None:
+                output_word, text_idx, consumed_suffix = numeric_match
+                skip_compound_suffix = consumed_suffix
 
         # Thu thập trailing chars
         while text_idx < full_len:

@@ -80,4 +80,4 @@ qwen_custom:
   clean_tail: true
   fade_ms: 8.0
   trim_top_db: 30.0
-  speed_scale: 1.1 # >1.0 = tăng tốc audio sau synth (giữ pitch) → video đỡ kéo chậm
+  speed_scale: 1 # >1.0 = tăng tốc audio sau synth (giữ pitch) → video đỡ kéo chậm

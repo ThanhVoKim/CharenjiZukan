@@ -1,5 +1,46 @@
 # Project Journal
 
+## 2026-06-23: Fix `forced_alignment_subtitle` — dấu phân cách số bị mất (500.000 → 500000.000)
+
+### Bối cảnh
+
+Subtitle gốc `"...Preisgeld von 500.000 Dollar."` (dấu chấm = phân cách hàng nghìn
+kiểu Đức) bị output thành `"...500000.000 Dollar."`. Lỗi xảy ra ở bước forced
+alignment subtitle của `sync-video`.
+
+### Nguyên nhân (root cause)
+
+`utils/asr_subtitle_utils.py::merge_punctuation`. Qwen3-ForcedAligner normalize số
+`"500.000"` → token phẳng `"500000"`. Trong vòng partial-match, code chỉ khớp được
+`"500"` với `"500.000"` của full_text (dừng tại `.`) nhưng lại:
+1. Output **toàn bộ** token normalized `"500000"`,
+2. Nuốt `.` của full_text vào trailing punctuation → `"500000."`,
+3. Để lại `"000"` trong full_text → bị token kế tiếp (`Dollar`) lấy làm prefix.
+→ Ghép lại thành `"500000.000 Dollar."`.
+
+Code đã có cơ chế xử lý y hệt cho dash-compound (`47-round` → `47round`) nhưng chưa
+có cho dấu phân cách số.
+
+### Thay đổi
+
+- **`utils/asr_subtitle_utils.py`**:
+  - Thêm hằng `NUMERIC_SEPARATOR_CHARS = set(".,，．")`.
+  - Thêm `_is_numeric_separator_at()` (dấu `./,` nằm giữa 2 chữ số) và
+    `_match_numeric_separator_remainder()` (khôi phục text gốc, song song với
+    `_match_dash_compound_remainder`). Hỗ trợ nhiều dấu phân cách trong 1 số
+    (`1.234.567`, `1,234.5`).
+  - Gọi nhánh numeric trong `merge_punctuation` khi nhánh dash không khớp.
+- **`tests/utils/test_asr_subtitle_utils.py`**: thêm regression test 500.000 +
+  parametrize cho `3.5`, `1,234`, `1.234.567`, `1,234.5`, và 2 ca âm tính (dấu chấm
+  cuối câu / dấu phẩy theo sau khoảng trắng vẫn là dấu câu thường).
+
+### Trạng thái
+
+Hoàn thành. `tests/utils/test_asr_subtitle_utils.py` (38) +
+`tests/sync_engine/test_forced_alignment_subtitle.py` + `tests/cli/test_qwen3_asr.py`
+(tổng 64) đều pass. Không cần cập nhật `test_matrix.yaml` (tái dùng entry sẵn có cho
+2 file test này).
+
 ## 2026-06-22: Provider `qwen_custom` + `speed_scale` toàn cục + bỏ `--slow-cap`
 
 ### Bối cảnh

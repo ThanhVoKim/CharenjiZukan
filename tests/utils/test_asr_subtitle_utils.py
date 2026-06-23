@@ -180,6 +180,83 @@ class TestLayer1_MergePunctuation:
         assert [item["text"] for item in result] == ["large_", "capacity"]
         assert "".join(item["text"] for item in result) == full_text
 
+    def test_currency_thousands_separator_not_split_into_extra_token(self):
+        """Regression: 500.000 (dấu chấm = phân cách hàng nghìn kiểu Đức).
+
+        Aligner normalize "500.000" → token "500000". Merge phải khôi phục
+        "500.000" thay vì sinh ra "500000.000" + dòng "000" thừa.
+        """
+        full_text = "Die Teilnehmer kämpfen um ein Preisgeld von 500.000 Dollar."
+        token_texts = [
+            "Die", "Teilnehmer", "kämpfen", "um", "ein",
+            "Preisgeld", "von", "500000", "Dollar",
+        ]
+        words = [
+            _FakeWord(text, idx * 0.5, (idx + 1) * 0.5)
+            for idx, text in enumerate(token_texts)
+        ]
+
+        result = merge_punctuation(words, full_text)
+        joined = "".join(item["text"] for item in result)
+
+        assert "500.000" in joined
+        assert "500000.000" not in joined
+        assert "500000" not in joined.replace("500.000", "")
+        # Phần đuôi sau "von" phải đúng nguyên văn, không rò rỉ "000" thành dòng/token thừa.
+        assert joined.split("von")[-1].strip() == "500.000 Dollar."
+        # Số token output đúng bằng số token input (không sinh token "000" thừa).
+        assert len(result) == len(token_texts)
+
+    @pytest.mark.parametrize(
+        ("full_text", "token_texts", "expected_text"),
+        [
+            # Decimal point (kiểu Anh/Mỹ).
+            ("price 3.5 dollars", ["price", "35", "dollars"], "price 3.5 dollars"),
+            # Phân cách hàng nghìn bằng dấu phẩy (kiểu Anh/Mỹ).
+            ("about 1,234 items", ["about", "1234", "items"], "about 1,234 items"),
+            # Nhiều dấu phân cách trong một số.
+            ("sum 1.234.567 total", ["sum", "1234567", "total"], "sum 1.234.567 total"),
+            # Kết hợp phân cách hàng nghìn + thập phân.
+            ("rate 1,234.5 percent", ["rate", "12345", "percent"], "rate 1,234.5 percent"),
+        ],
+    )
+    def test_numeric_separator_normalized_by_aligner_is_restored(
+        self,
+        full_text,
+        token_texts,
+        expected_text,
+    ):
+        """Aligner bỏ dấu phân cách số phải được khôi phục, không lặp/sót chữ số."""
+        words = [
+            _FakeWord(text, idx * 0.5, (idx + 1) * 0.5)
+            for idx, text in enumerate(token_texts)
+        ]
+
+        result = merge_punctuation(words, full_text)
+        joined = "".join(item["text"] for item in result)
+
+        assert joined == expected_text
+
+    def test_sentence_terminating_period_not_treated_as_numeric_separator(self):
+        """Dấu chấm cuối câu (số đứng trước, không có số sau) vẫn là dấu câu thường."""
+        words = [_FakeWord("It", 0.0, 0.5), _FakeWord("costs", 0.5, 1.0), _FakeWord("500", 1.0, 1.5)]
+        full_text = "It costs 500."
+
+        result = merge_punctuation(words, full_text)
+        joined = "".join(item["text"] for item in result)
+
+        assert joined == "It costs 500."
+
+    def test_decimal_comma_followed_by_space_is_normal_punctuation(self):
+        """Dấu phẩy sau số nhưng theo sau là khoảng trắng → dấu câu, không phải phân cách."""
+        words = [_FakeWord("got", 0.0, 0.5), _FakeWord("500", 0.5, 1.0), _FakeWord("items", 1.0, 1.5)]
+        full_text = "got 500, items"
+
+        result = merge_punctuation(words, full_text)
+        joined = "".join(item["text"] for item in result)
+
+        assert joined == "got 500, items"
+
 
 class TestLayer1_SegmentWordsToSubtitles:
     """Test segment_words_to_subtitles — tuân thủ invariant max_chars."""
