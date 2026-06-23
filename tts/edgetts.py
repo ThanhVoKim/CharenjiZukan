@@ -4,9 +4,12 @@ tts_edgetts.py — EdgeTTS per-line dubbing engine
 Trung thành với pyvideotrans/tts/_edgetts.py
 
 Flow:
-  queue_tts (list[dict]) 
+  queue_tts (list[dict])
       → async _create_audio_with_retry()   [semaphore, retry, save → .mp3]
       → ThreadPoolExecutor convert_to_wav() [mp3 → wav 48k stereo]
+      → ThreadPoolExecutor _apply_clean_tail() [librosa trim + fade, nếu clean_tail=True]
+      → apply_speed_scale()  [atempo, nếu speed_scale > 1.0]
+      → _pad_file()          [pre/post_phoneme_length silence, sau speedup]
 """
 
 import asyncio
@@ -22,7 +25,6 @@ import aiohttp
 from edge_tts import Communicate
 from edge_tts.exceptions import NoAudioReceived
 from pydub import AudioSegment
-from pydub.silence import detect_nonsilent
 
 logger = logging.getLogger("srt_translator")
 
@@ -69,38 +71,6 @@ def convert_to_wav(mp3_path: str, wav_path: str) -> bool:
         return False
 
 
-def strip_audio_silence(
-    wav_path: str,
-    silence_thresh_dbfs: int = -50,
-    min_silence_len_ms: int = 100,
-    keep_padding_ms: int = 30,
-) -> int:
-    try:
-        seg = AudioSegment.from_file(wav_path, format="wav")
-        original_len = len(seg)
-
-        non_silent = detect_nonsilent(
-            seg,
-            min_silence_len=min_silence_len_ms,
-            silence_thresh=silence_thresh_dbfs,
-        )
-
-        if not non_silent:
-            return 0  # Toàn silence → giữ nguyên
-
-        # ✅ Strip CẢ HAI ĐẦU
-        start_ms = max(0, non_silent[0][0] - keep_padding_ms)
-        end_ms   = min(original_len, non_silent[-1][1] + keep_padding_ms)
-
-        trimmed = seg[start_ms:end_ms]
-        trimmed.export(wav_path, format="wav")
-
-        trimmed_ms = original_len - len(trimmed)
-        return trimmed_ms
-
-    except Exception as e:
-        logger.warning(f"[StripSilence] Bỏ qua {Path(wav_path).name}: {e}")
-        return 0
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -124,12 +94,13 @@ class EdgeTTSEngine(BaseTTSEngine):
         pitch: str   = "+0Hz",
         proxy: str   = None,
         max_concurrent: int = MAX_CONCURRENT_TASKS,
-        # ── Tham số strip silence ─────────────────────────────────
-        strip_silence: bool = True,          # Bật mặc định
-        silence_thresh_dbfs: int = -50,      # Ngưỡng silence
-        min_silence_len_ms: int = 100,       # Silence tối thiểu để detect
-        keep_padding_ms: int = 60,           # Padding giữ lại ở viền
-        speed_scale: float = 1.0,            # >1.0 = tăng tốc audio sau synth (giữ pitch)
+        # ── Xử lý audio sau synth (giống qwen) ───────────────────
+        clean_tail: bool = True,             # Trim silence 2 đầu + fade edges
+        trim_top_db: float = 30.0,           # Ngưỡng trim (dB dưới đỉnh)
+        fade_ms: float = 8.0,               # Fade-in/out ở mép speech (ms)
+        pre_phoneme_length: float = 0.0,    # Silence thêm vào đầu clip sau speedup (giây)
+        post_phoneme_length: float = 0.0,   # Silence thêm vào cuối clip sau speedup (giây)
+        speed_scale: float = 1.0,           # >1.0 = tăng tốc audio sau synth (giữ pitch)
         **kwargs
     ):
         super().__init__(queue_tts, **kwargs)
@@ -140,16 +111,49 @@ class EdgeTTSEngine(BaseTTSEngine):
         self.proxy          = proxy or None
         self.max_concurrent = max_concurrent
 
-        self.strip_silence       = strip_silence
-        self.silence_thresh_dbfs = silence_thresh_dbfs
-        self.min_silence_len_ms  = min_silence_len_ms
-        self.keep_padding_ms     = keep_padding_ms
+        self.clean_tail          = clean_tail
+        self.trim_top_db         = trim_top_db
+        self.fade_ms             = fade_ms
+        self.pre_phoneme_length  = pre_phoneme_length
+        self.post_phoneme_length = post_phoneme_length
         self.speed_scale         = speed_scale
 
         self._stop_event  = asyncio.Event()
         self._lock        = asyncio.Lock()
         self._done_count  = 0
         self.errors: List[str] = []
+
+    @staticmethod
+    def _apply_clean_tail(wav_path: str, top_db: float, fade_ms: float) -> None:
+        """Trim silence 2 đầu + fade edges in-place (pydub I/O + BaseTTSEngine._clean_tail).
+
+        Dùng pydub để đọc/ghi (không cần soundfile). Ghi lại dưới dạng int16 WAV chuẩn.
+        """
+        import numpy as np
+        from tts.base import BaseTTSEngine as _Base
+
+        try:
+            seg = AudioSegment.from_file(wav_path, format="wav")
+        except Exception as e:
+            logger.warning(f"[CleanTail] Bỏ qua {Path(wav_path).name}: {e}")
+            return
+
+        sr, n_ch, sw = seg.frame_rate, seg.channels, seg.sample_width
+        scale = float(1 << (8 * sw - 1))
+
+        raw = np.array(seg.get_array_of_samples(), dtype="float32") / scale
+        if n_ch == 2:
+            raw = raw.reshape(-1, 2)
+
+        cleaned = _Base._clean_tail(raw, sr, fade_ms=fade_ms, top_db=top_db)
+
+        out_int = (cleaned * scale).clip(-scale, scale - 1).astype(np.int16)
+        if cleaned.ndim == 2:
+            out_int = out_int.flatten()
+
+        AudioSegment(
+            out_int.tobytes(), frame_rate=sr, sample_width=2, channels=n_ch
+        ).export(wav_path, format="wav")
 
     async def _increment(self):
         async with self._lock:
@@ -313,27 +317,22 @@ class EdgeTTSEngine(BaseTTSEngine):
                 except Exception:
                     pass
 
-        # ── Phase 2.5: strip silence từ mỗi wav ─────────────────────
-        if self.strip_silence and ok_count > 0:
+        # ── Phase 2.5: clean_tail — trim silence + fade edges ────────
+        if self.clean_tail and ok_count > 0:
             wav_paths = [wav for _, wav in to_convert if Path(wav).exists()]
-            total_trimmed_ms = 0
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = [
-                    pool.submit(strip_audio_silence, wav,
-                                self.silence_thresh_dbfs,
-                                self.min_silence_len_ms,
-                                self.keep_padding_ms)
-                    for wav in wav_paths
-                ]
-                for fut in futures:
-                    total_trimmed_ms += fut.result()
-            logger.info(
-                f"[StripSilence] Đã cắt tổng {total_trimmed_ms}ms "
-                f"({total_trimmed_ms/1000:.1f}s) silence từ {len(wav_paths)} clips"
-            )
+                list(pool.map(
+                    lambda p: self._apply_clean_tail(p, self.trim_top_db, self.fade_ms),
+                    wav_paths,
+                ))
+            logger.info(f"[CleanTail] Đã trim+fade {len(wav_paths)} clips (top_db={self.trim_top_db}, fade={self.fade_ms}ms)")
 
-        # Tăng tốc theo speed_scale (giữ pitch) — sau strip silence, trước khi trả kết quả.
+        # Tăng tốc rồi pad — thứ tự đảm bảo padding không bị nén theo speed_scale.
         self.apply_speed_scale()
+        if self.pre_phoneme_length > 0 or self.post_phoneme_length > 0:
+            for _, wav in to_convert:
+                if Path(wav).exists():
+                    self._pad_file(wav, self.pre_phoneme_length, self.post_phoneme_length)
 
         logger.info(f"[EdgeTTS] Xong: {ok_count} thành công, {err_count} lỗi")
         return {"ok": ok_count, "err": err_count}

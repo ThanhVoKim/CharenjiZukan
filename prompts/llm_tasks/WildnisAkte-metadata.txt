@@ -35,7 +35,7 @@ You are a Content Strategist for "Wildnis Akte", a YouTube channel dedicated to 
     * **Outstanding Features:** Detail the specific aspects that make this season/episode unique. (e.g., "The coldest environment in the show's history," "The highest number of dropouts on Day 1," "The most impossible challenge ever created.")
     * **Comparative Analysis:** Compare this season/episode with previous seasons or past videos on the channel to emphasize what makes it stand out and why it is worth discussing.
     * **Extreme Conditions & Drama:** Focus on the harsh realities, the psychological toll on the contestants, unprecedented strategies used, or rule changes.
-* **Generate 7 video text options (in German). Each option MUST be strictly under 60 characters.**
+* **Generate 7 video text options (in German). Each option MUST be strictly under 100 characters.**
 
 ### 4. Develop Curiosity-Driven Video Titles (under 70 characters):
 

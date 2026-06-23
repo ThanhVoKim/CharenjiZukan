@@ -230,9 +230,12 @@ def run_sync_pipeline(args):
                 rate=edge_cfg.get("rate", "+0%"),
                 volume=edge_cfg.get("volume", "+0%"),
                 pitch=edge_cfg.get("pitch", "+0Hz"),
-                strip_silence=edge_cfg.get("strip_silence", True),
                 max_concurrent=edge_cfg.get("concurrent", 10),
-                min_silence_len_ms=edge_cfg.get("min_silence_len_ms", 300),
+                clean_tail=edge_cfg.get("clean_tail", True),
+                trim_top_db=edge_cfg.get("trim_top_db", 30.0),
+                fade_ms=edge_cfg.get("fade_ms", 8.0),
+                pre_phoneme_length=edge_cfg.get("pre_phoneme_length", 0.0),
+                post_phoneme_length=edge_cfg.get("post_phoneme_length", 0.0),
                 speed_scale=edge_cfg.get("speed_scale", 1.0),
             )
         elif args.tts_provider == "voicevox_nemo":

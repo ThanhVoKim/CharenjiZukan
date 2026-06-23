@@ -3,11 +3,11 @@
 """
 tests/test_tts_edgetts.py
 ===========================
-Test cho chức năng Text-to-Speech bằng EdgeTTS và Strip Silence logic.
+Test cho chức năng Text-to-Speech bằng EdgeTTS và clean_tail logic.
 
 Cấu trúc layers:
-  Layer 1 — Unit Tests          (Logic strip_audio_silence thuần túy)
-  Layer 2 — Component Tests     (EdgeTTSEngine flow convert mp3 sang wav và strip)
+  Layer 1 — Unit Tests          (Logic _apply_clean_tail: trim silence + fade)
+  Layer 2 — Component Tests     (EdgeTTSEngine flow convert mp3 sang wav và clean_tail)
   Layer 3 — Pipeline Integration (Test end-to-end với file SRT chạy qua run_tts)
   Layer 4 — Real Model Tests    (Không áp dụng)
 
@@ -33,9 +33,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # ── Lazy imports ─────────────────────────────────────────────────────
 pydub = pytest.importorskip("pydub")
 from pydub import AudioSegment
-from pydub.silence import detect_nonsilent
 
-from tts.edgetts import EdgeTTSEngine, convert_to_wav, strip_audio_silence
+from tts.edgetts import EdgeTTSEngine, convert_to_wav
 
 # ═════════════════════════════════════════════════════════════════════
 # SHARED FIXTURES
@@ -98,60 +97,35 @@ def mock_edgetts_communicate():
 # LAYER 1 — UNIT TESTS
 # ═════════════════════════════════════════════════════════════════════
 
-class TestLayer1_StripSilence:
-    """Kiểm tra hàm strip_audio_silence."""
+class TestLayer1_CleanTail:
+    """Kiểm tra EdgeTTSEngine._apply_clean_tail (librosa trim + fade)."""
 
-    def test_strip_silence_only_tail(self, synthetic_wav_with_silence, tmp_path):
-        """Kiểm tra strip_audio_silence cắt CẢ HAI ĐẦU (head + tail)."""
-        # Copy ra tmp để không ảnh hưởng file gốc
-        test_wav = tmp_path / "test_only_tail.wav"
+    def test_clean_tail_trims_silence(self, synthetic_wav_with_silence, tmp_path):
+        """_apply_clean_tail cắt silence 2 đầu — kết quả ~1000ms (chỉ phần audio)."""
+        pytest.importorskip("librosa")  # trim yêu cầu librosa; skip nếu không có
+
+        test_wav = tmp_path / "test_clean.wav"
         shutil.copy(synthetic_wav_with_silence, test_wav)
-        
-        original_seg = AudioSegment.from_file(test_wav)
-        original_len = len(original_seg)
-        
-        assert original_len == 2000  # 500 + 1000 + 500
-        
-        # Gọi hàm cắt silence
-        trimmed_ms = strip_audio_silence(
-            str(test_wav),
-            silence_thresh_dbfs=-50,
-            min_silence_len_ms=100,
-            keep_padding_ms=30,
-        )
-        
-        trimmed_seg = AudioSegment.from_file(test_wav)
-        trimmed_len = len(trimmed_seg)
-        
-        # Original: silence(500) + audio(1000) + silence(500)
-        # Non-silent block detected: [500, 1500]
-        # start_ms = max(0, 500 - 30) = 470   --> Cắt cả phần đầu
-        # end_ms   = min(2000, 1500 + 30) = 1530
-        # Expected new length: 1530 - 470 = 1060
-        # Expected trimmed_ms: 2000 - 1060 = 940
 
-        assert trimmed_len < original_len
-        assert abs(trimmed_len - 1060) < 5
-        assert abs(trimmed_ms - 940) < 5
+        assert len(AudioSegment.from_file(test_wav)) == 2000  # 500+1000+500
 
-        # Phần đầu silence đã bị cắt --> ngay đầu file giờ là audio (non-silent)
-        first_100ms = trimmed_seg[:100]
-        nonsilent_in_first = detect_nonsilent(first_100ms, silence_thresh=-50, min_silence_len=50)
-        assert len(nonsilent_in_first) > 0  # Đầu file giờ là audio, không còn im lặng
+        EdgeTTSEngine._apply_clean_tail(str(test_wav), top_db=30.0, fade_ms=0.0)
 
-    def test_strip_silence_all_silent(self, synthetic_wav_all_silent, tmp_path):
-        """Kiểm tra fallback khi file chỉ toàn im lặng (TTS sinh file rỗng)."""
-        test_wav = tmp_path / "test_all_silent.wav"
+        result_len = len(AudioSegment.from_file(test_wav))
+        # librosa trim cắt 500ms silence đầu và cuối → còn ~1000ms
+        assert result_len < 2000
+        assert abs(result_len - 1000) < 50  # tolerance cho frame-based trim
+
+    def test_clean_tail_all_silent_kept(self, synthetic_wav_all_silent, tmp_path):
+        """File toàn silence → giữ nguyên (librosa trim ra rỗng → fallback giữ gốc)."""
+        test_wav = tmp_path / "test_clean_silent.wav"
         shutil.copy(synthetic_wav_all_silent, test_wav)
-        
+
         original_len = len(AudioSegment.from_file(test_wav))
-        
-        trimmed_ms = strip_audio_silence(str(test_wav))
-        
-        trimmed_len = len(AudioSegment.from_file(test_wav))
-        
-        assert trimmed_ms == 0
-        assert original_len == trimmed_len
+        EdgeTTSEngine._apply_clean_tail(str(test_wav), top_db=30.0, fade_ms=0.0)
+
+        result_len = len(AudioSegment.from_file(test_wav))
+        assert abs(result_len - original_len) < 50  # toàn silence → không xén
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -162,79 +136,61 @@ class TestLayer2_EdgeTTSEngine:
     """Kiểm tra EdgeTTSEngine và luồng convert + strip silence."""
 
     @patch("tts.edgetts.convert_to_wav")
-    def test_engine_run_with_strip_silence(self, mock_convert, mock_edgetts_communicate, synthetic_wav_with_silence, tmp_path):
-        """Test engine hoạt động bình thường, sinh mp3 giả và convert sang wav, sau đó strip."""
-        
-        # Chuẩn bị queue test
+    def test_engine_run_with_clean_tail(self, mock_convert, mock_edgetts_communicate, synthetic_wav_with_silence, tmp_path):
+        """Test engine bật clean_tail: trim silence 2 đầu → kết quả ~1000ms."""
+        pytest.importorskip("librosa")  # trim yêu cầu librosa
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
         filename = str(cache_dir / "test01.wav")
-        
-        queue_tts = [{
-            "text": "Hello world",
-            "filename": filename
-        }]
-        
-        # Giả lập convert_to_wav: nó copy synthetic_wav_with_silence vào filename.wav
+
+        queue_tts = [{"text": "Hello world", "filename": filename}]
+
         def fake_convert(mp3, wav):
             shutil.copy(synthetic_wav_with_silence, wav)
             return True
-            
+
         mock_convert.side_effect = fake_convert
-        
-        # Chạy engine bật tính năng cắt silence
+
         engine = EdgeTTSEngine(
             queue_tts=queue_tts,
             voice="en-US-JennyNeural",
-            strip_silence=True,
-            keep_padding_ms=0,
+            clean_tail=True,
         )
-        
+
         stats = engine.run()
-        
+
         assert stats["ok"] == 1
         assert stats["err"] == 0
-        
         assert Path(filename).exists()
-        
-        # synthetic_wav_with_silence: silence(500ms) + audio(1000ms) + silence(500ms) = 2000ms
-        # strip_audio_silence với keep_padding_ms=0 cắt CẢ HAI ĐẦU:
-        #   start_ms = max(0, 500 - 0) = 500
-        #   end_ms   = min(2000, 1500 + 0) = 1500
-        #   → seg[500:1500] = 1000ms (không phải 1500ms — cả đầu lẫn đuôi đều bị cắt)
+
+        # silence(500)+audio(1000)+silence(500) → librosa trim → ~1000ms
         final_seg = AudioSegment.from_file(filename)
-        assert abs(len(final_seg) - 1000) < 5
+        assert abs(len(final_seg) - 1000) < 50
 
     @patch("tts.edgetts.convert_to_wav")
-    def test_engine_run_without_strip_silence(self, mock_convert, mock_edgetts_communicate, synthetic_wav_with_silence, tmp_path):
-        """Test engine khi cờ strip_silence=False."""
-        
+    def test_engine_run_without_clean_tail(self, mock_convert, mock_edgetts_communicate, synthetic_wav_with_silence, tmp_path):
+        """Test engine khi clean_tail=False: giữ nguyên 2000ms."""
         cache_dir = tmp_path / "cache2"
         cache_dir.mkdir()
         filename = str(cache_dir / "test02.wav")
-        
-        queue_tts = [{
-            "text": "Hello world 2",
-            "filename": filename
-        }]
-        
+
+        queue_tts = [{"text": "Hello world 2", "filename": filename}]
+
         def fake_convert(mp3, wav):
             shutil.copy(synthetic_wav_with_silence, wav)
             return True
-            
+
         mock_convert.side_effect = fake_convert
-        
-        # Chạy engine TẮT tính năng cắt silence
+
         engine = EdgeTTSEngine(
             queue_tts=queue_tts,
             voice="en-US-JennyNeural",
-            strip_silence=False,
+            clean_tail=False,
         )
-        
+
         engine.run()
-        
+
         final_seg = AudioSegment.from_file(filename)
-        # Giữ nguyên độ dài 2000ms
         assert len(final_seg) == 2000
 
 

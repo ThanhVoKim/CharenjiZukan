@@ -40,6 +40,31 @@ Phase 5: Final Render (hardsub video với FFmpeg)
 Phase 6: LLM Metadata (post-render, nếu llm_metadata.enabled=true)
 ```
 
+### Flow TTS audio processing chi tiết (qwen / qwen_custom)
+
+Áp dụng cho provider `qwen`, `qwen_custom`, `edge`.
+
+```
+model.generate_*()
+    ↓
+_postprocess(include_pad=False)
+    ├── clean_tail=true  → librosa.trim(top_db)   [cắt silence/garbage 2 đầu]
+    │                    → fade-out tail + fade-in head (fade_ms ms)
+    └── clean_tail=false → bỏ qua trim, chỉ fade
+    ↓
+sf.write(dubb-N.wav)     [ghi wav không có padding]
+    ↓                    [sau khi ghi xong TẤT CẢ clips trong batch]
+apply_speed_scale()      [atempo chain, chỉ chạy nếu speed_scale > 1.0]
+    ↓
+_pad_file(pre, post)     [thêm silence cố định: pre_phoneme_length đầu, post_phoneme_length cuối]
+```
+
+**Lý do thứ tự `speedup → pad`:** padding là silence cố định sau dub, không nên bị nén theo
+`speed_scale`. Nếu pad trước speedup, `post_phoneme_length=0.1s` với `speed_scale=1.3` → padding
+thực tế chỉ còn ~0.077s. Với thứ tự mới, padding luôn đúng giá trị cấu hình.
+
+---
+
 ### Flow Forced Alignment Subtitle chi tiết
 
 ```
@@ -153,14 +178,14 @@ Mảng điều khiển **thứ tự ghép layer** ở Phase 5 (final render). Re
 }
 ```
 
-| Giá trị hợp lệ   | Layer                                  |
-| ---------------- | -------------------------------------- |
+| Giá trị hợp lệ   | Layer                                     |
+| ---------------- | ----------------------------------------- |
 | `black_strip`    | Dải đen (đã nung ở Phase 2 — xem ghi chú) |
-| `image_overlay`  | Ảnh tĩnh full-screen theo SRT          |
-| `note_overlay`   | Hộp ghi chú động (ASS box)             |
-| `watermark_img`  | Watermark ảnh                          |
-| `watermark_text` | Watermark chữ (drawtext)              |
-| `subtitles`      | Hard-sub SRT                           |
+| `image_overlay`  | Ảnh tĩnh full-screen theo SRT             |
+| `note_overlay`   | Hộp ghi chú động (ASS box)                |
+| `watermark_img`  | Watermark ảnh                             |
+| `watermark_text` | Watermark chữ (drawtext)                  |
+| `subtitles`      | Hard-sub SRT                              |
 
 > - Giá trị lạ trong mảng → log warning và bỏ qua.
 > - `black_strip` thực tế đã nung vào base ở Phase 2 nên Phase 5 tự skip; giữ nó trong `layer_order` chỉ để tài liệu hóa vị trí z-order (dưới cùng). Muốn đổi vị trí strip cần đổi cách nung ở Phase 2, không chỉ sửa `layer_order`.
@@ -180,13 +205,13 @@ Mảng điều khiển **thứ tự ghép layer** ở Phase 5 (final render). Re
 }
 ```
 
-| Key       | Type        | Default | Mô tả                                                                                                                       |
-| --------- | ----------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `enabled` | bool        | false   | Bật/tắt watermark ảnh                                                                                                      |
-| `path`    | str         | —       | Đường dẫn tới ảnh watermark                                                                                                 |
+| Key       | Type        | Default | Mô tả                                                                                                                                                                                           |
+| --------- | ----------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled` | bool        | false   | Bật/tắt watermark ảnh                                                                                                                                                                           |
+| `path`    | str         | —       | Đường dẫn tới ảnh watermark                                                                                                                                                                     |
 | `width`   | int \| null | null    | Chiều rộng watermark (px). `null`/bỏ trống/`<=0` → **giữ nguyên width gốc của ảnh**. Số > 0 → scale theo width đó, **height tự suy theo aspect ratio** (FFmpeg `scale=width:-1`) nên không méo. |
-| `x`       | str         | —       | Tọa độ X overlay (biểu thức FFmpeg, vd `1680` hoặc `W-w-40`)                                                                |
-| `y`       | str         | —       | Tọa độ Y overlay (biểu thức FFmpeg)                                                                                         |
+| `x`       | str         | —       | Tọa độ X overlay (biểu thức FFmpeg, vd `1680` hoặc `W-w-40`)                                                                                                                                    |
+| `y`       | str         | —       | Tọa độ Y overlay (biểu thức FFmpeg)                                                                                                                                                             |
 
 ### 2.3 `watermark_text`
 
@@ -217,14 +242,14 @@ Mảng điều khiển **thứ tự ghép layer** ở Phase 5 (final render). Re
 }
 ```
 
-| Key            | Type | Default      | Mô tả                                                                                                       |
-| -------------- | ---- | ------------ | ----------------------------------------------------------------------------------------------------------- |
-| `enabled`      | bool | false        | Bật/tắt dải đen                                                                                             |
-| `path`         | str  | —            | Đường dẫn ảnh dải (vd nền đen)                                                                              |
-| `scale_width`  | str  | full width   | Chiều rộng dải. **Mặc định = full width video gốc**; nếu giá trị > width video → tự kẹp về full width.       |
-| `scale_height` | str  | 94           | Chiều cao dải (px)                                                                                          |
-| `x`            | str  | `(W-w)/2`    | Tọa độ X (mặc định căn giữa)                                                                                |
-| `y`            | str  | `968`        | Tọa độ Y                                                                                                    |
+| Key            | Type | Default    | Mô tả                                                                                                  |
+| -------------- | ---- | ---------- | ------------------------------------------------------------------------------------------------------ |
+| `enabled`      | bool | false      | Bật/tắt dải đen                                                                                        |
+| `path`         | str  | —          | Đường dẫn ảnh dải (vd nền đen)                                                                         |
+| `scale_width`  | str  | full width | Chiều rộng dải. **Mặc định = full width video gốc**; nếu giá trị > width video → tự kẹp về full width. |
+| `scale_height` | str  | 94         | Chiều cao dải (px)                                                                                     |
+| `x`            | str  | `(W-w)/2`  | Tọa độ X (mặc định căn giữa)                                                                           |
+| `y`            | str  | `968`      | Tọa độ Y                                                                                               |
 
 > **Quan trọng:** `black_strip` được **nung vào `video_stretched.mp4` ở Phase 2** (gấp chung vào encode batch — không thêm lần encode). Hệ quả:
 >

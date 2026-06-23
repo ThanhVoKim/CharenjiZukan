@@ -78,7 +78,7 @@
   },
   "llm_metadata": {
     "enabled": false,
-    "task_config": "config/llm_tasks/WildnisAkte_metadata.yaml",
+    "task_config": "/content/CharenjiZukan/config/llm_tasks/WildnisAkte_metadata.yaml",
     "input": {
       "write_debug_input": true,
       "debug_input_filename_template": "{video_stem}_metadata_input.txt"

@@ -688,7 +688,7 @@ Gear checklist:
 
 ### 2.6. Text-to-Speech (tts)
 
-Hỗ trợ 4 engine: **EdgeTTS** (mặc định, cloud), **Voicevox Nemo** (local server), **Voicevox** (local server), và **Qwen3-TTS** (HuggingFace, voice-clone).
+Hỗ trợ 5 engine: **EdgeTTS** (mặc định, cloud), **Voicevox Nemo** (local server), **Voicevox** (local server), **Qwen3-TTS** (HuggingFace, voice-clone), và **Qwen3-TTS Custom** (checkpoint fine-tune giọng cố định).
 
 Cấu hình engine được đặt trong file YAML (`config/tts_config.yaml`). CLI chỉ cần trỏ `--config` và `--provider`.
 
@@ -757,7 +757,7 @@ Cấu hình engine được đặt trong file YAML (`config/tts_config.yaml`). C
 #### Sử dụng Qwen3-TTS (Voice Clone)
 
 > **Môi trường:** Qwen3-TTS chạy trong `.venv-sync`. Xem [docs/colab-setup.md](colab-setup.md)
-> mục A.1 để dựng lần đầu (bao gồm cả `sox libsox-fmt-all` và `rubberband-cli`).
+> mục A.1 để dựng lần đầu.
 
 ```colab
 !.venv-sync/bin/tts \
@@ -767,6 +767,29 @@ Cấu hình engine được đặt trong file YAML (`config/tts_config.yaml`). C
 ```
 
 > **Lưu ý:** Cấu hình `ref_audio` và `ref_text` trong `config/tts_config.yaml` để voice-clone.
+
+#### Sử dụng Qwen3-TTS Custom (checkpoint fine-tune)
+
+Dùng cho checkpoint đã SFT thành 1 giọng cố định (ví dụ Karlsson DE). Engine tự copy checkpoint
+từ Google Drive sang `/content` lần đầu rồi load từ local (Drive FUSE chậm với file ~3.5GB).
+
+```colab
+!.venv-sync/bin/tts \
+    --input /content/subtitle_de.srt \
+    --provider qwen_custom \
+    --config /content/CharenjiZukan/config/tts_config.yaml
+```
+
+Cấu hình trong `config/tts_config.yaml` section `qwen_custom`:
+
+```yaml
+qwen_custom:
+  drive_ckpt: "/content/drive/MyDrive/qwen3tts_karlsson_de/export/qwen3tts-karlsson-de"
+  local_ckpt: "/content/qwen3tts-karlsson-de"   # copy Drive→local lần đầu, sau đó dùng luôn
+  speaker: "karlsson_de"
+  language: "German"
+  speed_scale: 1.0   # >1.0 = tăng tốc audio (giữ pitch) → video đỡ kéo chậm
+```
 
 #### Chạy hàng loạt (Batch JSON)
 
@@ -817,7 +840,7 @@ Chạy:
 | `--output`, `-o`    | File audio đầu ra (.wav/.mp3)                        | `output/<input_stem>.wav`           |
 | `--task-file`, `-t` | File JSON chứa danh sách task                        | (không dùng)                        |
 | `--config`, `-c`    | File cấu hình YAML                                   | `config/tts_config.yaml`            |
-| `--provider`, `-p`  | TTS engine (edge/voicevox_nemo/voicevox/qwen)        | `edge`                              |
+| `--provider`, `-p`  | TTS engine (`edge`/`voicevox_nemo`/`voicevox`/`qwen`/`qwen_custom`) | `edge`         |
 | `--autorate`        | Tự động nén audio khớp slot SRT (chỉ .srt)           | (tắt)                               |
 | `--max-speed`       | Giới hạn tốc độ nén tối đa                           | `100.0`                             |
 | `--silence-ms`      | Độ dài silence giữa các dòng khi không dùng autorate | `0`                                 |
@@ -827,6 +850,23 @@ Chạy:
 | `--verbose`         | Bật logging debug                                    | (tắt)                               |
 
 #### File cấu hình `config/tts_config.yaml`
+
+Các tham số xử lý audio sau synth đồng nhất giữa **EdgeTTS**, **Qwen** và **Qwen Custom**:
+
+| Tham số              | Mô tả                                                                              | Mặc định |
+| -------------------- | ---------------------------------------------------------------------------------- | -------- |
+| `clean_tail`         | Trim silence 2 đầu + fade edges (librosa, fallback nếu thiếu)                     | `true`   |
+| `trim_top_db`        | Ngưỡng trim (dB dưới đỉnh). Giảm xuống ~25 nếu đuôi âm bị xén quá nhiều          | `30.0`   |
+| `fade_ms`            | Fade-in/out ở mép speech (ms). Tăng nếu vẫn còn click/pop ở chỗ nối silence      | `8.0`    |
+| `pre_phoneme_length` | Silence (giây) thêm vào đầu clip **sau speedup** để giữ đúng độ dài               | `0.0`    |
+| `post_phoneme_length`| Silence (giây) thêm vào cuối clip **sau speedup**                                  | `0.0`    |
+| `speed_scale`        | Hệ số tăng tốc audio (>1.0 = nhanh hơn, giữ pitch). Video stretch tự do để khớp  | `1.0`    |
+
+> **Thứ tự xử lý:** `trim+fade → write wav → speedup (atempo) → pad(pre/post)`.
+> Padding được thêm sau speedup nên luôn đúng giá trị cấu hình, không bị nén theo `speed_scale`.
+
+Voicevox / Voicevox Nemo dùng `speed_scale` và `volume_scale` native trong API — các tham số
+trên không áp dụng cho hai engine này.
 
 ---
 
@@ -1311,7 +1351,7 @@ Yêu cầu: Truyền danh sách tasks qua file JSON thông qua `--task-file`. M�
 | `--task-file`          | File JSON chứa danh sách tasks cho xử lý hàng loạt                                                   | (không dùng)                            |
 | `--video`              | File video gốc (`.mp4`, `.mkv`)                                                                      | (bắt buộc khi không dùng `--task-file`) |
 | `--subtitle`           | File subtitle `.srt` đầy đủ (bao gồm cả vùng mute nếu có)                                            | (bắt buộc khi không dùng `--task-file`) |
-| `--tts-provider`       | Provider TTS (`edge`, `voicevox_nemo`, `voicevox`, `qwen`, `qwen_custom`)                            | `edge`                                  |
+| `--tts-provider`       | Provider TTS (`edge`, `voicevox_nemo`, `voicevox`, `qwen`, `qwen_custom`). Cấu hình chi tiết trong `tts_config.yaml` | `edge`          |
 | `--tts-voice`          | Giọng đọc EdgeTTS hoặc ID nhân vật Voicevox/Voicevox Nemo (ghi đè YAML)                              | (lấy từ `tts_config.yaml`)              |
 | `--tts-config`         | File YAML cấu hình TTS (dùng cho `edge`, `voicevox_nemo`, `voicevox`, `qwen`, `qwen_custom`)         | `config/tts_config.yaml`                |
 | `--mute`               | File mute `.srt` cho vùng quoted (không TTS)                                                         | (không dùng)                            |

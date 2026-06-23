@@ -165,10 +165,12 @@ class QwenCustomTTSEngine(BaseTTSEngine):
                     wav_data_safe = np.asarray(wav_data_safe, dtype="float32").reshape(-1)
 
                     # Hậu xử lý đuôi clip (Design A) — dùng chung helper với QwenTTSEngine.
+                    # Pad pre/post được thêm SAU speedup (xem bên dưới) để giữ đúng độ dài.
                     wav_data_safe = QwenTTSEngine._postprocess(
                         wav_data_safe, sr, self.clean_tail,
                         self.pre_phoneme_length, self.post_phoneme_length,
                         fade_ms=self.fade_ms, top_db=self.trim_top_db,
+                        include_pad=False,
                     )
 
                     sf.write(wav_path, wav_data_safe, sr)
@@ -179,8 +181,14 @@ class QwenCustomTTSEngine(BaseTTSEngine):
                 gc.collect()
                 torch.cuda.empty_cache()
 
-            # Tăng tốc theo speed_scale (giữ pitch) — sau khi đã ghi hết clip.
+            # Tăng tốc theo speed_scale, rồi pad pre/post phoneme silence — thứ tự này đảm bảo
+            # padding không bị nén theo speed_scale (padding = silence cố định sau dub).
             self.apply_speed_scale()
+            if self.pre_phoneme_length > 0 or self.post_phoneme_length > 0:
+                for it in valid_items:
+                    p = Path(it["filename"])
+                    if p.exists():
+                        QwenTTSEngine._pad_file(str(p), self.pre_phoneme_length, self.post_phoneme_length)
 
         except Exception as e:
             logger.exception(f"[QwenCustom] Lỗi nghiêm trọng: {e}")

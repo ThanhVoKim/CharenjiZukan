@@ -1,5 +1,104 @@
 # Project Journal
 
+## 2026-06-23: Refactor EdgeTTS — clean_tail giống Qwen, tham số đồng nhất
+
+### Bối cảnh
+
+EdgeTTS dùng `strip_audio_silence()` (pydub `detect_nonsilent`) để cắt silence đầu/cuối.
+Qwen đã dùng `_clean_tail` (librosa trim + fade). Yêu cầu thống nhất cả 2 engine về cùng
+cơ chế và cùng bộ tham số để cấu hình YAML nhất quán.
+
+### Thay đổi kiến trúc
+
+**`tts/base.py`** — thêm 2 static method vào `BaseTTSEngine` (dùng chung cho mọi engine):
+- `_clean_tail(wav, sr, pre, post, fade_ms, top_db)`: xử lý mono VÀ stereo (shape
+  `(n_samples,)` hoặc `(n_samples, n_ch)`). Trim bằng `librosa.effects.trim` trên mono-mix;
+  áp fade-in/out trên từng channel; pad pre/post. Fallback nếu thiếu librosa (chỉ fade+pad).
+- `_pad_file(wav_path, pre, post)`: soundfile read+pad+write (dùng sau speedup).
+
+**`tts/qwen.py`** — xóa `_clean_tail` và `_pad_file` khỏi `QwenTTSEngine` (kế thừa từ base).
+`_postprocess` bỏ check `ndim == 1` cũ (giờ base xử lý cả stereo).
+
+**`tts/edgetts.py`** — refactor toàn bộ audio post-processing:
+- Xóa `strip_audio_silence()` (pydub `detect_nonsilent`).
+- Xóa import `from pydub.silence import detect_nonsilent`.
+- Thêm `@staticmethod _apply_clean_tail(wav_path, top_db, fade_ms)`: pydub I/O +
+  `BaseTTSEngine._clean_tail` — wrapper file-level cho EdgeTTS (không cần soundfile).
+- Đổi params `__init__`:
+  - Xóa: `strip_silence`, `silence_thresh_dbfs`, `min_silence_len_ms`, `keep_padding_ms`
+  - Thêm: `clean_tail`, `trim_top_db`, `fade_ms`, `pre_phoneme_length`, `post_phoneme_length`
+- `run()` Phase 2.5: `_apply_clean_tail` chạy thread pool (thay strip block cũ).
+  Sau speedup: loop `_pad_file` nếu `pre/post_phoneme_length > 0`.
+
+**`cli/sync_video.py`** — cập nhật edge branch: đổi param names, thêm `trim_top_db`/`fade_ms`/`pre_phoneme_length`/`post_phoneme_length`, xóa `min_silence_len_ms`.
+
+**`config/tts_config.yaml`** — section `edge`: đổi `strip_silence`/`silence_thresh_dbfs` → `clean_tail`/`trim_top_db`/`fade_ms`/`pre_phoneme_length`/`post_phoneme_length`.
+
+**`tests/tts/test_tts_edgetts.py`**:
+- Đổi `TestLayer1_StripSilence` → `TestLayer1_CleanTail` (test `_apply_clean_tail`).
+- Test cần librosa được đánh dấu `pytest.importorskip("librosa")` (skip trên máy dev).
+- Layer 2: đổi `strip_silence=True` → `clean_tail=True`, xóa `keep_padding_ms`.
+
+### Tham số đồng nhất giữa EdgeTTS và Qwen
+
+| Tham số              | EdgeTTS | Qwen / Qwen Custom |
+| -------------------- | ------- | ------------------ |
+| `clean_tail`         | ✅      | ✅                 |
+| `trim_top_db`        | ✅      | ✅                 |
+| `fade_ms`            | ✅      | ✅                 |
+| `pre_phoneme_length` | ✅      | ✅                 |
+| `post_phoneme_length`| ✅      | ✅                 |
+| `speed_scale`        | ✅      | ✅                 |
+
+Voicevox / Voicevox Nemo không thay đổi (dùng `speedScale` native API).
+
+### Kết quả test
+
+**704 passed, 30 skipped** — không có regression (thêm 2 skipped cho test trim cần librosa).
+
+---
+
+## 2026-06-23: Đổi thứ tự TTS post-processing — speedup trước, pad sau
+
+### Bối cảnh
+
+Với flow cũ (`_postprocess` → `sf.write` → `apply_speed_scale`), padding silence
+`pre/post_phoneme_length` bị nén cùng với phần speech khi `speed_scale > 1.0`. Ví dụ:
+`speed_scale=1.3`, `post_phoneme_length=0.1s` → padding thực tế chỉ còn ~0.077s thay vì 0.1s.
+Yêu cầu: padding phải là silence cố định, không bị ảnh hưởng bởi speed_scale.
+
+### Phân tích
+
+`clean_tail` (librosa trim) và `fade` luôn chạy trên raw wav từ model — không liên quan đến
+thứ tự speedup/pad, nên thay đổi này không ảnh hưởng gì đến chúng.
+
+### Thay đổi
+
+**`tts/qwen.py`**:
+- `_postprocess`: thêm `include_pad: bool = True`. Khi `False` — bỏ qua pad, chỉ trim+fade.
+  Đường dẫn `clean_tail=True`: truyền `_pre=0, _post=0` vào `_clean_tail`.
+  Đường dẫn `clean_tail=False`: bỏ qua `np.pad` block.
+- `_pad_file(wav_path, pre, post)`: static method mới — đọc wav bằng soundfile, thêm silence
+  numpy `(pre_s, post_s)`, ghi đè lại file.
+- `run()`: gọi `_postprocess(..., include_pad=False)` → ghi file → sau vòng loop, gọi
+  `apply_speed_scale()` → loop `_pad_file` trên toàn bộ `valid_items`.
+
+**`tts/qwen_custom.py`**:
+- `run()`: tương tự — `_postprocess(..., include_pad=False)` → `apply_speed_scale()` →
+  loop `QwenTTSEngine._pad_file`.
+
+### Flow TTS post-processing mới (qwen / qwen_custom)
+
+```
+raw wav → trim(top_db) + fade [clean_tail] → write wav → speedup (atempo) → pad(pre/post)
+```
+
+### Kết quả test
+
+**706 passed, 28 skipped** — không có regression.
+
+---
+
 ## 2026-06-23: Xóa rubberband khỏi TTS speed-up — dùng FFmpeg atempo thuần túy
 
 ### Bối cảnh

@@ -72,46 +72,21 @@ class QwenTTSEngine(BaseTTSEngine):
         self.speed_scale = speed_scale
         self.gen_kwargs = gen_kwargs or dict(DEFAULT_QWEN_GEN_KWARGS)
 
-    @staticmethod
-    def _clean_tail(wav, sr, pre, post, fade_ms=8.0, top_db=30.0):
-        """Design A — 'thay thế' đuôi clip: diệt rè/bíp/bộp + đồng nhất silence cuối.
-
-        Luồng:
-          (1) trim sạch silence/garbage 2 đầu -> waveform kết thúc NGAY tại speech;
-          (2) fade-out N ms ở mép cuối + fade-in N ms ở mép đầu (về 0 trước khi nối
-              silence -> chống click/pop ở chỗ pad);
-          (3) pad silence cố định: pre ở đầu, post ở cuối.
-
-        Tail gốc (dài/ngắn tùy hứng) bị VỨT HẲN ở (1) — KHÔNG clamp/bù; post là silence
-        mới hoàn toàn. Thiếu librosa -> bỏ trim, vẫn fade + pad (không crash).
-        """
-        import numpy as np
-        y = np.asarray(wav, dtype="float32").reshape(-1)
-        if y.size:
-            try:
-                import librosa
-                yt, _ = librosa.effects.trim(y, top_db=top_db)
-                if yt.size:                                 # giữ gốc nếu trim ra rỗng (toàn silence)
-                    y = yt
-            except Exception:
-                pass                                        # không có librosa -> chỉ fade + pad
-            y = y.copy()                                    # tránh sửa in-place lên view của buffer gốc
-            f = min(int(sr * fade_ms / 1000), y.size)
-            if f > 0:
-                y[-f:] *= np.linspace(1.0, 0.0, f, dtype="float32")   # fade-out đuôi speech
-                y[:f] *= np.linspace(0.0, 1.0, f, dtype="float32")    # fade-in đầu (chống click khi pad)
-        return np.pad(y, (int(sr * pre), int(sr * post)))
+    # _clean_tail và _pad_file kế thừa từ BaseTTSEngine (xử lý cả mono và stereo).
 
     @staticmethod
-    def _postprocess(wav, sr, clean_tail, pre, post, fade_ms=8.0, top_db=30.0):
-        """Hậu xử lý wav sinh ra: clean_tail (trim+fade+pad) nếu bật & mono; ngược lại chỉ pad.
+    def _postprocess(wav, sr, clean_tail, pre, post, fade_ms=8.0, top_db=30.0, include_pad=True):
+        """Hậu xử lý wav sinh ra: clean_tail (trim+fade) nếu bật; tuỳ chọn pad.
 
+        include_pad=False: bỏ qua pad pre/post — dùng khi muốn pad sau speedup để giữ đúng độ dài.
         Gói lại quyết định clean_tail-vs-pad để DÙNG CHUNG cho QwenTTSEngine và QwenCustomTTSEngine.
         """
         import numpy as np
-        if clean_tail and getattr(wav, "ndim", 1) == 1:
-            return QwenTTSEngine._clean_tail(wav, sr, pre, post, fade_ms=fade_ms, top_db=top_db)
-        if pre > 0 or post > 0:
+        _pre = pre if include_pad else 0.0
+        _post = post if include_pad else 0.0
+        if clean_tail:
+            return QwenTTSEngine._clean_tail(wav, sr, _pre, _post, fade_ms=fade_ms, top_db=top_db)
+        if include_pad and (pre > 0 or post > 0):
             pre_samples = int(sr * pre)
             post_samples = int(sr * post)
             if wav.ndim == 1:
@@ -204,12 +179,13 @@ class QwenTTSEngine(BaseTTSEngine):
                     else:
                         wav_data_safe = np.copy(wav_data)
 
-                    # --- Hậu xử lý đuôi clip (Design A): trim silence/garbage + fade + pad cố định ---
-                    # Diệt rè/bíp/bộp cuối clip (token codec OOD) và đồng nhất độ dài silence cuối.
+                    # --- Hậu xử lý đuôi clip (Design A): trim silence/garbage + fade ---
+                    # Pad pre/post được thêm SAU speedup (xem bên dưới) để giữ đúng độ dài.
                     wav_data_safe = self._postprocess(
                         wav_data_safe, sr, self.clean_tail,
                         self.pre_phoneme_length, self.post_phoneme_length,
                         fade_ms=self.fade_ms, top_db=self.trim_top_db,
+                        include_pad=False,
                     )
 
                     sf.write(wav_path, wav_data_safe, sr)
@@ -220,8 +196,14 @@ class QwenTTSEngine(BaseTTSEngine):
                 gc.collect()
                 torch.cuda.empty_cache()
 
-            # Tăng tốc theo speed_scale (giữ pitch) — sau khi đã ghi hết clip.
+            # Tăng tốc theo speed_scale, rồi pad pre/post phoneme silence — thứ tự này đảm bảo
+            # padding không bị nén theo speed_scale (padding = silence cố định sau dub).
             self.apply_speed_scale()
+            if self.pre_phoneme_length > 0 or self.post_phoneme_length > 0:
+                for it in valid_items:
+                    p = Path(it["filename"])
+                    if p.exists():
+                        self._pad_file(str(p), self.pre_phoneme_length, self.post_phoneme_length)
 
         except Exception as e:
             logger.exception(f"[QwenTTS] Lỗi nghiêm trọng: {e}")
