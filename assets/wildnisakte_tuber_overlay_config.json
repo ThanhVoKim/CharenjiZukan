@@ -1,13 +1,13 @@
 {
-  "enabled": true,
-  "outputDir": "charenjizukan-tuber-output",
+  "enabled": false,
+  "outputDir": "tuber-output",
   "overlay": {
     "format": "direct",
     "mode": "prerender"
   },
   "asset": {
-    "assetDir": "/content/assets/pngtuber/charenji",
-    "assetId": "charenji",
+    "assetDir": "/content/assets/pngtuber/male01",
+    "assetId": "male01",
     "mouthTrack": "mouth_track.json",
     "mouthSprites": {
       "closed": "mouth/closed.png",

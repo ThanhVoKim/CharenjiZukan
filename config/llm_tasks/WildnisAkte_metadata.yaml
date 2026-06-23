@@ -1,4 +1,4 @@
-task_name: "CharenjiZukan_metadata"
+task_name: "WildnisAkte_metadata"
 provider: "openai"
 provider_config: "config/llm/openai_compat.yaml"
 provider_chain:
@@ -8,7 +8,7 @@ provider_chain:
   - name: "fallback_vertexai"
     provider: "vertexai"
     provider_config: "config/llm/vertexai.yaml"
-prompt_file: "prompts/llm_tasks/CharenjiZukan-metadata.txt"
+prompt_file: "prompts/llm_tasks/WildnisAkte-metadata.txt"
 input_placeholder: "[Video Content]"
 default_ext: "_metadata.md"
 output_parser: "raw"
