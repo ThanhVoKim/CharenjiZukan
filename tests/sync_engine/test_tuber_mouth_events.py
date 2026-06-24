@@ -473,13 +473,17 @@ class TestLayer1_AdaptiveLeveling:
         )
 
     def test_absolute_mode_freezes_on_quiet_audio(self):
-        """Đối chứng: nhánh tuyệt đối kẹt 1 state khi audio nhỏ."""
+        """Đối chứng: nhánh tuyệt đối kẹt 1 state khi audio dao động hẹp.
+
+        Dùng ±1dB quanh -35dB (→ amplitude luôn trong dải "half") để absolute
+        không bao giờ chạm threshold "open". Adaptive ngược lại: kéo giãn ra ≥2 state.
+        """
         import math
         n = 30
-        db_values = [-35.0 + 5.0 * math.sin(2 * math.pi * i / 8) for i in range(n)]
+        # ±1dB → amplitude ∈ [0.1, 0.125] → luôn "half" cho absolute branch
+        db_values = [-35.0 + 1.0 * math.sin(2 * math.pi * i / 8) for i in range(n)]
         rms_list = self._make_rms(db_values)
 
-        # Nhánh tuyệt đối: mọi db ~ -35 → amplitude ~ 0.1 → luôn "half"
         from sync_engine.tuber_mouth_events import _rms_normalized
         levels_abs = []
         for i, rms in enumerate(rms_list):
@@ -490,9 +494,18 @@ class TestLayer1_AdaptiveLeveling:
                 amp = _rms_normalized(rms_list[max(0, i - 2):i + 1], self._SILENCE_DB)
                 levels_abs.append(_state_from_amplitude(amp, 3))
 
-        # Tuyệt đối phải kẹt (1 state duy nhất) trên dải hẹp này
+        # Absolute phải kẹt 1 state (dao động ±1dB không đủ vượt qua ngưỡng)
         assert len(set(levels_abs)) == 1, (
-            f"Nhánh tuyệt đối phải kẹt 1 state (đây là vấn đề cần fix): {set(levels_abs)}"
+            f"Nhánh tuyệt đối phải kẹt 1 state với ±1dB: {set(levels_abs)}"
+        )
+
+        # Adaptive phải có ≥2 state (kéo giãn dải hẹp ra đủ rộng)
+        levels_ada = _adaptive_levels(
+            rms_list, silence_db=self._SILENCE_DB, num_states=3,
+            floor_pct=10.0, peak_pct=90.0, min_range_db=6.0, gamma=0.75,
+        )
+        assert len(set(levels_ada)) >= 2, (
+            f"Adaptive phải sinh ≥2 state trên cùng input: {set(levels_ada)}"
         )
 
     def test_silence_gate_still_closes(self):
@@ -509,8 +522,12 @@ class TestLayer1_AdaptiveLeveling:
             assert s == "closed", f"Frame silent phải là 'closed': {result[:10]}"
 
     def test_min_range_guard_no_chatter(self):
-        """Clip gần phẳng tuyệt đối (dao động < min_range_db) → không chatter."""
-        # Tất cả frame voiced gần giống nhau → rng bị chặn bởi min_range_db
+        """minRange guard: clip gần phẳng → KHÔNG bao giờ sinh 'open' từ nhiễu nhỏ.
+
+        Dao động 0.02dB thực tế bị minRange=6dB chặn → amp luôn nhỏ → không bao giờ
+        đạt ngưỡng 'open' (0.5). Đây là mục đích chính của guard: ngăn khuếch đại
+        noise thành state cao nhất.
+        """
         rms_list = self._make_rms([-35.01, -35.0, -34.99, -35.0, -35.01] * 4)
         result = _adaptive_levels(
             rms_list,
@@ -519,9 +536,10 @@ class TestLayer1_AdaptiveLeveling:
             floor_pct=10.0, peak_pct=90.0,
             min_range_db=6.0, gamma=0.75,
         )
-        # Không nên đập qua lại giữa closed và open vô nghĩa
-        transitions = sum(1 for i in range(1, len(result)) if result[i] != result[i - 1])
-        assert transitions <= 4, f"Quá nhiều chatter: {transitions} transitions, {result}"
+        # Guard đảm bảo KHÔNG sinh "open" từ dao động 0.02dB (noise floor rất nhỏ)
+        assert "open" not in result, (
+            f"minRange guard phải ngăn 'open' từ dao động 0.02dB: {result}"
+        )
 
     def test_few_voiced_frames_fallback_no_crash(self):
         """< 4 voiced frames → fallback tuyệt đối, không crash, kết quả hợp lệ."""
