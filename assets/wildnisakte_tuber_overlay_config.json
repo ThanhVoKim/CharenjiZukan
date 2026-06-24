@@ -1,5 +1,5 @@
 {
-  "enabled": false,
+  "enabled": true,
   "outputDir": "tuber-output",
   "overlay": {
     "format": "direct",

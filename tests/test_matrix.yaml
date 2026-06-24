@@ -599,6 +599,22 @@ tests:
     tags: ["integration", "sync_engine"]
     enabled: true  # tự sinh WAV bằng numpy, không cần TTS_CLIP_DIR
 
+  - name: "Tuber Mouth Events — Layer 1: Adaptive Auto-Leveling (Unit, chống đơ miệng)"
+    file: "tests/sync_engine/test_tuber_mouth_events.py"
+    keyword: "AdaptiveLeveling"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit", "sync_engine"]
+    enabled: true
+
+  - name: "Tuber Mouth Events — Layer 2: Quiet Audio Movement (Synthetic WAV, Adaptive)"
+    file: "tests/sync_engine/test_tuber_mouth_events.py"
+    keyword: "QuietAudioMovement"
+    timeout_sec: 60
+    pytest_args: ["-v"]
+    tags: ["integration", "sync_engine"]
+    enabled: true  # tự sinh WAV bằng numpy, không cần TTS_CLIP_DIR
+
   - name: "Tuber Repair — Layer 1: Unit (Resolve Prerender Manifest)"
     file: "tests/sync_engine/test_tuber_repair.py"
     keyword: "Layer1"

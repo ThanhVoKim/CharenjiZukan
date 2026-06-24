@@ -1,5 +1,35 @@
 # Project Journal
 
+## 2026-06-24: V6 — Adaptive mouth auto-leveling (chống "đơ miệng", port aituber-kit)
+
+### Vấn đề
+Khi TTS audio rất nhỏ và biên độ dao động ít, PNGTuber mouth bị kẹt ở `"half"` suốt clip → nhân vật
+bất động, không giống đang nói. Nguyên nhân: ngưỡng dB **tuyệt đối** trong `_rms_normalized` +
+`_state_from_amplitude` không phân biệt được dao động nhỏ quanh -35dB.
+
+### Giải pháp
+Port **adaptive auto-leveling** từ [aituber-kit pngTuberEngine.ts](https://github.com/tegnike/aituber-kit):
+chuẩn hoá mỗi frame theo **dải động RIÊNG của từng clip** (floor/peak percentile + `minRange` guard +
+gamma shaping `pow(level,0.75)`). Pipeline offline tính floor/peak trực tiếp (tất định) thay vì
+envelope-follower streaming như bản live gốc.
+
+### Files đã thay đổi
+- **`sync_engine/tuber_mouth_events.py`**: thêm hằng `_DEFAULT_ADAPTIVE_*`, hàm `_adaptive_levels()`,
+  tham số `adaptive/adaptive_floor_pct/adaptive_peak_pct/adaptive_min_range_db/adaptive_gamma` cho
+  `analyze_tts_amplitude()`.
+- **`sync_engine/tuber_config.py`**: 5 accessor mới `mouth_adaptive*` (default ON).
+- **`sync_engine/tuber_overlay.py`**: truyền adaptive opts vào `mouth_opts`.
+- **`tests/sync_engine/test_tuber_mouth_events.py`**: `TestLayer1_AdaptiveLeveling` (unit) +
+  `TestLayer2_QuietAudioMovement` (WAV tổng hợp numpy).
+- **`tests/test_matrix.yaml`**: 2 entry mới cho AdaptiveLeveling + QuietAudioMovement.
+- **`docs/tuber-overlay-guide.md`**: bảng key adaptive + giải thích cơ chế.
+
+### Hành vi re-render
+Mặc định BẬT → group tuber đã render trước đó sẽ re-render lần chạy kế (mouthEvents đổi → hash đổi).
+Để giữ output cũ: đặt `mouth.adaptive=false`. Prerender frame (closed/half/open) không đổi, không cần re-bake.
+
+---
+
 ## 2026-06-23: Refactor EdgeTTS — clean_tail giống Qwen, tham số đồng nhất
 
 ### Bối cảnh

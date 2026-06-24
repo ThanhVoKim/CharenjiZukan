@@ -716,6 +716,12 @@ def prepare_groups_and_base(
             "min_vowel_interval_ms": config.mouth_min_vowel_interval_ms,
             "vowel_low_percentile": config.mouth_vowel_low_pct,
             "vowel_high_percentile": config.mouth_vowel_high_pct,
+            # Adaptive auto-leveling (V6): chống đơ miệng khi audio nhỏ
+            "adaptive": config.mouth_adaptive,
+            "adaptive_floor_pct": config.mouth_adaptive_floor_pct,
+            "adaptive_peak_pct": config.mouth_adaptive_peak_pct,
+            "adaptive_min_range_db": config.mouth_adaptive_min_range_db,
+            "adaptive_gamma": config.mouth_adaptive_gamma,
         }
 
     jobs: List[GroupJob] = []

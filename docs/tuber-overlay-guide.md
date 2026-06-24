@@ -350,6 +350,30 @@ Thiếu numpy / quá ít frame `open` → cũng tự về 3-state (fail mềm).
 > **Resume:** `inputHash` đã băm `mouthEvents`, nên đổi `mouthStates` (thêm/bớt e/u) → group tự re-render.
 > Prerender cũ thiếu frame e/u được **tự bake bổ sung** (không cần `resume.skipDone=false`).
 
+#### mouth — adaptive auto-leveling (V6, chống "đơ miệng" khi audio nhỏ)
+
+**Vấn đề:** Khi TTS audio rất nhỏ và biên độ dao động ít, miệng bị kẹt ở `"half"` suốt clip — nhân
+vật bất động dù đang nói. Nguyên nhân: ngưỡng dB **tuyệt đối** không phân biệt được dao động nhỏ.
+
+**Giải pháp (port [aituber-kit pngTuberEngine.ts](https://github.com/tegnike/aituber-kit)):** Chuẩn hoá
+mỗi frame theo **dải động RIÊNG của từng clip** (floor/peak percentile) thay vì thang cố định. Clip audio
+nhỏ nhưng có nhịp âm tiết → dao động nhỏ đó được "kéo giãn" ra full closed/half/open. `minRangeDb` guard
+tránh khuếch đại nhiễu thành chatter khi clip gần phẳng tuyệt đối.
+
+**Mặc định BẬT.** Để tắt (dùng hành vi cũ): đặt `"adaptive": false` trong `mouth`. Lần chạy sau group
+tuber cũ sẽ re-render (mouthEvents đổi → hash đổi — đây là hành vi mong muốn).
+
+| Key                        | Kiểu      | Mặc định | Mô tả                                                                                    |
+| -------------------------- | --------- | -------- | ---------------------------------------------------------------------------------------- |
+| `adaptive`                 | `boolean` | `true`   | Bật adaptive auto-leveling. `false` → thang dB tuyệt đối (back-compat).                  |
+| `adaptiveFloorPercentile`  | `number`  | `10`     | Percentile dB → noiseFloor của clip (tương đương `noiseFloor` aituber-kit).               |
+| `adaptivePeakPercentile`   | `number`  | `90`     | Percentile dB → levelPeak của clip (tương đương `levelPeak` aituber-kit).                 |
+| `adaptiveMinRangeDb`       | `number`  | `6`      | Dải dB tối thiểu — chặn chatter khi clip gần phẳng tuyệt đối (`minRange` aituber-kit).   |
+| `adaptiveGamma`            | `number`  | `0.75`   | Gamma shaping `pow(amp, gamma)` — < 1 nhạy hơn ở mức nhỏ (`pow(level,0.75)` aituber-kit). |
+
+> **Offline vs live:** aituber-kit dùng envelope-follower streaming; pipeline này phân tích cả clip →
+> percentile tất định, ổn định hơn. Không áp dụng cho path Remotion.
+
 ##### Config mẫu 5 khẩu hình (closed/half/open/e/u)
 
 ```jsonc

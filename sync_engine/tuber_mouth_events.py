@@ -36,6 +36,18 @@ _DEFAULT_VOWEL_HIGH_PCT = 80.0         # percentile → E_TH (centroid cao  = "e
 _VOWEL_SHAPES = ("e", "u")
 _MIN_OPEN_FRAMES_FOR_VOWEL = 4         # cần đủ frame "open" mới tính ngưỡng centroid
 
+# ── Adaptive auto-leveling (port aituber-kit pngTuberEngine) ─────────────────
+# Chống "đơ miệng" khi audio nhỏ: thay vì map dB theo thang TUYỆT ĐỐI (luôn kẹt
+# "half"), chuẩn hoá mỗi frame theo dải động RIÊNG của từng clip (floor/peak
+# percentile) → audio nhỏ vẫn trải đủ closed/half/open. minRange guard tránh
+# khuếch đại nhiễu thành chatter (≈ minRange=0.006 của bản gốc).
+_DEFAULT_ADAPTIVE_FLOOR_PCT = 10.0     # percentile dB → noiseFloor của clip
+_DEFAULT_ADAPTIVE_PEAK_PCT = 90.0      # percentile dB → levelPeak của clip
+_DEFAULT_ADAPTIVE_MIN_RANGE_DB = 6.0   # dải động dB tối thiểu (mẫu số bị chặn)
+_DEFAULT_ADAPTIVE_GAMMA = 0.75         # gamma shaping (pow) → nhạy hơn ở mức nhỏ
+_MIN_VOICED_FRAMES_FOR_ADAPTIVE = 4    # quá ít frame voiced → fallback tuyệt đối
+_ADAPTIVE_SMOOTH_FRAMES = 3            # cửa sổ smoothing dB (giữ như _rms_normalized)
+
 
 # ── Audio helpers ─────────────────────────────────────────────────────────
 
@@ -243,6 +255,64 @@ def _rms_normalized(rms_list: List[float], min_db: float) -> float:
 
 # ── Mouth event generation ────────────────────────────────────────────────
 
+def _adaptive_levels(
+    rms_list: List[float],
+    *,
+    silence_db: float,
+    num_states: int,
+    floor_pct: float,
+    peak_pct: float,
+    min_range_db: float,
+    gamma: float,
+) -> List[str]:
+    """Per-frame mouth state với adaptive auto-leveling (port aituber-kit).
+
+    Chuẩn hoá dB mỗi frame theo dải động RIÊNG của clip (floor/peak percentile)
+    thay vì thang tuyệt đối. Clip audio nhỏ nhưng có dao động âm tiết → trải
+    đủ closed/half/open. minRange guard tránh chatter khi clip gần phẳng tuyệt đối.
+
+    Fallback về nhánh tuyệt đối nếu quá ít frame voiced (< _MIN_VOICED_FRAMES_FOR_ADAPTIVE).
+    """
+    if not rms_list:
+        return []
+
+    db_list = [_rms_to_db(r) for r in rms_list]
+
+    voiced_db = [db for db in db_list if db >= silence_db and db > -float("inf")]
+    if len(voiced_db) < _MIN_VOICED_FRAMES_FOR_ADAPTIVE:
+        # Fallback: quá ít voiced frames → dùng threshold tuyệt đối
+        levels: List[str] = []
+        for rms in rms_list:
+            if _rms_to_db(rms) < silence_db:
+                levels.append("closed")
+            else:
+                amp = _rms_normalized([rms], silence_db)
+                levels.append(_state_from_amplitude(amp, num_states))
+        return levels
+
+    floor_db = _percentile(voiced_db, floor_pct)
+    peak_db = _percentile(voiced_db, peak_pct)
+    rng = max(peak_db - floor_db, min_range_db)
+
+    levels = []
+    smooth = _ADAPTIVE_SMOOTH_FRAMES
+    for i, rms in enumerate(rms_list):
+        db = db_list[i]
+        if db < silence_db or db == -float("inf"):
+            levels.append("closed")
+            continue
+        # Smoothing dB: trung bình cửa sổ nhỏ (giống _rms_normalized dùng slice 3 frame)
+        window_db = [
+            d for d in db_list[max(0, i - smooth + 1):i + 1]
+            if d > -float("inf") and d >= silence_db
+        ]
+        db_smooth = sum(window_db) / len(window_db) if window_db else db
+        amp = min(1.0, max(0.0, (db_smooth - floor_db) / rng))
+        amp = amp ** gamma
+        levels.append(_state_from_amplitude(amp, num_states))
+    return levels
+
+
 def _state_from_amplitude(
     amplitude: float,
     num_states: int = 3,
@@ -334,11 +404,19 @@ def analyze_tts_amplitude(
     min_vowel_interval_ms: float = _DEFAULT_MIN_VOWEL_INTERVAL_MS,
     vowel_low_percentile: float = _DEFAULT_VOWEL_LOW_PCT,
     vowel_high_percentile: float = _DEFAULT_VOWEL_HIGH_PCT,
+    adaptive: bool = True,
+    adaptive_floor_pct: float = _DEFAULT_ADAPTIVE_FLOOR_PCT,
+    adaptive_peak_pct: float = _DEFAULT_ADAPTIVE_PEAK_PCT,
+    adaptive_min_range_db: float = _DEFAULT_ADAPTIVE_MIN_RANGE_DB,
+    adaptive_gamma: float = _DEFAULT_ADAPTIVE_GAMMA,
 ) -> List[Dict[str, Any]]:
     """Phân tích RMS amplitude TTS audio → danh sách {frame, state}.
 
     Pipeline 3 bước:
       1. Per-frame level (closed/half/open) từ RMS — Tầng 1.
+         adaptive=True (mặc định): chuẩn hoá theo dải động RIÊNG của clip
+         (port aituber-kit) → chống "đơ miệng" khi audio nhỏ.
+         adaptive=False: dùng thang dB tuyệt đối như trước (back-compat).
       2. Vowel rewrite (open → open/e/u) bằng spectral centroid — Tầng 2, chỉ khi
          ``mouth_states`` chứa "e"/"u" (port ③ライブ実行). Không bật → bỏ qua.
       3. Collapse thành events + debounce (mode hybrid) + merge silence ngắn.
@@ -355,6 +433,11 @@ def analyze_tts_amplitude(
         peak_margin: Ngưỡng phát hiện đỉnh sóng (env chuẩn hoá) cho Tầng 2.
         min_vowel_interval_ms: Cooldown giữa 2 lần đổi khẩu hình nguyên âm.
         vowel_low_percentile / vowel_high_percentile: percentile → U_TH / E_TH.
+        adaptive: Bật adaptive auto-leveling (default True). False → thang tuyệt đối.
+        adaptive_floor_pct: Percentile dB → noiseFloor (default 10).
+        adaptive_peak_pct: Percentile dB → levelPeak (default 90).
+        adaptive_min_range_db: Dải dB tối thiểu, chặn chatter clip phẳng (default 6).
+        adaptive_gamma: Gamma shaping pow(amp, gamma), < 1 nhạy hơn ở mức nhỏ (default 0.75).
 
     Returns:
         List[{frame, state}]: mouth state tại các frame chuyển trạng thái.
@@ -366,13 +449,24 @@ def analyze_tts_amplitude(
         return [{"frame": 0, "state": "closed"}]
 
     # Bước 1 — per-frame level (closed/half/open)
-    levels: List[str] = []
-    for frame_idx, rms in enumerate(rms_list):
-        if _rms_to_db(rms) < silence_db:
-            levels.append("closed")
-        else:
-            amplitude = _rms_normalized(rms_list[max(0, frame_idx - 2):frame_idx + 1], silence_db)
-            levels.append(_state_from_amplitude(amplitude, num_mouth_states))
+    if adaptive:
+        levels: List[str] = _adaptive_levels(
+            rms_list,
+            silence_db=silence_db,
+            num_states=num_mouth_states,
+            floor_pct=adaptive_floor_pct,
+            peak_pct=adaptive_peak_pct,
+            min_range_db=adaptive_min_range_db,
+            gamma=adaptive_gamma,
+        )
+    else:
+        levels = []
+        for frame_idx, rms in enumerate(rms_list):
+            if _rms_to_db(rms) < silence_db:
+                levels.append("closed")
+            else:
+                amplitude = _rms_normalized(rms_list[max(0, frame_idx - 2):frame_idx + 1], silence_db)
+                levels.append(_state_from_amplitude(amplitude, num_mouth_states))
 
     # Bước 2 — vowel rewrite (Tầng 2)
     levels = _apply_vowel_selection(

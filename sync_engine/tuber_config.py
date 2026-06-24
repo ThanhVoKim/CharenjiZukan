@@ -147,6 +147,36 @@ class TuberConfig:
         return float(v) if v is not None else 80.0
 
     @property
+    def mouth_adaptive(self) -> bool:
+        """Adaptive auto-leveling (default True). False → thang dB tuyệt đối (back-compat)."""
+        v = _get_nested(self.raw, "mouth.adaptive")
+        return True if v is None else bool(v)
+
+    @property
+    def mouth_adaptive_floor_pct(self) -> float:
+        """Percentile dB → noiseFloor của clip (default 10)."""
+        v = _get_nested(self.raw, "mouth.adaptiveFloorPercentile")
+        return float(v) if v is not None else 10.0
+
+    @property
+    def mouth_adaptive_peak_pct(self) -> float:
+        """Percentile dB → levelPeak của clip (default 90)."""
+        v = _get_nested(self.raw, "mouth.adaptivePeakPercentile")
+        return float(v) if v is not None else 90.0
+
+    @property
+    def mouth_adaptive_min_range_db(self) -> float:
+        """Dải dB tối thiểu — chặn chatter khi clip gần phẳng tuyệt đối (default 6)."""
+        v = _get_nested(self.raw, "mouth.adaptiveMinRangeDb")
+        return float(v) if v is not None else 6.0
+
+    @property
+    def mouth_adaptive_gamma(self) -> float:
+        """Gamma shaping pow(amp, gamma) — < 1 nhạy hơn ở mức nhỏ (default 0.75)."""
+        v = _get_nested(self.raw, "mouth.adaptiveGamma")
+        return float(v) if v is not None else 0.75
+
+    @property
     def mouth_states(self) -> list:
         states = _get_nested(self.raw, "mouth.mouthStates")
         return list(states) if states else ["closed", "half", "open"]
