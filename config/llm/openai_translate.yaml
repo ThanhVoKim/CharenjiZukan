@@ -1,0 +1,50 @@
+provider: "openai"
+profile_name: "openai_translate"
+base_url: "https://api.freemodel.dev/v1"
+model: "gpt-5.4-mini"
+api_mode: "responses"
+
+temperature: 1
+max_tokens: 8192
+request_timeout: 300
+retry_attempts: 3
+retry_wait_seconds: 10
+
+capability_flags:
+  supports_chat_completions: false
+  supports_responses_api: true
+  supports_reasoning_effort: true
+  supports_verbosity: true
+  supports_prompt_cache_key: true
+  # freemodel.dev KHÔNG hỗ trợ previous_response_id qua HTTP thông thường
+  # (chỉ hỗ trợ trên "Responses WebSocket v2"). Bật sẽ gây 400 liên tục.
+  supports_previous_response_state: false
+  supports_compaction: false
+  structured_output:
+    supports_prompt_json: true
+    supports_chat_response_format: false
+    supports_responses_text_format: false
+
+request_options:
+  reasoning_effort: "xhigh"
+  verbosity: "medium"
+  # prompt_cache_key cho phép freemodel cache prefix (system + context inline)
+  # giữa các batch trong cùng phiên dịch. Key cố định để các batch dùng chung cache.
+  prompt_cache_key: "srt-translate-v1"
+  structured_output:
+    mode: "none"
+    schema_name: null
+    schema: null
+
+stateful_options:
+  store: true
+  use_previous_response_id: true
+  compact_threshold: null
+
+telemetry:
+  enabled: true
+  capture_usage: true
+  capture_cache_headers: true
+  capture_raw_headers: false
+  log_level: "summary"
+  output_path: "logs/llm_telemetry.jsonl"

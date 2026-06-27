@@ -17,6 +17,12 @@ import pytest
 from utils.ffmpeg_probe import detect_hevc_nvenc
 
 
+def pytest_configure(config):
+    """Đăng ký custom markers để tránh PytestUnknownMarkWarning."""
+    config.addinivalue_line("markers", "gpu: test yêu cầu CUDA GPU (VRAM >= 8GB)")
+    config.addinivalue_line("markers", "gpu_small: test yêu cầu CUDA GPU (VRAM >= 4GB)")
+
+
 def pytest_addoption(parser):
     """Đăng ký custom CLI options."""
     parser.addoption(

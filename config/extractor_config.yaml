@@ -103,6 +103,11 @@ output:
   # Lưu file [video]_script.txt thuần văn bản (không timestamp, mỗi câu 1 dòng)
   save_minify_txt: false
 
+  # Ngưỡng raw frame tối thiểu để phụ đề không bị cảnh báo ngắn trong file _warnings.txt.
+  # Công thức: frame_count * frame_interval < min_subtitle_frames → bị flag.
+  # Ví dụ: frame_interval=3, min_subtitle_frames=15 → flag khi subtitle tồn tại < 5 sampled frames (~0.5s @30fps).
+  min_subtitle_frames: 15
+
   # Thời lượng mặc định cho mỗi subtitle khi không có text mới (seconds)
   default_duration: 3.0
 

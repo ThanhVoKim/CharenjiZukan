@@ -107,6 +107,7 @@ class VideoSubtitleExtractor:
         default_subtitle_duration: float = 3.0,
         warn_english: bool = False,
         save_minify_txt: bool = False,
+        min_subtitle_frames: int = 15,
     ):
         """Khởi tạo VideoSubtitleExtractor với danh sách các box"""
         
@@ -159,6 +160,7 @@ class VideoSubtitleExtractor:
         self.frame_interval = frame_interval
         self.warn_english = warn_english
         self.save_minify_txt = save_minify_txt
+        self.min_subtitle_frames = min_subtitle_frames
         
         # OCR model (lazy load)
         self._ocr_model = None
@@ -259,10 +261,13 @@ class VideoSubtitleExtractor:
         logger.info(f"Output Dir: {out_dir}")
         logger.info("="*60)
         
-        cap = cv2.VideoCapture(video_path)
+        from .video_source import prepare_opencv_source, _safe_remove
+        _readable_path, _tmp_path = prepare_opencv_source(video_path)
+        cap = cv2.VideoCapture(_readable_path)
         if not cap.isOpened():
+            _safe_remove(_tmp_path)
             raise RuntimeError(f"Cannot open video: {video_path}")
-            
+
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
@@ -305,6 +310,7 @@ class VideoSubtitleExtractor:
                     # Kéo dài thời gian của entry hiện tại nếu có
                     if state.entries:
                         state.entries[-1].end_time = timestamp
+                        state.entries[-1].frame_count += 1
                 else:
                     # Ghi nhận mốc scene change trước để min_scene_frames vẫn hoạt động ổn định
                     state.last_scene_frame = frame_number
@@ -377,9 +383,10 @@ class VideoSubtitleExtractor:
                 progress_callback(frame_number, total_frames, ocr_total_calls)
                 
             frame_number += 1
-            
+
         cap.release()
-        
+        _safe_remove(_tmp_path)
+
         # Xử lý nốt các task còn đọng lại khi kết thúc video
         if pending_ocr_tasks:
             images = [task["image"] for task in pending_ocr_tasks]
@@ -434,11 +441,16 @@ class VideoSubtitleExtractor:
                 writer.write_minify_txt(state.entries, str(minify_path), deduplicate=deduplicate_output)
                 output_paths[f"{box_name}_minify"] = str(minify_path)
 
-            # Tạo cảnh báo nếu cần
-            if self.warn_english:
-                warn_path = out_dir / f"{video_stem}_{box_name}_english_warnings.txt"
-                final_entries = writer.deduplicate(state.entries) if deduplicate_output else state.entries
-                writer.generate_english_warnings(final_entries, str(warn_path))
+            # Tạo file cảnh báo (luôn tạo: short-duration + english/number)
+            warn_path = out_dir / f"{video_stem}_{box_name}_warnings.txt"
+            final_entries = writer.deduplicate(state.entries) if deduplicate_output else state.entries
+            writer.generate_warnings(
+                raw_entries=state.entries,
+                deduped_entries=final_entries,
+                output_path=str(warn_path),
+                frame_interval=self.frame_interval,
+                min_frames=self.min_subtitle_frames,
+            )
                 
             output_paths[box_name] = str(out_path)
             subtitles_count[box_name] = len(state.entries)

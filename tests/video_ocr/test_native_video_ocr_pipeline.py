@@ -79,36 +79,54 @@ BATCH_DURATION = 60.0
 MAX_NEW_TOKENS = 256   # Nhỏ hơn trong test để nhanh
 
 
+def _make_synthetic_video_writer(tmp_dir: Path):
+    """Thử codec lossless theo thứ tự; trả về (VideoWriter, Path).
+
+    Thứ tự ưu tiên: FFV1 (.mkv) → HFYU (.avi) → fallback mp4v (.mp4).
+    Codec lossless giữ pixel chữ trắng = 255, đảm bảo test bright_pixels pass.
+    mp4v (lossy) làm nét chữ CJK mảnh tụt xuống dưới ngưỡng 200.
+    """
+    candidates = [
+        ("FFV1", ".mkv"),
+        ("HFYU", ".avi"),
+        ("mp4v", ".mp4"),
+    ]
+    for fourcc_name, ext in candidates:
+        path = tmp_dir / f"synthetic_native_ocr{ext}"
+        fourcc = cv2.VideoWriter_fourcc(*fourcc_name)
+        writer = cv2.VideoWriter(str(path), fourcc, VIDEO_FPS, (VIDEO_W, VIDEO_H))
+        if writer.isOpened():
+            return writer, path
+        writer.release()
+    raise RuntimeError("Không thể khởi tạo cv2.VideoWriter với bất kỳ codec nào (FFV1/HFYU/mp4v)")
+
+
 @pytest.fixture(scope="module")
 def synthetic_video_path(tmp_path_factory) -> Path:
     """
-    Tạo file video .mp4 tổng hợp chứa chữ trắng trên nền tối
+    Tạo file video tổng hợp chứa chữ trắng trên nền tối
     tại đúng vị trí ROI (370, 984, 1180, 80).
 
     Video:
     - 1920x1080, 30fps, tổng 75 giây (2250 frames)
     - Mỗi subtitle được vẽ vào đúng khoảng thời gian
     - Ngoài các khoảng đó, frame tối hoàn toàn
+    - Dùng codec lossless (FFV1 → HFYU → mp4v) để giữ pixel chữ nguyên vẹn
 
     Fixture có scope="module" → tạo 1 lần, dùng lại cho tất cả test trong file.
     """
-    tmp_dir = tmp_path_factory.mktemp("video_data")
-    video_path = tmp_dir / "synthetic_native_ocr.mp4"
-
-    total_frames = int(75 * VIDEO_FPS)  # 75 giây
-
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(
-        str(video_path), fourcc, VIDEO_FPS, (VIDEO_W, VIDEO_H)
-    )
-
-    # Khởi tạo font CJK cho Pillow
+    # Guard: skip thay vì im lặng fallback nếu font CJK không load được
     font_path = PROJECT_ROOT / "assets" / "NotoSansCJKsc-VF.ttf"
     try:
         font = ImageFont.truetype(str(font_path), 60)
-    except IOError:
-        print(f"WARNING: Cannot load {font_path}. Using default font (CJK will fail).")
-        font = ImageFont.load_default()
+    except (IOError, OSError) as exc:
+        pytest.skip(f"Không load được font CJK {font_path}: {exc}. "
+                    "Đảm bảo file assets/NotoSansCJKsc-VF.ttf tồn tại trong repo.")
+
+    tmp_dir = tmp_path_factory.mktemp("video_data")
+    writer, video_path = _make_synthetic_video_writer(tmp_dir)
+
+    total_frames = int(75 * VIDEO_FPS)  # 75 giây
 
     for frame_no in range(total_frames):
         timestamp = frame_no / VIDEO_FPS
@@ -122,7 +140,7 @@ def synthetic_video_path(tmp_path_factory) -> Path:
                 # Chuyển BGR (OpenCV) sang RGB (Pillow)
                 img_pil = Image.fromarray(cv2.cvtColor(frame_cv2, cv2.COLOR_BGR2RGB))
                 draw = ImageDraw.Draw(img_pil)
-                
+
                 # Vẽ text với Pillow thay vì cv2.putText
                 draw.text(
                     (ROI_X + 10, ROI_Y + 10),
@@ -130,7 +148,7 @@ def synthetic_video_path(tmp_path_factory) -> Path:
                     font=font,
                     fill=(255, 255, 255)
                 )
-                
+
                 # Chuyển lại RGB sang BGR
                 frame_cv2 = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
                 break

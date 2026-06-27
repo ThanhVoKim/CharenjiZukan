@@ -135,15 +135,17 @@ class FrameProcessor:
                 else:
                     h_prev = prev_hash
                     
-                # ── LAYER 2: Perceptual Hash (dhash) ─────────────────────────
+                # ── LAYER 2: Perceptual Hash (dhash) — cổng một chiều ────────
                 hamming_dist = h_curr - h_prev
-                # Hamming distance = 0: giống hệt về cấu trúc
-                # Hamming distance > phash_threshold: cấu trúc thay đổi đáng kể (chữ đổi)
-                if hamming_dist <= self.phash_threshold:
-                    return False, curr_hash
-                # Nếu hash đã khác → bỏ qua layer 3, xác nhận thay đổi luôn
-                return True, curr_hash
-                
+                # Chỉ dùng dhash để xác nhận ĐÃ ĐỔI (hamming lớn → chữ/cấu trúc
+                # thay đổi rõ ràng → trả True ngay, bỏ qua layer 3 để nhanh).
+                # Khi hamming nhỏ (gần giống), KHÔNG kết luận "không đổi" vì 2 dòng
+                # phụ đề cùng độ dài/bố cục nhưng khác chữ cũng cho hamming thấp.
+                # → rơi xuống layer 3 (pixel-diff) để quyết định chính xác hơn.
+                if hamming_dist > self.phash_threshold:
+                    return True, curr_hash
+                # hamming thấp → tiếp tục xuống layer 3 kiểm tra pixel
+
             except ImportError:
                 # imagehash chưa cài → fallback xuống layer 3
                 pass
@@ -256,8 +258,12 @@ def iter_sampled_frames(
     Yields:
         Tuple gồm (frame_number, timestamp_seconds, frame_bgr_numpy)
     """
-    cap = cv2.VideoCapture(video_path)
+    from .video_source import prepare_opencv_source, _safe_remove
+
+    readable_path, tmp_path = prepare_opencv_source(video_path)
+    cap = cv2.VideoCapture(readable_path)
     if not cap.isOpened():
+        _safe_remove(tmp_path)
         raise RuntimeError(f"Cannot open video: {video_path}")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -276,3 +282,4 @@ def iter_sampled_frames(
             frame_number += 1
     finally:
         cap.release()
+        _safe_remove(tmp_path)

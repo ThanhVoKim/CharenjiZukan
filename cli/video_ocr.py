@@ -311,7 +311,14 @@ Examples:
         default=argparse.SUPPRESS,
         help="Lưu file [video]_script.txt thuần văn bản (minify), mỗi câu 1 dòng"
     )
-    
+    parser.add_argument(
+        "--min-subtitle-frames",
+        type=int,
+        dest="min_subtitle_frames",
+        default=argparse.SUPPRESS,
+        help="Ngưỡng raw frame tối thiểu; subtitle xuất hiện ít hơn giá trị này sẽ bị cảnh báo trong file _warnings.txt (mặc định: 15)"
+    )
+
     # Config file
     parser.add_argument(
         "--config",
@@ -526,6 +533,7 @@ def main():
         default_subtitle_duration=get_param("default_duration", ("output", "default_duration"), 3.0),
         warn_english=get_param("warn_english", ("output", "warn_english"), False),
         save_minify_txt=get_param("save_minify_txt", ("output", "save_minify_txt"), False),
+        min_subtitle_frames=get_param("min_subtitle_frames", ("output", "min_subtitle_frames"), 15),
     )
     
     # Thiết lập Writer parameters (những tham số này được sử dụng khi gọi write_srt/write_txt)

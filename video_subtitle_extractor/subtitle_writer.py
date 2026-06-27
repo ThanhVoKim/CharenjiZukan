@@ -28,7 +28,8 @@ class SubtitleEntry:
     start_time: float  # seconds
     end_time: float    # seconds
     text: str
-    
+    frame_count: int = 1  # số sampled frame entry này tồn tại (dùng cho cảnh báo ngắn)
+
     def __post_init__(self):
         """Validate sau khi init"""
         if self.start_time < 0:
@@ -261,21 +262,120 @@ class SubtitleWriter:
         if warnings:
             # Tạo thư mục nếu cần
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            
+
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write("=== ENGLISH/NUMBER WARNINGS ===\n")
                 f.write("Danh sách các dòng phụ đề có chứa ký tự tiếng Anh hoặc chữ số.\n")
                 f.write(f"Tổng cộng: {len(warnings)} cảnh báo.\n")
                 f.write("="*31 + "\n\n")
-                
+
                 for entry in warnings:
                     start = self.format_timestamp(entry.start_time)
                     end = self.format_timestamp(entry.end_time)
                     f.write(f"[{start} --> {end}]\n{entry.text}\n\n")
-            
+
             logger.warning(f"⚠️ Phát hiện {len(warnings)} dòng có tiếng Anh/số. Đã lưu cảnh báo tại: {output_path}")
             return True
         return False
+
+    def generate_warnings(
+        self,
+        raw_entries: List["SubtitleEntry"],
+        deduped_entries: List["SubtitleEntry"],
+        output_path: str,
+        frame_interval: int = 3,
+        min_frames: int = 15,
+    ) -> bool:
+        """Tạo file cảnh báo gộp gồm 2 mục:
+
+        1. SHORT-DURATION: phụ đề xuất hiện < min_frames raw frame (chạy trên entries THÔ
+           trước dedup để không bỏ sót bất kỳ biến thể ngắn nào). Kèm text hàng xóm để
+           đối chiếu vì chúng thường gần giống subtitle liền kề (lỗi vài ký tự).
+        2. ENGLISH/NUMBER: phụ đề chứa ký tự [a-zA-Z0-9] (chạy trên entries đã dedup).
+
+        File luôn được tạo (kể cả khi không có cảnh báo) để caller biết quá trình đã chạy.
+
+        Args:
+            raw_entries: Entries thô trước dedup (dùng cho short-duration check).
+            deduped_entries: Entries đã dedup (dùng cho English/number check).
+            output_path: Đường dẫn file output.
+            frame_interval: frame_interval của extractor (để quy đổi frame_count → raw frames).
+            min_frames: Ngưỡng raw frame tối thiểu; entry có raw frames < ngưỡng bị flag.
+
+        Returns:
+            True nếu có ít nhất 1 cảnh báo, False nếu tất cả sạch.
+        """
+        import re as _re
+
+        # ── SHORT-DURATION: entries thô có frame_count * frame_interval < min_frames ──
+        short_entries = [
+            e for e in raw_entries
+            if e.frame_count * frame_interval < min_frames
+        ]
+
+        # ── ENGLISH/NUMBER: entries dedup chứa [a-zA-Z0-9] ──
+        english_entries = [
+            e for e in deduped_entries
+            if _re.search(r'[a-zA-Z0-9]', e.text)
+        ]
+
+        has_warnings = bool(short_entries or english_entries)
+
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            # ── Mục 1: SHORT-DURATION ────────────────────────────────────────────
+            f.write(f"=== SHORT-DURATION WARNINGS (< {min_frames} raw frames) ===\n")
+            f.write(
+                "Phụ đề xuất hiện ít hơn ngưỡng frame, có thể là OCR lỗi "
+                "(thường nội dung gần giống subtitle liền kề).\n"
+            )
+            if short_entries:
+                f.write(f"Tổng cộng: {len(short_entries)} cảnh báo.\n")
+                f.write("=" * 60 + "\n\n")
+                for i, entry in enumerate(short_entries):
+                    raw_frames_est = entry.frame_count * frame_interval
+                    start = self.format_timestamp(entry.start_time)
+                    end = self.format_timestamp(entry.end_time)
+                    f.write(f"[{start} --> {end}]  (~{raw_frames_est} raw frames)\n")
+                    f.write(f"Text: {entry.text}\n")
+                    # Hàng xóm trong danh sách entries thô
+                    if i > 0:
+                        prev = raw_entries[raw_entries.index(entry) - 1] if entry in raw_entries else None
+                        if prev is not None:
+                            f.write(f"  ← Trước: [{self.format_timestamp(prev.start_time)}] {prev.text}\n")
+                    idx_in_raw = raw_entries.index(entry) if entry in raw_entries else -1
+                    if 0 <= idx_in_raw < len(raw_entries) - 1:
+                        nxt = raw_entries[idx_in_raw + 1]
+                        f.write(f"  → Sau:   [{self.format_timestamp(nxt.start_time)}] {nxt.text}\n")
+                    f.write("\n")
+            else:
+                f.write("Không có cảnh báo.\n")
+            f.write("\n")
+
+            # ── Mục 2: ENGLISH/NUMBER ────────────────────────────────────────────
+            f.write("=== ENGLISH/NUMBER WARNINGS ===\n")
+            f.write("Phụ đề có chứa ký tự tiếng Anh hoặc chữ số.\n")
+            if english_entries:
+                f.write(f"Tổng cộng: {len(english_entries)} cảnh báo.\n")
+                f.write("=" * 31 + "\n\n")
+                for entry in english_entries:
+                    start = self.format_timestamp(entry.start_time)
+                    end = self.format_timestamp(entry.end_time)
+                    f.write(f"[{start} --> {end}]\n{entry.text}\n\n")
+            else:
+                f.write("Không có cảnh báo.\n")
+
+        if short_entries:
+            logger.warning(
+                "⚠️ %d phụ đề ngắn (< %d raw frames). Xem chi tiết: %s",
+                len(short_entries), min_frames, output_path,
+            )
+        if english_entries:
+            logger.warning(
+                "⚠️ %d dòng có tiếng Anh/số. Xem chi tiết: %s",
+                len(english_entries), output_path,
+            )
+        return has_warnings
     
     def write_srt(
         self, 

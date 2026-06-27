@@ -12,12 +12,12 @@ edge:
   pitch: "+0Hz"
   concurrent: 10
   # ── Xử lý audio sau synth (giống qwen: trim + fade + speedup + pad) ─
-  clean_tail: true         # Trim silence 2 đầu + fade edges (librosa, fallback nếu thiếu)
-  trim_top_db: 30.0        # Ngưỡng trim (dB dưới đỉnh); giảm (vd 25) nếu đuôi âm bị xén
-  fade_ms: 8.0             # Fade-in/out ở mép speech (ms); tăng nếu vẫn còn click
-  pre_phoneme_length: 0.0  # Silence (giây) thêm vào đầu clip sau speedup
+  clean_tail: true # Trim silence 2 đầu + fade edges (librosa, fallback nếu thiếu)
+  trim_top_db: 30.0 # Ngưỡng trim (dB dưới đỉnh); giảm (vd 25) nếu đuôi âm bị xén
+  fade_ms: 8.0 # Fade-in/out ở mép speech (ms); tăng nếu vẫn còn click
+  pre_phoneme_length: 0.0 # Silence (giây) thêm vào đầu clip sau speedup
   post_phoneme_length: 0.0 # Silence (giây) thêm vào cuối clip sau speedup
-  speed_scale: 1.0         # >1.0 = tăng tốc audio sau synth (giữ pitch) → video đỡ kéo chậm
+  speed_scale: 1.0 # >1.0 = tăng tốc audio sau synth (giữ pitch) → video đỡ kéo chậm
 
 # ── Voicevox Nemo ────────────────────────────────────────────────────
 voicevox_nemo:
@@ -74,7 +74,7 @@ qwen_custom:
   local_ckpt: "/content/qwen3tts-karlsson-de" # engine copy Drive→local rồi load từ đây
   speaker: "karlsson_de"
   language: "German"
-  batch_size: 32
+  batch_size: 40
   device: "cuda:0"
   dtype: "bfloat16"
   attn_implementation: "flash_attention_2"
@@ -84,4 +84,4 @@ qwen_custom:
   clean_tail: true
   fade_ms: 8.0
   trim_top_db: 30.0
-  speed_scale: 1.1 # >1.0 = tăng tốc audio sau synth (giữ pitch) → video đỡ kéo chậm
+  speed_scale: 1.13 # >1.0 = tăng tốc audio sau synth (giữ pitch) → video đỡ kéo chậm

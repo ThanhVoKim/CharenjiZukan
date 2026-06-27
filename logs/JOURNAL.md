@@ -1,5 +1,54 @@
 # Project Journal
 
+## 2026-06-27: video_ocr — AV1 decode fix, scene-detection, warnings, test fixture
+
+### Vấn đề
+`cli/video_ocr` với video AV1 trả về 0 frame trên Colab do `opencv-python-headless` dùng
+FFmpeg nội bộ chỉ có AV1 hardware decoder (không có trên Colab GPU). Ngoài ra: scene-detection
+bỏ sót khi 2 frame khác chữ nhưng cùng số ký tự (dhash gần giống → trả False sớm); test
+fixture dùng codec mp4v lossy làm pixel chữ CJK tụt ngưỡng 200.
+
+### Thay đổi
+
+**Phần 1 — AV1 auto-transcode** (`video_subtitle_extractor/video_source.py` mới):
+- `probe_video_codec(path)`: dùng ffprobe hệ thống để lấy codec video stream đầu tiên.
+- `prepare_opencv_source(path)`: nếu codec là AV1, transcode sang file H.264/HEVC tạm qua
+  system ffmpeg (có libdav1d software decode); tái dùng `detect_hevc_nvenc()` để chọn GPU/CPU
+  encode; bỏ audio (`-an`), giữ fps gốc để timestamp không lệch. Fail-open nếu ffmpeg thiếu.
+- Gắn vào `extractor.py` (dòng 262/381) và `frame_processor.py::iter_sampled_frames`.
+  `native_video_extractor.py` được fix tự động qua `iter_sampled_frames`.
+
+**Phần 2 — scene-detection dhash một chiều** (`frame_processor.py`):
+- Layer 2 (dhash): chỉ trả `True` khi `hamming > phash_threshold`; khi hamming thấp KHÔNG
+  kết luận `False` nữa mà rơi xuống Layer 3 (pixel-diff với `scene_threshold` / `noise_threshold`
+  sẵn có). Fix trường hợp 2 dòng phụ đề cùng độ dài/bố cục nhưng khác chữ bị bỏ sót.
+
+**Phần 3 — test fixture lossless** (`tests/video_ocr/test_native_video_ocr_pipeline.py`):
+- `synthetic_video_path` dùng codec FFV1 → HFYU → mp4v (thử theo thứ tự, kiểm `isOpened()`).
+- Font load lỗi → `pytest.skip` thay vì fallback âm thầm rồi fail khó hiểu.
+- Đăng ký marker `gpu`/`gpu_small` trong `tests/conftest.py` → hết `PytestUnknownMarkWarning`.
+
+**Phần 4 — subtitle warnings** (`subtitle_writer.py`, `extractor.py`, `cli/video_ocr.py`):
+- `SubtitleEntry.frame_count: int = 1` — đếm số sampled frame entry tồn tại; tăng trong vòng
+  lặp extract khi `not is_changed`.
+- `SubtitleWriter.generate_warnings(raw_entries, deduped_entries, output_path, frame_interval,
+  min_frames)` — tạo `{stem}_{box}_warnings.txt` (thay thế `_english_warnings.txt`) **luôn**,
+  gồm: SHORT-DURATION (trên entries thô) + ENGLISH/NUMBER (trên entries dedup).
+- CLI: `--min-subtitle-frames` (default 15). Config: `output.min_subtitle_frames: 15`.
+
+### Tests
+- 24 unit tests mới: `tests/video_subtitle_extractor/test_video_source.py` — 24/24 PASSED.
+- `test_matrix.yaml` bổ sung entry "Video Source — Layer 1".
+
+### Files thay đổi
+- Tạo: `video_subtitle_extractor/video_source.py`, `tests/video_subtitle_extractor/test_video_source.py`
+- Sửa: `video_subtitle_extractor/frame_processor.py`, `video_subtitle_extractor/extractor.py`,
+  `video_subtitle_extractor/subtitle_writer.py`, `cli/video_ocr.py`,
+  `config/extractor_config.yaml`, `tests/video_ocr/test_native_video_ocr_pipeline.py`,
+  `tests/conftest.py`, `tests/test_matrix.yaml`
+
+---
+
 ## 2026-06-24: V6 — Adaptive mouth auto-leveling (chống "đơ miệng", port aituber-kit)
 
 ### Vấn đề

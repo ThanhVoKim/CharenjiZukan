@@ -291,6 +291,18 @@ tests:
   #   external_api         → Có gọi API/dịch vụ thật bên ngoài
 
   # ──────────────────────────────────────────────
+  # VIDEO SOURCE — AV1 fallback + generate_warnings
+  # ──────────────────────────────────────────────
+
+  - name: "Video Source — Layer 1: Unit Tests (AV1 transcode + warnings)"
+    file: "tests/video_subtitle_extractor/test_video_source.py"
+    keyword: "Layer1"
+    timeout_sec: 30
+    pytest_args: ["-v"]
+    tags: ["unit", "native_ocr"]
+    enabled: true
+
+  # ──────────────────────────────────────────────
   # NATIVE VIDEO OCR — 4 layers riêng biệt
   # ──────────────────────────────────────────────
 
