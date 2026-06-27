@@ -451,7 +451,8 @@ class VideoSubtitleExtractor:
                 frame_interval=self.frame_interval,
                 min_frames=self.min_subtitle_frames,
             )
-                
+            output_paths["warnings"] = str(warn_path)
+
             output_paths[box_name] = str(out_path)
             subtitles_count[box_name] = len(state.entries)
             subtitles_dict[box_name] = state.entries
