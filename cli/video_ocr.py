@@ -3,7 +3,7 @@
 """
 Video Subtitle Extractor - Entry Point
 
-Trích xuất subtitle tiếng Trung từ video sử dụng DeepSeek-OCR-2
+Trích xuất subtitle tiếng Trung từ video sử dụng Qwen3-VL
 Hỗ trợ xuất nhiều file subtitle cho từng vùng box.
 
 Sử dụng:
@@ -42,7 +42,7 @@ logger = get_logger(__name__)
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(
-        description="Trích xuất subtitle tiếng Trung từ video sử dụng DeepSeek-OCR-2",
+        description="Trích xuất subtitle tiếng Trung từ video sử dụng Qwen3-VL",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -222,7 +222,7 @@ Examples:
     parser.add_argument(
         "--ocr-model",
         default=argparse.SUPPRESS,
-        help="Model Hugging Face OCR. DeepSeek: 'deepseek-ai/DeepSeek-OCR-2'. Qwen3-VL nhanh: 'Qwen/Qwen3-VL-8B-Instruct'. Qwen3-VL chính xác: 'Qwen/Qwen3-VL-8B-Thinking'."
+        help="Model Hugging Face OCR. Qwen3-VL nhanh: 'Qwen/Qwen3-VL-8B-Instruct'. Qwen3-VL chính xác: 'Qwen/Qwen3-VL-8B-Thinking'."
     )
     parser.add_argument(
         "--qwen-max-new-tokens",
@@ -520,7 +520,7 @@ def main():
         text_isolation=build_text_isolation_config(args, config),
 
         # OCR
-        ocr_model=get_param("ocr_model", ("ocr", "model"), "deepseek-ai/DeepSeek-OCR-2"),
+        ocr_model=get_param("ocr_model", ("ocr", "model"), "Qwen/Qwen3-VL-8B-Instruct"),
         device=get_param("device", ("ocr", "device"), "cuda"),
         batch_size=get_param("batch_size", ("ocr", "batch_size"), 4),
         hf_token=get_param("hf_token", ("ocr", "hf_token"), None),

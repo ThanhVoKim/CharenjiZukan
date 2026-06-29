@@ -1,6 +1,6 @@
 # Video Subtitle Extractor
 
-Trích xuất subtitle tiếng Trung từ video sử dụng DeepSeek-OCR-2.
+Trích xuất subtitle tiếng Trung từ video sử dụng Qwen3-VL.
 
 ## Tính năng
 
@@ -50,35 +50,41 @@ os.environ["PATH"] += ":/root/.local/bin"
 !uv pip install -e .
 ```
 
-### 2. Cài đặt DeepSeek-OCR-2 (khi available)
+### 2. Cài đặt trên Google Colab (khuyến nghị dùng `.venv-ocr`)
+
+Trên Colab, OCR cần venv riêng để tránh xung đột torch/CUDA. Xem **[docs/colab-setup.md](colab-setup.md) mục A.3** để dựng `.venv-ocr` và tạo lock file lần đầu, sau đó restore bằng mục B.3 mỗi ngày.
+
+Tóm tắt nhanh lần đầu thiết lập:
 
 ```bash
-# Local Linux/macOS
-uv pip install -p .venv/bin/python deepseek-ocr
+# Chụp CUDA gốc Colab (làm trước)
+# → python snippet ở colab-setup.md mục A.0
 
-# Local Windows (cmd/PowerShell)
-uv pip install -p .venv\Scripts\python.exe deepseek-ocr
+# Dựng venv-ocr
+!uv venv .venv-ocr
+!uv pip install -p .venv-ocr/bin/python \
+  --extra-index-url https://download.pytorch.org/whl/cu128 \
+  --index-strategy unsafe-best-match \
+  -c /content/cuda-base.txt \
+  -e ".[ocr]"
 
-# Hoặc từ GitHub
-uv pip install -p .venv/bin/python git+https://github.com/deepseek-ai/DeepSeek-OCR-2.git
+# Freeze lock
+!uv pip freeze -p .venv-ocr/bin/python | grep -v "file:///" > config/colab/ocr_lock.txt
 ```
 
-### 3. Cài đặt PyTorch (cho GPU)
+Restore hằng ngày (đã có lock):
 
 ```bash
-# CUDA 11.8
-uv pip install -p .venv/bin/python torch torchvision --index-url https://download.pytorch.org/whl/cu118
-
-# CUDA 12.1
-uv pip install -p .venv/bin/python torch torchvision --index-url https://download.pytorch.org/whl/cu121
-
-# CPU only
-uv pip install -p .venv/bin/python torch torchvision
+!uv venv .venv-ocr
+!uv pip install -p .venv-ocr/bin/python \
+  --extra-index-url https://download.pytorch.org/whl/cu128 \
+  --index-strategy unsafe-best-match \
+  -r config/colab/ocr_lock.txt
 ```
 
-> Ghi chú Windows: thay `.venv/bin/python` bằng `.venv\Scripts\python.exe`.
+> **Xem chi tiết tại [docs/colab-setup.md](colab-setup.md)** — gồm lý do dùng venv riêng, cách xử lý lỗi CUDA, và quy trình freeze/restore đầy đủ.
 
-### 4. Cài đặt thủ công (không dùng uv)
+### 3. Cài đặt thủ công (không dùng uv)
 
 ```bash
 pip install opencv-python pyyaml numpy
@@ -151,7 +157,7 @@ uv run python cli/video_ocr.py video.mp4
 | `--no-scene-detection`    | Tắt bỏ tính năng Scene detection (tương đương threshold=0) | (tắt)                                                       |
 | `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung                         | (tắt)                                                       |
 | `--strip-punctuation`     | Bỏ MỌI dấu câu (Unicode P*) khỏi text OCR — input sạch cho punctuate-srt; độc lập filter | (tắt)                            |
-| `--ocr-model`             | Tên model trên Hugging Face                                | `deepseek-ai/DeepSeek-OCR-2`                                |
+| `--ocr-model`             | Tên model trên Hugging Face                                | `Qwen/Qwen3-VL-8B-Instruct`                                 |
 | `--device`                | Thiết bị xử lý (cuda/cpu)                                  | `cuda`                                                      |
 | `--hf-token`              | Hugging Face Token                                         | (không dùng)                                                |
 | `--batch-size`            | Batch size cho OCR batching                                | `8`                                                         |
@@ -170,49 +176,65 @@ uv run python cli/video_ocr.py video.mp4
 
 ```python
 from video_subtitle_extractor import VideoSubtitleExtractor
+from video_subtitle_extractor.box_manager import OcrBox
+
+# Định nghĩa vùng OCR (x, y, w, h tính bằng pixel)
+boxes = [OcrBox(name="subtitle", x=0, y=800, w=1920, h=280)]
 
 # Khởi tạo
 extractor = VideoSubtitleExtractor(
+    boxes=boxes,
     frame_interval=30,        # Mỗi 30 frame
-    roi_y_start=0.85,         # Vùng subtitle từ 85% chiều cao
-    scene_threshold=30.0,     # Ngưỡng chuyển cảnh
-    min_char_count=2,         # Tối thiểu 2 ký tự Trung
-    device="cuda"             # Sử dụng GPU
+    scene_threshold=1.5,      # Ngưỡng chuyển cảnh (phash)
+    min_char_count=2,         # Tối thiểu 2 ký tự
+    ocr_model="Qwen/Qwen3-VL-8B-Instruct",
+    device="cuda"
 )
 
-# Trích xuất
-result = extractor.extract("video.mp4", "output.srt")
+# Trích xuất — tạo file {video_stem}_subtitle.srt
+result = extractor.extract("video.mp4", output_dir="./output")
 
-print(f"Extracted {result.subtitles_count} subtitles")
 print(f"Processing time: {result.processing_time:.2f}s")
+for box_name, count in result.subtitles_count.items():
+    print(f"  Box '{box_name}': {count} subtitles → {result.output_paths[box_name]}")
 ```
 
 ### Batch processing
 
 ```python
 from video_subtitle_extractor import VideoSubtitleExtractor
+from video_subtitle_extractor.box_manager import OcrBox
 
-extractor = VideoSubtitleExtractor()
+boxes = [OcrBox(name="subtitle", x=0, y=800, w=1920, h=280)]
+extractor = VideoSubtitleExtractor(boxes=boxes)
 
-# Xử lý tất cả video trong thư mục
 results = extractor.extract_from_directory(
     input_dir="./videos",
     output_dir="./subtitles"
 )
 
 for result in results:
-    print(f"{result.video_path}: {result.subtitles_count} subtitles")
+    print(f"{result.video_path}: {result.subtitles_count}")
 ```
 
 ## Cấu trúc module
 
 ```
 video_subtitle_extractor/
-├── __init__.py           # Package exports
-├── extractor.py          # Main VideoSubtitleExtractor class
-├── frame_processor.py    # Frame sampling, ROI, scene detection
-├── chinese_filter.py     # Lọc text tiếng Trung
-└── subtitle_writer.py    # Xuất file SRT/TXT
+├── __init__.py                  # Package exports
+├── extractor.py                 # VideoSubtitleExtractor (multi-box, phash scene detection)
+├── native_video_extractor.py    # NativeVideoSubtitleExtractor (native pipeline Qwen3-VL)
+├── frame_processor.py           # Frame sampling, ROI crop, scene detection
+├── chinese_filter.py            # Lọc text tiếng Trung
+├── subtitle_writer.py           # Xuất file SRT/TXT, deduplicate
+├── box_manager.py               # OcrBox, BoxState, parse_boxes_file
+├── text_isolator.py             # TextIsolationConfig, mask watermark trước OCR
+├── video_source.py              # Giải mã video (hỗ trợ AV1/HEVC)
+└── ocr/
+    ├── __init__.py
+    ├── base.py                  # BaseOCR interface
+    ├── qwen3vl.py               # Qwen3VLOCR — backend duy nhất
+    └── factory.py               # create_ocr_backend()
 ```
 
 ## Workflow
@@ -224,12 +246,10 @@ video_subtitle_extractor/
                                                 │
                                                 ▼
 ┌─────────────┐    ┌──────────────────┐    ┌─────────────┐
-│   Output    │◄───│  Chinese Filter  │◄───│  DeepSeek   │
+│   Output    │◄───│  Chinese Filter  │◄───│  Qwen3-VL   │
 │   (SRT)     │    │  (tiếng Trung)   │    │    OCR      │
 └─────────────┘    └──────────────────┘    └─────────────┘
 ```
-
-Flow của module này có thể hiểu theo 2 lớp: luồng thiết kế (khi DeepSeek OCR hoạt động thật) và luồng thực thi hiện tại trong code.
 
 ```mermaid
 flowchart LR
@@ -259,9 +279,9 @@ Trong [`FrameProcessor.extract_frames()`](video_subtitle_extractor/frame_process
 - Crop vùng subtitle bằng [`FrameProcessor.crop_roi()`](video_subtitle_extractor/frame_processor.py:84): mặc định lấy phần đáy (85%→100% chiều cao).
 - Timestamp của subtitle được tính từ frame_number / fps.
 
-## 3) OCR bằng DeepSeek-OCR-2 (về thiết kế)
+## 3) OCR bằng Qwen3-VL
 
-Trong [`VideoSubtitleExtractor.load_ocr_model()`](video_subtitle_extractor/extractor.py:148), dự kiến load model deepseek rồi gọi OCR từng ROI bằng [`VideoSubtitleExtractor.ocr_image()`](video_subtitle_extractor/extractor.py:186).
+Trong [`VideoSubtitleExtractor.load_ocr_model()`](video_subtitle_extractor/extractor.py:148), load model Qwen3-VL rồi gọi OCR từng ROI bằng [`VideoSubtitleExtractor.ocr_image()`](video_subtitle_extractor/extractor.py:186).
 
 Sau OCR:
 
@@ -273,19 +293,13 @@ Sau OCR:
 - Ghi SRT qua [`SubtitleWriter.write_srt()`](video_subtitle_extractor/subtitle_writer.py:208) hoặc TXT qua [`SubtitleWriter.write_txt()`](video_subtitle_extractor/subtitle_writer.py:259).
 - Trước khi ghi có deduplicate liên tiếp bằng [`SubtitleWriter.deduplicate()`](video_subtitle_extractor/subtitle_writer.py:119), giúp gộp các dòng OCR trùng nhau theo thời gian.
 
-## 5) Điểm rất quan trọng: trạng thái thực tế hiện tại của repo
+## 5) OCR backend: Qwen3-VL
 
-Hiện tại code chưa gọi DeepSeek thật:
-
-- Trong [`VideoSubtitleExtractor.load_ocr_model()`](video_subtitle_extractor/extractor.py:148), phần DeepSeek vẫn là TODO và đang fallback sang mock.
-- OCR mock trả rỗng ở [`MockOCR.recognize()`](video_subtitle_extractor/extractor.py:441), nên pipeline thường ra 0 subtitle.
-- Dependency DeepSeek vẫn đang comment ở [`pyproject.toml`](pyproject.toml:19).
-
-Nghĩa là: **flow xử lý video/frame/filter/write đã có đầy đủ**, nhưng “engine OCR DeepSeek” trong repo hiện tại vẫn là placeholder. Khi thay mock bằng DeepSeek thật, luồng không đổi, chỉ thay khối OCR.
+Pipeline dùng `Qwen3VLOCR` (trong [`video_subtitle_extractor/ocr/qwen3vl.py`](video_subtitle_extractor/ocr/qwen3vl.py)) làm backend duy nhất. Factory [`create_ocr_backend()`](video_subtitle_extractor/ocr/factory.py) khởi tạo thẳng `Qwen3VLOCR` với các tham số `model_name`, `device`, `max_new_tokens`, `min_pixels`, `max_pixels`.
 
 ## 6) Tham chiếu tài liệu
 
-Tóm lại, khi dùng DeepSeek-OCR-2 đúng nghĩa thì pipeline là: tối ưu frame → OCR ROI subtitle → lọc tiếng Trung → gộp trùng → xuất SRT/TXT; còn ở trạng thái code hiện tại, phần OCR DeepSeek chưa active nên kết quả thực tế bị rỗng.
+Tóm lại pipeline: tối ưu frame → OCR ROI subtitle bằng Qwen3-VL → lọc tiếng Trung → gộp trùng → xuất SRT/TXT.
 
 ## Tối ưu hiệu suất
 
@@ -318,11 +332,13 @@ Vị trí ROI phụ thuộc vào loại video:
 
 ## Yêu cầu phần cứng
 
-| Thành phần | Tối thiểu       | Khuyến nghị      |
-| ---------- | --------------- | ---------------- |
-| GPU        | NVIDIA 6GB VRAM | NVIDIA 8GB+ VRAM |
-| RAM        | 8GB             | 16GB+            |
-| Storage    | 5GB             | SSD              |
+| Thành phần | Tối thiểu (Qwen3-VL-8B) | Khuyến nghị      |
+| ---------- | ----------------------- | ---------------- |
+| GPU        | NVIDIA 15GB VRAM        | NVIDIA 24GB+     |
+| RAM        | 16GB                    | 32GB+            |
+| Storage    | 10GB (model cache)      | SSD              |
+
+> Qwen3-VL-8B yêu cầu ~15GB VRAM (xem `NATIVE_OCR_MIN_VRAM_GB` trong `tests/video_ocr/conftest.py`). Colab A100/L4 đáp ứng yêu cầu này.
 
 ## Troubleshooting
 

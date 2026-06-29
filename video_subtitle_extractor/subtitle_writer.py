@@ -126,7 +126,7 @@ class SubtitleWriter:
         
         Args:
             entries: List các subtitle entry
-            similarity_threshold: Ngưỡng tương đồng để gộp (mặc định 0.70 để trị lỗi nhận diện dao động mạnh của DeepSeek)
+            similarity_threshold: Ngưỡng tương đồng để gộp (mặc định 0.70 để trị lỗi nhận diện dao động)
             
         Returns:
             List đã loại bỏ trùng lặp

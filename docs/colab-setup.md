@@ -53,7 +53,7 @@ nhồi cả ba vào một env.
 | ------------ | ----------------------------------------------------------------------------------- | ---------------- | --------------- |
 | `sync-video` | qwen-tts + audio-separator + qwen-asr (forced alignment) + `onnxruntime-gpu==1.26.0`. Gộp **1 lệnh** + `--override transformers==4.57.6` + `-c cuda-base.txt` (ghim cả họ torch cu128). Restore lock **bắt buộc `--no-deps`**. | `.venv-sync`     | `sync_lock.txt` |
 | `qwen3_asr`  | qwen-asr + `transformers==4.57.6` (torch do qwen-asr[vllm] tự kéo)                  | `.venv-qwen3asr` | `asr_lock.txt`  |
-| `video-ocr`  | extra `ocr` (cv2 + Pillow + torch + **torchvision** + transformers + qwen-vl-utils + matplotlib) + `-c cuda-base.txt`. KHÔNG cần qwen-tts/onnxruntime-gpu | `.venv-ocr`      | `ocr_lock.txt`  |
+| `video-ocr`  | extra `ocr` (cv2 + Pillow + torch + **torchvision** + transformers + qwen-vl-utils) + `-c cuda-base.txt`. KHÔNG cần qwen-tts/onnxruntime-gpu | `.venv-ocr`      | `ocr_lock.txt`  |
 
 > **Cả 3 đều là venv riêng, CÔ LẬP — KHÔNG `--system`, KHÔNG `--system-site-packages`.**
 > - Bỏ `--system`: `uv pip freeze` trên venv chỉ liệt kê gói trong venv, không nuốt cả bộ
@@ -196,7 +196,7 @@ mang `-c cuda-base.txt`) sẽ kéo `torch` lên bản CUDA-13 của PyPI → l�
 ```bash
 !uv venv .venv-ocr
 # -e .[ocr] = opencv-python-headless + Pillow + torch + torchvision + transformers + accelerate
-#             + qwen-vl-utils + matplotlib (xem extra `ocr` trong pyproject.toml).
+#             + qwen-vl-utils (xem extra `ocr` trong pyproject.toml).
 # Bộ index cu128 + -c cuda-base.txt (Quy luật B): OCR cũng dính torch-drift cu13; torchvision được
 # ghim 0.25.0+cu128 theo cuda-base. torchvision là gói transformers Qwen3VLVideoProcessor cần NGẦM.
 !uv pip install -p .venv-ocr/bin/python \
@@ -204,7 +204,7 @@ mang `-c cuda-base.txt`) sẽ kéo `torch` lên bản CUDA-13 của PyPI → l�
   --index-strategy unsafe-best-match \
   -c /content/cuda-base.txt \
   -e ".[ocr]"
-# (cài thêm gói model OCR theo nhu cầu: DeepSeek-OCR / Qwen3-VL — xem colab-guide §2.9/§2.10)
+# (cài Qwen3-VL OCR — xem colab-guide §2.9/§2.10)
 
 # VERIFY import top-level + đồng bộ CUDA trước khi freeze
 !.venv-ocr/bin/python -c "import cv2, PIL, torchvision; print('✅ cv2', cv2.__version__, '| tv', torchvision.__version__)"

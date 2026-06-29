@@ -1,5 +1,39 @@
 # Project Journal
 
+## 2026-06-29: Loại bỏ hoàn toàn DeepSeek-OCR — chỉ giữ Qwen3-VL
+
+### Quyết định
+
+Xóa toàn bộ code, config, và docs liên quan đến **DeepSeek-OCR-2**. Pipeline OCR subtitle từ nay chỉ dùng **Qwen3-VL** (mặc định `Qwen/Qwen3-VL-8B-Instruct`).
+
+### Scope thay đổi
+
+**Xóa file:**
+- `video_subtitle_extractor/ocr/deepseek.py`
+- `video_subtitle_extractor/deepseek_ocr.py`
+
+**Cập nhật Python:**
+- `ocr/__init__.py`, `ocr/factory.py`: xóa import/branch DeepSeek; factory giờ chỉ trả về `Qwen3VLOCR`
+- `extractor.py`: default `ocr_model` → `"Qwen/Qwen3-VL-8B-Instruct"`
+- `cli/video_ocr.py`: default model, help text, description
+- `subtitle_writer.py`, `__init__.py`: cập nhật comment/docstring
+
+**Cập nhật config/deps:**
+- `config/extractor_config.yaml`: xóa dòng DeepSeek comment
+- `pyproject.toml`: xóa `matplotlib` khỏi extras ocr (chỉ dùng cho DeepSeek backend)
+
+**Cập nhật docs:**
+- `docs/video-subtitle-extractor.md`, `colab-guide.md`, `colab-setup.md`, `testing-guide.md`
+- `tests/video_ocr/conftest.py`
+
+### Trạng thái hiện tại
+
+- Qwen3-VL là OCR backend duy nhất
+- `matplotlib` đã được loại khỏi dependency
+- Tất cả default model reference đã chỉ về `Qwen/Qwen3-VL-8B-Instruct`
+
+---
+
 ## 2026-06-27: video_ocr — AV1 decode fix, scene-detection, warnings, test fixture
 
 ### Vấn đề

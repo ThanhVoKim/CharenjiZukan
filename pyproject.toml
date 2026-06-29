@@ -65,7 +65,6 @@ ocr = [
     "transformers",
     "accelerate",
     "qwen-vl-utils",
-    "matplotlib"                # deepseek backend (matplotlib.use('Agg'))
 ]
 
 [dependency-groups]

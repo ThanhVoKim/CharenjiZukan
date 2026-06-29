@@ -2,7 +2,7 @@
 """
 Video Subtitle Extractor - Main class
 
-Trích xuất subtitle tiếng Trung từ video sử dụng DeepSeek-OCR-2
+Trích xuất subtitle tiếng Trung từ video sử dụng Qwen3-VL
 Hỗ trợ Multi-Box OCR: Theo dõi và trích xuất nhiều vùng phụ đề/ghi chú độc lập.
 
 Workflow:
@@ -54,7 +54,7 @@ class ExtractionResult:
 
 class VideoSubtitleExtractor:
     """
-    Trích xuất subtitle từ video sử dụng DeepSeek-OCR-2 với hỗ trợ Multi-box
+    Trích xuất subtitle từ video sử dụng Qwen3-VL với hỗ trợ Multi-box
     
     Features:
     - Multi-box ROI: Định nghĩa nhiều vùng OCR, xuất file SRT riêng
@@ -91,7 +91,7 @@ class VideoSubtitleExtractor:
         strip_punctuation: bool = False,
         
         # OCR settings
-        ocr_model: str = "deepseek-ai/DeepSeek-OCR-2",
+        ocr_model: str = "Qwen/Qwen3-VL-8B-Instruct",
         device: str = "cuda",
         batch_size: int = 4,
         hf_token: Optional[str] = None,

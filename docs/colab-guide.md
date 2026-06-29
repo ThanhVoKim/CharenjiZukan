@@ -64,7 +64,7 @@ token = userdata.get('github_token')
 
 > **Lưu ý:** Sử dụng `userdata.get()` để lấy token từ Secrets, không hardcode token vào code để tránh lộ thông tin nhạy cảm.
 
-### 1.3. Cài đặt môi trường cho OCR (DeepSeek-OCR-2 / Qwen3-VL)
+### 1.3. Cài đặt môi trường cho OCR (Qwen3-VL)
 
 > **Xem [docs/colab-setup.md](colab-setup.md) mục A.3** để dựng `.venv-ocr` và tạo lock file.
 > Sau khi có lock, mỗi runtime chỉ cần restore bằng mục B.3.
@@ -77,9 +77,8 @@ token = userdata.get('github_token')
 Qwen3-VL được cài trong cùng `.venv-ocr` (xem §1.3 / `docs/colab-setup.md` mục A.3). Không cần
 env riêng thêm — cùng venv, khác `--ocr-model` khi chạy.
 
-> **Lưu ý phiên bản transformers:** DeepSeek-OCR-2 yêu cầu `transformers==4.45.2`, Qwen3-VL yêu
-> cầu `>=4.57.0`. Hai model **không thể dùng chung** một version. Lock file (A.3) ghim version
-> phù hợp với model bạn chọn khi setup lần đầu.
+> **Lưu ý phiên bản transformers:** Qwen3-VL yêu cầu `transformers>=4.57.0`. Lock file (A.3) ghim
+> version phù hợp khi setup lần đầu.
 
 ---
 
@@ -964,7 +963,7 @@ Thay đổi tốc độ media (video, audio, SRT, ASS). Hỗ trợ cả slow dow
 
 ### 2.9. Trích xuất phụ đề cứng Multi-Box (video-ocr)
 
-Trích xuất phụ đề (hardsub) trực tiếp từ khung hình video sử dụng mô hình DeepSeek-OCR-2, hỗ trợ nhiều vùng box độc lập.
+Trích xuất phụ đề (hardsub) trực tiếp từ khung hình video sử dụng mô hình Qwen3-VL, hỗ trợ nhiều vùng box độc lập.
 
 > **Môi trường:** chạy trong `.venv-ocr`. Xem [docs/colab-setup.md](colab-setup.md) mục A.3.
 
@@ -1034,7 +1033,7 @@ Mỗi dòng gồm `box_name x y w h`.
 | `--no-scene-detection`    | Tắt bỏ tính năng Scene detection (tương đương threshold=0)                                | (tắt)                                                       |
 | `--enable-chinese-filter` | Bật bộ lọc chỉ giữ lại tiếng Trung                                                        | (tắt)                                                       |
 | `--strip-punctuation`     | Bỏ MỌI dấu câu (Unicode P\*) khỏi text OCR — input sạch cho punctuate-srt; độc lập filter | (tắt)                                                       |
-| `--ocr-model`             | Tên model Hugging Face (DeepSeek-OCR-2 hoặc Qwen3-VL)                                     | `deepseek-ai/DeepSeek-OCR-2`                                |
+| `--ocr-model`             | Tên model Hugging Face (Qwen3-VL)                                                          | `Qwen/Qwen3-VL-8B-Instruct`                                 |
 | `--qwen-max-new-tokens`   | [Chỉ Qwen3-VL] Số token tối đa sinh ra                                                    | `256`                                                       |
 | `--qwen-min-pixels`       | [Chỉ Qwen3-VL] Pixel blocks tối thiểu (ảnh hưởng VRAM)                                    | `256`                                                       |
 | `--qwen-max-pixels`       | [Chỉ Qwen3-VL] Pixel blocks tối đa (ảnh hưởng VRAM)                                       | `1280`                                                      |

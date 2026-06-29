@@ -341,7 +341,7 @@ def skip_if_no_small_gpu():
 
 ### 3.5 Feature yêu cầu AI Model lớn (>= 8GB VRAM)
 
-**Ví dụ**: `video_subtitle_extractor` (DeepSeek-OCR-2), `native_video_extractor` (Qwen3-VL-8B)
+**Ví dụ**: `video_subtitle_extractor` (Qwen3-VL-8B), `native_video_extractor` (Qwen3-VL-8B)
 
 Đây là category quan trọng nhất và phức tạp nhất trong dự án.
 
@@ -365,7 +365,6 @@ monkeypatch.setattr(extractor, "_infer", fake_infer)
 
 **Threshold VRAM**:
 
-- DeepSeek-OCR-2: `8` GB
 - Qwen3-VL-8B: `15` GB
 - Qwen3-VL-30B: `55` GB
 
@@ -463,7 +462,7 @@ def require_gpu_15gb():
 
 @pytest.fixture(scope="module")
 def require_gpu_8gb():
-    """Skip nếu GPU VRAM < 8GB (DeepSeek-OCR-2)."""
+    """Skip nếu GPU VRAM < 8GB."""
     _require_gpu(float(os.getenv("MIN_VRAM_GB", "8")))
     yield
 ```

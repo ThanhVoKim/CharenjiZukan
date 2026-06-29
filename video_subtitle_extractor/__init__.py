@@ -2,7 +2,7 @@
 """
 Video Subtitle Extractor - Trích xuất subtitle tiếng Trung từ video
 
-Sử dụng DeepSeek-OCR-2 với các kỹ thuật tối ưu:
+Sử dụng Qwen3-VL với các kỹ thuật tối ưu:
 - Frame Sampling
 - Multi-Box ROI Cropping
 - Selective Scene Detection

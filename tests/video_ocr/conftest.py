@@ -15,7 +15,6 @@ import pytest
 def skip_if_insufficient_vram(min_vram_gb: float = 10.0):
     """
     Skip nếu VRAM không đủ cho model OCR.
-    - DeepSeek-OCR-2: ~8GB VRAM
     - Qwen3-VL-8B: ~16GB VRAM
     """
     try:
