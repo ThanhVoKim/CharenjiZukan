@@ -162,17 +162,12 @@ def synthetic_video_path(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def prompt_file_path(tmp_path_factory) -> Path:
-    """Tạo file prompt template tạm cho tests."""
-    tmp_dir = tmp_path_factory.mktemp("prompts")
-    prompt_path = tmp_dir / "test_prompt.txt"
-    prompt_path.write_text(
-        "You are a subtitle extractor.\n"
-        "{previous_context}\n"
-        "Now extract all subtitles from the provided video clip:\n",
-        encoding="utf-8",
-    )
-    return prompt_path
+def prompt_file_path() -> Path:
+    """Trỏ đến file prompt thật trong repo để Layer 4 dùng đúng format instruction."""
+    p = PROJECT_ROOT / "prompts" / "native_video_ocr_prompt.txt"
+    if not p.exists():
+        pytest.skip(f"Prompt file không tồn tại: {p}")
+    return p
 
 
 @pytest.fixture(scope="module")
