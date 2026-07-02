@@ -54,8 +54,8 @@ qwen:
   device: "cuda:0"
   dtype: "bfloat16"
   attn_implementation: "flash_attention_2"
-  pre_phoneme_length: 0.1 # silence (giây) thêm vào đầu mỗi clip (sau trim)
-  post_phoneme_length: 0.1 # silence (giây) thêm vào cuối mỗi clip (sau trim)
+  pre_phoneme_length: 0.11 # silence (giây) thêm vào đầu mỗi clip (sau trim)
+  post_phoneme_length: 0.11 # silence (giây) thêm vào cuối mỗi clip (sau trim)
 
   # ── Xử lý đuôi clip (Design A: trim + fade + pad) ──────────────────
   # Diệt rè/bíp/bộp cuối clip + đồng nhất silence cuối (token codec OOD).
@@ -63,8 +63,8 @@ qwen:
   #        → (3) pad silence cố định = pre/post_phoneme_length.
   clean_tail: true # tắt (false) nếu muốn giữ hành vi pad thuần cũ
   fade_ms: 8.0 # ms fade ở mép speech trước khi nối silence; tăng nếu vẫn còn click
-  trim_top_db: 30.0 # ngưỡng trim (dB dưới đỉnh); giảm (vd 25) nếu đuôi âm bị xén
-  speed_scale: 1.0 # >1.0 = tăng tốc audio sau synth (giữ pitch) → video đỡ kéo chậm
+  trim_top_db: 25.0 # ngưỡng trim (dB dưới đỉnh); giảm (vd 25) nếu đuôi âm bị xén
+  speed_scale: 1.1 # >1.0 = tăng tốc audio sau synth (giữ pitch) → video đỡ kéo chậm
 
 # ── Qwen3-TTS Custom Voice (checkpoint fine-tune, generate_custom_voice) ──
 # Dùng checkpoint đã full-SFT thành 1 giọng cố định (vd Karlsson DE). Engine tự copy

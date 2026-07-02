@@ -23,7 +23,7 @@
     "y": "h-th-10"
   },
   "audio_mix": {
-    "non_voicevox_tts_volume": 1.75,
+    "non_voicevox_tts_volume": 1.65,
     "bgm_volume": 0.5
   },
   "audio_policies": {
