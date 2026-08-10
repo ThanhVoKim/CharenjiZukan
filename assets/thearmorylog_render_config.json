@@ -50,7 +50,7 @@
     "note": "sync_video forces FFmpeg video render with -c:v hevc_nvenc -preset p4 -tune hq -cq 28"
   },
   "llm_metadata": {
-    "enabled": true,
+    "enabled": false,
     "task_config": "config/llm_tasks/seo_metadata.yaml",
     "input": {
       "write_debug_input": true,
