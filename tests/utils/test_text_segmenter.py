@@ -169,6 +169,52 @@ class TestLayer1_TextSegmenterGrammar:
         assert "".join(t["text"] for t in blocks[0]) == "予算3,000円です。"
         assert "".join(t["text"] for t in blocks[1]) == "次"
 
+    def test_leading_caliber_period_is_not_sentence_boundary(self):
+        """Period trong .44 phải đi cùng caliber dù merge gắn nó vào token trước."""
+        tokens = make_tokens([
+            "Chambered ", "for ", "the .", "44 ", "Henry ",
+            "rimfire ", "cartridge,",
+        ])
+
+        blocks = _split_by_grammar(tokens, split_on_comma=True)
+
+        assert len(blocks) == 1
+        assert "".join(t["text"] for t in blocks[0]) == (
+            "Chambered for the .44 Henry rimfire cartridge,"
+        )
+
+    def test_period_followed_by_spaced_number_still_splits_sentence(self):
+        """Guard .44 không được nuốt period thật trong 'Version 2. 44 ...'."""
+        tokens = make_tokens(["Version ", "2. ", "44 ", "examples ", "remain."])
+
+        blocks = _split_by_grammar(tokens, split_on_comma=False)
+        texts = ["".join(t["text"] for t in block) for block in blocks]
+
+        assert texts == ["Version 2. ", "44 examples remain."]
+
+    def test_numeric_ratio_colon_is_not_sentence_boundary(self):
+        """Colon trong twist rate 1:7 là notation số, không phải dấu ngắt câu."""
+        tokens = make_tokens(["A ", "1:", "7 ", "twist ", "rate."])
+
+        blocks = _split_by_grammar(tokens, split_on_comma=False)
+
+        assert len(blocks) == 1
+        assert "".join(t["text"] for t in blocks[0]) == "A 1:7 twist rate."
+
+    @pytest.mark.parametrize(
+        "tokens",
+        [
+            ["The ", "U.", "S. ", "Army ", "adopted ", "it."],
+            ["The ", "No. ", "4 ", "rifle ", "remained."],
+            ["The ", "Mk. ", "II ", "followed."],
+        ],
+    )
+    def test_domain_initialisms_and_designations_do_not_split(self, tokens):
+        """Initialism/designation quân sự không tạo subtitle block giả."""
+        blocks = _split_by_grammar(make_tokens(tokens), split_on_comma=False)
+
+        assert len(blocks) == 1
+
 
 class TestLayer1_TextSegmenterMinMax:
     """Test Giai đoạn 2: Xử lý min/max."""
@@ -284,6 +330,22 @@ class TestLayer1_TextSegmenterMinMax:
         texts = ["".join(t["text"] for t in block) for block in result]
         assert texts[0] == "AAAA1.2kg "
         assert "".join(texts) == "AAAA1.2kg BBBBBBBB"
+
+    def test_split_long_block_never_strands_leading_caliber_period(self):
+        """GĐ2 không được tạo block kết thúc bằng 'the .' trước caliber .44."""
+        tokens = make_tokens([
+            "Chambered ", "for ", "the .", "44 ", "Henry ",
+            "rimfire ", "cartridge, ", "with ", "thirteen ", "rounds.",
+        ])
+
+        result = smart_segment(tokens, min_chars=1, max_chars=28, ideal_chars=28,
+                               split_on_comma=True)
+        texts = ["".join(t["text"] for t in block) for block in result]
+
+        assert "".join(texts) == (
+            "Chambered for the .44 Henry rimfire cartridge, with thirteen rounds."
+        )
+        assert all(not text.rstrip().endswith("the .") for text in texts)
 
     def test_empty_input(self):
         """Input rỗng trả về list rỗng."""

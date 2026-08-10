@@ -1,5 +1,78 @@
 # Project Journal
 
+## 2026-08-10: Forced alignment — giữ nguyên technical notation và fallback an toàn
+
+### Bối cảnh
+
+SRT do forced alignment của `sync-video` vẫn có thể làm sai nội dung transcript khi
+Qwen3-ForcedAligner normalize ký hiệu kỹ thuật hoặc bộ chia subtitle hiểu nhầm dấu câu.
+Các lỗi thực tế đã quan sát:
+
+- `7+1 capacity` → `71+1`
+- `7.62×51mm` → `76251mm.`
+- `Chambered for the .44 Henry rimfire cartridge,` bị ngắt giữa `.` và `44`
+
+### Nguyên nhân
+
+1. `merge_punctuation()` trước đây chỉ phục hồi dash/hyphen và dấu `.`/`,` nằm
+   giữa chữ số. Các ký hiệu như `+`, `×`, `/`, `:`, apostrophe và `&` bị aligner
+   loại khỏi token nhưng reconstruction vẫn xuất token đã normalize, dẫn tới mất
+   hoặc lặp ký tự.
+2. `text_segmenter` coi period đứng trước chữ số trong `.44` là dấu kết câu vì
+   guard số cũ chỉ nhận dạng period nằm giữa hai chữ số.
+3. Nhánh align per-clip dùng `zip(batch, results)`. Nếu model trả thiếu result,
+   clip cuối bị bỏ im lặng và không được đưa vào danh sách fallback remap.
+4. Pipeline chưa kiểm tra text reconstructed có còn giống transcript nguồn hay
+   không, nên một normalization chưa được hỗ trợ có thể đi thẳng vào SRT output.
+
+### Thay đổi
+
+**`utils/asr_subtitle_utils.py`**
+
+- Mở rộng reconstruction dựa trên transcript gốc cho technical notation:
+  `+`, `±`, `×`, `÷`, `/`, `⁄`, `:`, dash Unicode, apostrophe, `&`, degree,
+  percent và khoảng phân nhóm số.
+- Phục hồi đồng thời nhiều infix trong cùng token, ví dụ `7.62×51mm`.
+- Giữ casing/Unicode từ transcript gốc thay vì dùng text normalize của aligner.
+- Bỏ item chỉ chứa dấu câu do aligner trả riêng để tránh lặp phần transcript đã
+  được token chữ/số trước đó consume.
+- Mở rộng guard bỏ duplicate suffix cho cả prefix và suffix của phần đã consume.
+
+**`utils/text_segmenter.py`**
+
+- Nhận diện leading decimal/caliber như `.44`, `.50`, `．５`; không coi period
+  này là sentence boundary và không chọn điểm cắt cơ học giữa `.` với chữ số.
+- Bảo vệ notation số như `1:7`, `7+1`, `1/2`, `7.62×51` khỏi điểm cắt sai.
+- Không chia initialism/designation phổ biến như `U.S.`, `No. 4`, `Mk. II`,
+  cùng các title quân sự thông dụng.
+
+**`utils/forced_aligner.py`**
+
+- Thêm invariant: text reconstructed phải giống transcript nguồn.
+- Với per-clip, dòng mismatch/empty/missing result được đánh dấu failed để caller
+  remap bằng nguyên text SRT gốc thay vì ghi nội dung sai hoặc làm mất dòng.
+- Với mixed-audio mode, mismatch làm nhánh forced alignment fail để cơ chế
+  `fail_policy=warn` fallback toàn bộ sang remap.
+- Thay `zip()` bằng duyệt đủ batch, bảo đảm result thiếu không làm clip biến mất.
+
+### Regression tests
+
+- Thêm coverage cho `7+1`, `7.62×51mm`, `5.56×45mm`, `1:7`, `1/2-inch`,
+  `M&P`, apostrophe, `AN/PRC-77`, numeric grouping space và punctuation-only item.
+- Thêm test segmentation cho `.44`, sentence thật theo sau bằng số, `U.S.`,
+  `No. 4`, `Mk. II` và long-block mechanical split.
+- Thêm test per-clip end-to-end cho ba lỗi thực tế, missing batch result và
+  reconstruction mismatch fallback.
+
+### Verification
+
+- Targeted forced-alignment/parser suite: **149 passed**.
+- Toàn bộ suite bằng `.venv`: **760 passed, 30 skipped, 7 warnings**.
+- Các warning còn lại là pytest marker chưa đăng ký từ trước; không có test fail.
+- Test không để lại `tmp` hoặc `__pycache__` trong project sau khi dọn artifact rỗng.
+
+---
+
 ## 2026-06-29: Loại bỏ hoàn toàn DeepSeek-OCR — chỉ giữ Qwen3-VL
 
 ### Quyết định

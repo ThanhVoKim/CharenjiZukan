@@ -34,6 +34,24 @@ COMPOUND_DASH_CHARS = set("-\u2010\u2011\u2012\u2013\u2014")
 # "500000.000".
 NUMERIC_SEPARATOR_CHARS = set(".,\uff0c\uff0e")
 
+# Các ký hiệu định dạng có thể nằm bên trong một token nhưng thường bị forced aligner
+# loại bỏ khi normalize. Bộ này cố ý không chứa underscore: identifier/code-like text
+# không nên được tự động coi là một từ tự nhiên duy nhất.
+#
+# Ví dụ cần khôi phục từ transcript gốc:
+#   7+1          <- token "71"
+#   7.62×51mm    <- token "76251mm"
+#   1/2-inch     <- token "12inch"
+#   M&P          <- token "MP"
+#   don't        <- token "dont"
+NORMALIZED_INFIX_CHARS = (
+    COMPOUND_DASH_CHARS
+    | set("+\u00b1\u00d7\u00f7/\u2044:\uff1a'\u2019\u02bc&\uff06\u00b7\u00b0%\uff05")
+)
+
+# Khoảng trắng dùng làm phân cách nhóm chữ số ở một số locale.
+NUMERIC_GROUPING_SPACE_CHARS = set(" \u00a0\u2009\u202f")
+
 
 def format_srt_time(seconds: float) -> str:
     """Định dạng thời gian SRT từ giây.
@@ -49,19 +67,8 @@ def format_srt_time(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def _is_compound_dash_at(text: str, idx: int) -> bool:
-    """True nếu dash/hyphen ở idx nằm giữa hai ký tự chữ/số."""
-    if idx <= 0 or idx + 1 >= len(text):
-        return False
-    return (
-        text[idx] in COMPOUND_DASH_CHARS
-        and text[idx - 1].isalnum()
-        and text[idx + 1].isalnum()
-    )
-
-
 def _normalize_compound_piece(text: str) -> str:
-    """Normalize phần text để so khớp overlap compound đã bị aligner bỏ dash."""
+    """Normalize text để so khớp overlap token đã bị aligner bỏ ký hiệu."""
     return "".join(char.lower() for char in text if char.isalnum())
 
 
@@ -83,109 +90,106 @@ def _full_text_norm_startswith(full_text: str, start_idx: int, expected_norm: st
     return "".join(collected) == expected_norm
 
 
-def _match_dash_compound_remainder(
-    full_text: str,
-    token_start_idx: int,
-    dash_idx: int,
-    clean_word: str,
-    match_len: int,
-) -> tuple[str, int, str] | None:
-    """Khôi phục compound word khi aligner normalize bỏ dash/hyphen.
-
-    Ví dụ transcript là "47-round" nhưng aligner trả token "47round".
-    Sau khi partial-match "47", con trỏ đứng tại "-". Hàm này xác nhận
-    phần còn lại "round" khớp qua dash, trả về text gốc "47-round" và
-    suffix normalized "round" để caller skip token duplicate kế tiếp.
-    """
-    if match_len <= 0 or match_len >= len(clean_word):
-        return None
-    if dash_idx >= len(full_text) or not _is_compound_dash_at(full_text, dash_idx):
-        return None
-
-    remainder = clean_word[match_len:]
-    remainder_idx = 0
-    scan_idx = dash_idx
-    saw_dash = False
-
-    while scan_idx < len(full_text) and remainder_idx < len(remainder):
-        char = full_text[scan_idx]
-        if char in COMPOUND_DASH_CHARS:
-            if not _is_compound_dash_at(full_text, scan_idx):
-                return None
-            saw_dash = True
-            scan_idx += 1
-            continue
-
-        if char.lower() != remainder[remainder_idx].lower():
-            return None
-        scan_idx += 1
-        remainder_idx += 1
-
-    if not saw_dash or remainder_idx != len(remainder):
-        return None
-
-    compound_text = full_text[token_start_idx:scan_idx]
-    consumed_suffix = _normalize_compound_piece(remainder)
-    return compound_text, scan_idx, consumed_suffix
-
-
-def _is_numeric_separator_at(text: str, idx: int) -> bool:
-    """True nếu dấu chấm/phẩy ở idx là dấu phân cách nằm giữa hai chữ số."""
-    if idx <= 0 or idx + 1 >= len(text):
+def _is_initialism_inner_period(text: str, idx: int) -> bool:
+    """True nếu dấu chấm nối các chữ cái đơn trong initialism (vd U.S.)."""
+    if idx <= 0 or idx + 1 >= len(text) or text[idx] != ".":
         return False
-    return (
-        text[idx] in NUMERIC_SEPARATOR_CHARS
-        and text[idx - 1].isdigit()
-        and text[idx + 1].isdigit()
-    )
+    if not (text[idx - 1].isalpha() and text[idx + 1].isalpha()):
+        return False
+
+    # Dấu đầu trong "U.S." / "e.g.".
+    if idx + 2 < len(text) and text[idx + 2] == ".":
+        return True
+    # Dấu giữa/cuối trong initialism dài hơn (vd "U.S.A").
+    return idx >= 2 and text[idx - 2] == "."
 
 
-def _match_numeric_separator_remainder(
+def _normalized_infix_end(text: str, idx: int) -> int | None:
+    """Trả về vị trí sau infix bị normalize, hoặc None nếu không an toàn để bỏ.
+
+    Chỉ chấp nhận ký hiệu nằm sát giữa các ký tự chữ/số. Dấu chấm/phẩy có guard
+    chặt hơn để không vô tình nối hai câu độc lập.
+    """
+    if idx <= 0 or idx >= len(text):
+        return None
+
+    char = text[idx]
+
+    if char in NUMERIC_GROUPING_SPACE_CHARS:
+        if idx + 1 < len(text) and text[idx - 1].isdigit() and text[idx + 1].isdigit():
+            return idx + 1
+        return None
+
+    if char in NUMERIC_SEPARATOR_CHARS:
+        if idx + 1 >= len(text):
+            return None
+        left = text[idx - 1]
+        right = text[idx + 1]
+        # Comma chỉ được bỏ trong số. Period còn hỗ trợ designation kiểu Mk.2
+        # và initialism kiểu U.S.; period kết câu thông thường không khớp guard.
+        if left.isdigit() and right.isdigit():
+            return idx + 1
+        if char in {".", "\uff0e"} and left.isalnum() and right.isdigit():
+            return idx + 1
+        if char == "." and _is_initialism_inner_period(text, idx):
+            return idx + 1
+        return None
+
+    if char not in NORMALIZED_INFIX_CHARS:
+        return None
+
+    # Hỗ trợ một run ký hiệu như "+/-" hoặc "++" khi toàn bộ run nằm giữa
+    # hai ký tự chữ/số. Không đi xuyên qua whitespace.
+    end = idx
+    while end < len(text) and text[end] in NORMALIZED_INFIX_CHARS:
+        end += 1
+    if end < len(text) and text[idx - 1].isalnum() and text[end].isalnum():
+        return end
+    return None
+
+
+def _match_normalized_infix_remainder(
     full_text: str,
     token_start_idx: int,
-    sep_idx: int,
+    infix_idx: int,
     clean_word: str,
     match_len: int,
 ) -> tuple[str, int, str] | None:
-    """Khôi phục số khi aligner normalize bỏ dấu phân cách hàng nghìn/thập phân.
+    """Khôi phục token khi aligner normalize bỏ ký hiệu định dạng bên trong.
 
-    Ví dụ transcript là "500.000" (dấu chấm = phân cách hàng nghìn kiểu Đức)
-    nhưng aligner trả token "500000". Sau khi partial-match "500", con trỏ đứng
-    tại ".". Hàm này xác nhận phần còn lại "000" khớp qua các dấu phân cách số,
-    trả về text gốc "500.000" để không sinh ra "500000.000".
-
-    Hỗ trợ nhiều dấu phân cách trong cùng một số (vd "1.234.567", "1,234.5").
+    Sau khi partial-match dừng tại ký hiệu, hàm tiếp tục so khớp phần còn lại
+    trong khi bỏ qua các infix an toàn. Text output luôn lấy nguyên văn từ
+    transcript; suffix normalized được trả về để caller bỏ token duplicate mà
+    một số phiên bản aligner sinh thêm.
     """
     if match_len <= 0 or match_len >= len(clean_word):
         return None
-    if sep_idx >= len(full_text) or not _is_numeric_separator_at(full_text, sep_idx):
+    if infix_idx >= len(full_text) or _normalized_infix_end(full_text, infix_idx) is None:
         return None
 
     remainder = clean_word[match_len:]
     remainder_idx = 0
-    scan_idx = sep_idx
-    saw_separator = False
+    scan_idx = infix_idx
+    saw_infix = False
 
     while scan_idx < len(full_text) and remainder_idx < len(remainder):
-        char = full_text[scan_idx]
-        if char in NUMERIC_SEPARATOR_CHARS:
-            if not _is_numeric_separator_at(full_text, scan_idx):
-                return None
-            saw_separator = True
-            scan_idx += 1
+        infix_end = _normalized_infix_end(full_text, scan_idx)
+        if infix_end is not None:
+            saw_infix = True
+            scan_idx = infix_end
             continue
 
-        if char != remainder[remainder_idx]:
+        if full_text[scan_idx].lower() != remainder[remainder_idx].lower():
             return None
         scan_idx += 1
         remainder_idx += 1
 
-    if not saw_separator or remainder_idx != len(remainder):
+    if not saw_infix or remainder_idx != len(remainder):
         return None
 
-    numeric_text = full_text[token_start_idx:scan_idx]
+    source_text = full_text[token_start_idx:scan_idx]
     consumed_suffix = _normalize_compound_piece(remainder)
-    return numeric_text, scan_idx, consumed_suffix
+    return source_text, scan_idx, consumed_suffix
 
 
 def merge_punctuation(words, full_text: str) -> List[Dict]:
@@ -208,15 +212,17 @@ def merge_punctuation(words, full_text: str) -> List[Dict]:
       - Token rỗng (Case 36): không gây IndexError.
       - Token cuối cùng có hậu tố chữ (Case 43): vớt toàn bộ phần còn lại.
       - Token không khớp hoàn toàn (Case 33, 45): dùng Partial Match để tránh kẹt con trỏ.
-      - Token aligner normalize bỏ dash trong compound words: khôi phục text gốc
-        như 47-round, large-capacity, continuous-fire và skip token suffix bị lặp.
+      - Token aligner normalize bỏ ký hiệu bên trong: khôi phục text gốc như
+        47-round, 7+1, 7.62×51mm, 1/2-inch và skip token suffix bị lặp.
+      - Token chỉ chứa dấu câu: bỏ token timestamp thừa vì dấu câu được lấy từ
+        full_text và đã gắn vào token chữ/số lân cận.
     """
     word_items = list(words)
     merged_words = []
     text_idx = 0
     full_len = len(full_text)
     total_words = len(word_items)
-    skip_compound_suffix = ""
+    skip_normalized_suffix = ""
 
     for i, word_obj in enumerate(word_items):
         # Hỗ trợ cả object (attribute) và dict (key)
@@ -242,6 +248,12 @@ def merge_punctuation(words, full_text: str) -> List[Dict]:
             })
             continue
 
+        # Qwen có thể trả dấu câu thành item riêng dù dấu đó đã được lấy trực tiếp
+        # từ full_text. Giữ item này sẽ làm con trỏ chạy tới cuối transcript và
+        # lặp lại phần nội dung còn lại (vd Hello, + token ",").
+        if not any(char.isalnum() for char in clean_word):
+            continue
+
         # Nếu token hiện tại chỉ là suffix đã nằm trong compound token trước đó
         # (vd token trước đã khôi phục "large-capacity", token này là "capacity")
         # thì bỏ qua để tránh output "large-capacitycapacity" hoặc "largecapacity-capacity".
@@ -249,11 +261,15 @@ def merge_punctuation(words, full_text: str) -> List[Dict]:
         # thể là từ thật kế tiếp trùng prefix với suffix đã consume.
         clean_norm = _normalize_compound_piece(clean_word)
         current_text_has_same_word = _full_text_norm_startswith(full_text, text_idx, clean_norm)
-        if skip_compound_suffix and clean_norm:
-            if not current_text_has_same_word and skip_compound_suffix.startswith(clean_norm):
-                skip_compound_suffix = skip_compound_suffix[len(clean_norm):]
-                continue
-            skip_compound_suffix = ""
+        if skip_normalized_suffix and clean_norm:
+            if not current_text_has_same_word:
+                if skip_normalized_suffix.startswith(clean_norm):
+                    skip_normalized_suffix = skip_normalized_suffix[len(clean_norm):]
+                    continue
+                if skip_normalized_suffix.endswith(clean_norm):
+                    skip_normalized_suffix = skip_normalized_suffix[:-len(clean_norm)]
+                    continue
+            skip_normalized_suffix = ""
 
         # Thu thập prefix: các ký tự không phải chữ/số trước khi gặp ký tự đầu tiên của token
         while text_idx < full_len and full_text[text_idx].lower() != clean_word[0].lower():
@@ -270,30 +286,23 @@ def merge_punctuation(words, full_text: str) -> List[Dict]:
             match_len += 1
         text_idx += match_len
 
-        output_word = clean_word
-        compound_match = _match_dash_compound_remainder(
+        # Khi token khớp trọn vẹn, vẫn lấy source slice để bảo toàn casing và
+        # Unicode chính xác từ transcript thay vì bản normalize của aligner.
+        output_word = (
+            full_text[token_start_idx:text_idx]
+            if match_len == word_len
+            else clean_word
+        )
+        normalized_match = _match_normalized_infix_remainder(
             full_text,
             token_start_idx,
             text_idx,
             clean_word,
             match_len,
         )
-        if compound_match is not None:
-            output_word, text_idx, consumed_suffix = compound_match
-            skip_compound_suffix = consumed_suffix
-        else:
-            # Số bị aligner bỏ dấu phân cách hàng nghìn/thập phân
-            # (vd "500.000" → "500000"): khôi phục text gốc để không sinh "500000.000".
-            numeric_match = _match_numeric_separator_remainder(
-                full_text,
-                token_start_idx,
-                text_idx,
-                clean_word,
-                match_len,
-            )
-            if numeric_match is not None:
-                output_word, text_idx, consumed_suffix = numeric_match
-                skip_compound_suffix = consumed_suffix
+        if normalized_match is not None:
+            output_word, text_idx, consumed_suffix = normalized_match
+            skip_normalized_suffix = consumed_suffix
 
         # Thu thập trailing chars
         while text_idx < full_len:

@@ -43,6 +43,17 @@ from utils.asr_subtitle_utils import (
 logger = get_logger("forced_aligner")
 
 
+def _merged_text(merged_words: list[dict[str, Any]]) -> str:
+    """Ghép text reconstructed để kiểm tra invariant với transcript nguồn."""
+    return "".join(str(word.get("text", "")) for word in merged_words).strip()
+
+
+def _text_preview(text: str, limit: int = 120) -> str:
+    """Preview ngắn, một dòng, dùng trong log lỗi integrity."""
+    compact = " ".join(str(text).split())
+    return compact if len(compact) <= limit else compact[: limit - 1] + "…"
+
+
 # ═════════════════════════════════════════════════════════════════════
 # Model loading
 # ═════════════════════════════════════════════════════════════════════
@@ -182,6 +193,17 @@ def execute_forced_alignment(
     merged_words = merge_punctuation(align_items, full_text)
     logger.info(f"Forced alignment trả về {len(merged_words)} word items sau merge punctuation.")
 
+    # Text của forced alignment chỉ được dùng để gắn timestamp; transcript gốc
+    # là SSOT cho nội dung. Nếu reconstruction không còn khớp nguyên văn, fail
+    # toàn nhánh mixed để caller fallback sang remap thay vì ghi SRT bị sai chữ.
+    reconstructed_text = _merged_text(merged_words)
+    if reconstructed_text != full_text:
+        raise ValueError(
+            "Forced alignment làm thay đổi transcript sau reconstruction: "
+            f"expected={_text_preview(full_text)!r}, "
+            f"actual={_text_preview(reconstructed_text)!r}"
+        )
+
     # Segment thành subtitle blocks
     max_chars = align_cfg.get("max_chars", 42)
     min_chars = align_cfg.get("min_chars", 0)
@@ -272,6 +294,10 @@ def execute_forced_alignment_clips(
     failed_lines: list[int] = []
     seq = 0
 
+    def mark_failed(line: int) -> None:
+        if line not in failed_lines:
+            failed_lines.append(line)
+
     logger.info(
         f"Đang chạy forced alignment per-clip: {len(clips)} clip, "
         f"batch_size={batch_size}, language={language}"
@@ -282,9 +308,20 @@ def execute_forced_alignment_clips(
             texts = [c["text"] for c in batch]
             results = aligner.align(audio=audios, text=texts, language=language)
 
-            for clip, res in zip(batch, results or []):
+            batch_results = list(results or [])
+            if len(batch_results) != len(batch):
+                logger.warning(
+                    "Forced aligner trả %d result cho batch %d clip; "
+                    "clip thiếu result sẽ fallback sang remap.",
+                    len(batch_results), len(batch),
+                )
+
+            # Không dùng zip(): nếu model trả thiếu result, zip sẽ làm clip cuối
+            # biến mất im lặng và caller không biết để remap dòng gốc.
+            for result_idx, clip in enumerate(batch):
+                res = batch_results[result_idx] if result_idx < len(batch_results) else None
                 if not res:
-                    failed_lines.append(clip["line"])
+                    mark_failed(clip["line"])
                     continue
 
                 spd = clip.get("audio_speed") or 1.0
@@ -310,6 +347,19 @@ def execute_forced_alignment_clips(
                     })
 
                 merged = merge_punctuation(words, clip["text"])
+                source_text = str(clip["text"]).strip()
+                reconstructed_text = _merged_text(merged)
+                if reconstructed_text != source_text:
+                    logger.warning(
+                        "Forced alignment line=%s làm thay đổi nội dung; "
+                        "fallback remap. expected=%r, actual=%r",
+                        clip["line"],
+                        _text_preview(source_text),
+                        _text_preview(reconstructed_text),
+                    )
+                    mark_failed(clip["line"])
+                    continue
+
                 blocks = segment_words_to_subtitles(
                     merged,
                     max_chars=max_chars,
@@ -317,10 +367,10 @@ def execute_forced_alignment_clips(
                     split_on_comma=split_on_comma,
                 )
 
+                emitted_for_clip = 0
                 for block in blocks:
                     if not block:
                         continue
-                    seq += 1
                     start_ms = block[0].get("start_time", 0.0) + offset_seconds * 1000.0
                     end_ms = block[-1].get("end_time", 0.0) + offset_seconds * 1000.0
                     start_ms = max(0.0, start_ms)
@@ -329,12 +379,21 @@ def execute_forced_alignment_clips(
                     text = "".join(w.get("text", "") for w in block).strip()
                     if not text:
                         continue
+                    seq += 1
+                    emitted_for_clip += 1
                     aligned_segments.append({
                         "line": seq,
                         "start_time": int(round(start_ms)),
                         "end_time": int(round(end_ms)),
                         "text": text,
                     })
+
+                if emitted_for_clip == 0:
+                    logger.warning(
+                        "Forced alignment line=%s không tạo block text; fallback remap.",
+                        clip["line"],
+                    )
+                    mark_failed(clip["line"])
     finally:
         del aligner
         try:

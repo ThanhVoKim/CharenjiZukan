@@ -461,7 +461,9 @@ class TestExecuteForcedAlignmentMocked:
         from sync_engine.forced_alignment_subtitle import execute_forced_alignment
 
         transcript = tmp_path / "text.txt"
-        transcript.write_text("Hello world.", encoding="utf-8")
+        # Dùng đúng transcript tương ứng với _make_fake_align_items(); integrity
+        # guard mới cố ý reject model output khác source text.
+        transcript.write_text("Hello, world! This is a test.", encoding="utf-8")
 
         align_cfg = {
             "language": "English",
@@ -929,6 +931,99 @@ class TestLayer2_PerClipAlignMerge:
         # Clip 0 có output, clip 1 (rỗng) vào failed_lines
         assert len(aligned) >= 1
         assert 1 in failed
+
+    def test_missing_batch_result_is_marked_for_remap(self, tmp_path):
+        """Model trả thiếu result không được làm clip cuối biến mất im lặng."""
+        from utils.forced_aligner import execute_forced_alignment_clips
+
+        clips = [
+            {"audio_path": str(tmp_path / "c0.wav"), "text": "First", "offset_ms": 0.0,
+             "audio_speed": 1.0, "line": 0},
+            {"audio_path": str(tmp_path / "c1.wav"), "text": "Second", "offset_ms": 1000.0,
+             "audio_speed": 1.0, "line": 1},
+        ]
+        mock_aligner = MagicMock()
+        # Chỉ một result cho batch hai clip.
+        mock_aligner.align.return_value = [[self._make_word("First", 0.0, 0.5)]]
+
+        with patch("utils.forced_aligner.load_forced_aligner", return_value=mock_aligner), \
+             patch("utils.media_utils.clear_vram"):
+            aligned, failed = execute_forced_alignment_clips(
+                clips=clips,
+                align_cfg={"language": "English", "max_chars": 42, "min_chars": 0,
+                           "split_on_comma": True, "offset_seconds": 0.0, "batch_size": 16},
+            )
+
+        assert [segment["text"] for segment in aligned] == ["First"]
+        assert failed == [1]
+
+    def test_reconstruction_mismatch_is_marked_for_remap(self, tmp_path):
+        """Text model khác transcript phải fallback dòng gốc, không ghi text sai."""
+        from utils.forced_aligner import execute_forced_alignment_clips
+
+        clips = [
+            {"audio_path": str(tmp_path / "clip.wav"), "text": "Original text",
+             "offset_ms": 0.0, "audio_speed": 1.0, "line": 0},
+        ]
+        mock_aligner = MagicMock()
+        mock_aligner.align.return_value = [[self._make_word("Wrong", 0.0, 0.5)]]
+
+        with patch("utils.forced_aligner.load_forced_aligner", return_value=mock_aligner), \
+             patch("utils.media_utils.clear_vram"):
+            aligned, failed = execute_forced_alignment_clips(
+                clips=clips,
+                align_cfg={"language": "English", "max_chars": 42, "min_chars": 0,
+                           "split_on_comma": True, "offset_seconds": 0.0, "batch_size": 16},
+            )
+
+        assert aligned == []
+        assert failed == [0]
+
+    def test_technical_notation_and_leading_caliber_survive_per_clip_flow(self, tmp_path):
+        """Regression end-to-end cho 7+1, 7.62×51mm và .44 trong sync-video."""
+        from utils.forced_aligner import execute_forced_alignment_clips
+
+        source_texts = [
+            "7+1 capacity",
+            "7.62\u00d751mm.",
+            "Chambered for the .44 Henry rimfire cartridge,",
+        ]
+        clips = [
+            {"audio_path": str(tmp_path / f"c{idx}.wav"), "text": text,
+             "offset_ms": idx * 5000.0, "audio_speed": 1.0, "line": idx}
+            for idx, text in enumerate(source_texts)
+        ]
+        mock_aligner = MagicMock()
+        mock_aligner.align.return_value = [
+            [self._make_word("71", 0.0, 0.4), self._make_word("capacity", 0.4, 0.8)],
+            [self._make_word("76251mm", 0.0, 0.8)],
+            [
+                self._make_word("Chambered", 0.0, 0.2),
+                self._make_word("for", 0.2, 0.3),
+                self._make_word("the", 0.3, 0.4),
+                self._make_word("44", 0.4, 0.5),
+                self._make_word("Henry", 0.5, 0.6),
+                self._make_word("rimfire", 0.6, 0.7),
+                self._make_word("cartridge", 0.7, 0.9),
+            ],
+        ]
+
+        with patch("utils.forced_aligner.load_forced_aligner", return_value=mock_aligner), \
+             patch("utils.media_utils.clear_vram"):
+            aligned, failed = execute_forced_alignment_clips(
+                clips=clips,
+                align_cfg={"language": "English", "max_chars": 42, "min_chars": 0,
+                           "split_on_comma": True, "offset_seconds": 0.0, "batch_size": 16},
+            )
+
+        assert failed == []
+        output_text = " ".join(segment["text"] for segment in aligned)
+        assert "7+1 capacity" in output_text
+        assert "7.62\u00d751mm." in output_text
+        assert "Chambered for the ." not in [segment["text"] for segment in aligned]
+        assert "Chambered for the .44" in output_text
+        assert "71+1" not in output_text
+        assert "76251mm" not in output_text
 
     def test_fallback_to_mixed_audio_when_no_timeline(self, tmp_path):
         """Không có timeline → dùng nhánh cũ (execute_forced_alignment)."""

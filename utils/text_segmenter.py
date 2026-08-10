@@ -45,11 +45,25 @@ STRONG_SPLIT_CHARS = set(".!?。！？")
 # Dấu phân cách số — không được coi là điểm cắt khi nằm giữa 2 chữ số
 NUMERIC_SEPARATOR_CHARS = set(".,，．")
 
+# Ký hiệu có thể nối các phần của notation số/kỹ thuật. Guard tại nơi dùng vẫn
+# yêu cầu chữ số sát bên để không bảo vệ dấu câu thông thường.
+NUMERIC_NOTATION_INFIX_CHARS = (
+    NUMERIC_SEPARATOR_CHARS
+    | set("+±×÷/⁄:：-‐‑‒–—")
+)
+
+# Dấu chấm có thể mở đầu số thập phân/cỡ đạn (vd .44, .50, ．５).
+LEADING_DECIMAL_POINT_CHARS = set(".．")
+
 # Ký tự hậu tố đơn vị/tiền tệ/phần trăm thường dính trực tiếp sau số
 NUMERIC_UNIT_SUFFIX_CHARS = set("%％‰°℃℉¥$€£₩₫円元")
 
 # Các abbreviation có dấu chấm nhưng không phải ranh giới câu.
-COMMON_NON_SENTENCE_ABBREVIATIONS = {"e.g.", "i.e.", "mr.", "mrs.", "dr.", "vs."}
+COMMON_NON_SENTENCE_ABBREVIATIONS = {
+    "e.g.", "i.e.", "mr.", "mrs.", "dr.", "vs.",
+    # Designation/title thường gặp trong nội dung lịch sử–quân sự.
+    "no.", "mk.", "mod.", "gen.", "col.", "sgt.", "lt.", "capt.",
+}
 
 # Ký tự có thể nằm giữa dấu kết câu và chữ cái mở đầu câu tiếp theo.
 SENTENCE_START_SKIP_CHARS = set(" \t\r\n\"'“”‘’()[]{}（）《》【】")
@@ -80,23 +94,33 @@ def _get_char_after(tokens: List[Dict[str, Any]], token_idx: int, char_idx: int)
     return ""
 
 
-def _is_numeric_separator_at(
+def _is_numeric_notation_infix_at(
     tokens: List[Dict[str, Any]],
     token_idx: int,
     char_idx: int,
 ) -> bool:
-    """True nếu dấu chấm/phẩy tại vị trí đang xét là dấu phân cách trong số."""
+    """True nếu ký hiệu tại vị trí đang xét thuộc một notation số liền mạch."""
     text = tokens[token_idx].get("text", "")
     if char_idx < 0 or char_idx >= len(text):
         return False
  
     char = text[char_idx]
-    if char not in NUMERIC_SEPARATOR_CHARS:
+    if char not in NUMERIC_NOTATION_INFIX_CHARS:
         return False
  
     prev_char = _get_char_before(tokens, token_idx, char_idx)
     next_char = _get_char_after(tokens, token_idx, char_idx)
-    return prev_char.isdigit() and next_char.isdigit()
+    if prev_char.isdigit() and next_char.isdigit():
+        return True
+
+    # Leading decimal/caliber: dấu chấm phải dính trực tiếp với chữ số sau và
+    # đứng sau boundary, không phải sau một chữ/số khác. Điều này phân biệt
+    # ".44" với "Version. 44" (có space sau dấu chấm).
+    return (
+        char in LEADING_DECIMAL_POINT_CHARS
+        and next_char.isdigit()
+        and not prev_char.isalnum()
+    )
 
 
 def _joined_text_and_char_offset(
@@ -147,6 +171,36 @@ def _is_common_abbreviation_period_at(
     return False
 
 
+def _is_initialism_period_at(
+    tokens: List[Dict[str, Any]],
+    token_idx: int,
+    char_idx: int,
+) -> bool:
+    """True nếu period thuộc initialism nhiều chữ cái như U.S. hoặc U.S.A."""
+    text = tokens[token_idx].get("text", "")
+    if char_idx < 0 or char_idx >= len(text) or text[char_idx] != ".":
+        return False
+
+    joined_text, global_idx = _joined_text_and_char_offset(tokens, token_idx, char_idx)
+    if global_idx <= 0 or not joined_text[global_idx - 1].isalpha():
+        return False
+
+    # Period đầu/giữa: U.|S. hoặc U.S.|A.
+    if (
+        global_idx + 2 < len(joined_text)
+        and joined_text[global_idx + 1].isalpha()
+        and joined_text[global_idx + 2] == "."
+    ):
+        return True
+
+    # Period cuối: U.|S. (period ngay trước chữ cái hiện tại).
+    return (
+        global_idx >= 3
+        and joined_text[global_idx - 2] == "."
+        and joined_text[global_idx - 3].isalpha()
+    )
+
+
 def _get_next_sentence_start_char(
     tokens: List[Dict[str, Any]],
     token_idx: int,
@@ -175,7 +229,10 @@ def _should_split_after_period(
     char_idx: int,
 ) -> bool:
     """True nếu dấu chấm ASCII tại vị trí hiện tại là ranh giới câu."""
-    if _is_common_abbreviation_period_at(tokens, token_idx, char_idx):
+    if (
+        _is_common_abbreviation_period_at(tokens, token_idx, char_idx)
+        or _is_initialism_period_at(tokens, token_idx, char_idx)
+    ):
         return False
 
     next_char = _get_next_sentence_start_char(tokens, token_idx, char_idx)
@@ -217,11 +274,14 @@ def _is_numeric_split_boundary(block: List[Dict[str, Any]], idx: int) -> bool:
     if left_char.isspace() or right_char.isspace():
         return False
 
-    if left_char in NUMERIC_SEPARATOR_CHARS and right_char.isdigit():
+    if left_char in NUMERIC_NOTATION_INFIX_CHARS and right_char.isdigit():
         prev_char = _get_char_before(block, idx, len(left_text) - 1)
-        return prev_char.isdigit()
+        return prev_char.isdigit() or (
+            left_char in LEADING_DECIMAL_POINT_CHARS
+            and not prev_char.isalnum()
+        )
 
-    if left_char.isdigit() and right_char in NUMERIC_SEPARATOR_CHARS:
+    if left_char.isdigit() and right_char in NUMERIC_NOTATION_INFIX_CHARS:
         next_after_separator = _get_char_after(block, idx + 1, 0)
         return next_after_separator.isdigit()
 
@@ -241,7 +301,7 @@ def _has_sentence_split_punct(
     for char_idx, char in enumerate(text):
         if char not in split_chars:
             continue
-        if _is_numeric_separator_at(tokens, token_idx, char_idx):
+        if _is_numeric_notation_infix_at(tokens, token_idx, char_idx):
             continue
         if char == "." and not _should_split_after_period(tokens, token_idx, char_idx):
             continue
@@ -310,15 +370,15 @@ def _score_split_point(
         score -= 1000.0
  
     last_char_idx = len(text) - 1
-    ends_with_numeric_separator = bool(text) and _is_numeric_separator_at(block, idx, last_char_idx)
+    ends_with_numeric_infix = bool(text) and _is_numeric_notation_infix_at(block, idx, last_char_idx)
 
     if text.endswith(" "):
         score += 8.0
     if text.endswith("\t"):
         score += 8.0
-    if not ends_with_numeric_separator and any(text.endswith(c) for c in STRONG_SPLIT_CHARS):
+    if not ends_with_numeric_infix and any(text.endswith(c) for c in STRONG_SPLIT_CHARS):
         score += 12.0
-    if not ends_with_numeric_separator and any(text.endswith(c) for c in set(",，、;；")):
+    if not ends_with_numeric_infix and any(text.endswith(c) for c in set(",，、;；")):
         score += 6.0
 
     # 3. Ưu tiên khoảng lặng âm thanh (nếu có timestamp)

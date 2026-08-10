@@ -237,6 +237,59 @@ class TestLayer1_MergePunctuation:
 
         assert joined == expected_text
 
+    @pytest.mark.parametrize(
+        ("full_text", "token_texts"),
+        [
+            ("7+1 capacity", ["71", "capacity"]),
+            ("7.62\u00d751mm.", ["76251mm"]),
+            ("5.56\u00d745mm NATO", ["55645mm", "NATO"]),
+            ("a 1:7 twist rate", ["a", "17", "twist", "rate"]),
+            # Token suffix "inch" lặp lại phải bị bỏ sau khi token đầu đã
+            # consume toàn bộ 1/2-inch từ transcript.
+            ("a 1/2-inch group", ["a", "12inch", "inch", "group"]),
+            ("It's reliable", ["Its", "reliable"]),
+            ("M&P pistol", ["MP", "pistol"]),
+            ("about 1\u202f000 rounds", ["about", "1000", "rounds"]),
+            ("AN/PRC-77 radio", ["ANPRC77", "radio"]),
+        ],
+    )
+    def test_normalized_technical_notation_is_restored_from_source(
+        self,
+        full_text,
+        token_texts,
+    ):
+        """Các ký hiệu kỹ thuật bị aligner bỏ vẫn phải giữ nguyên, không lặp text."""
+        words = [
+            _FakeWord(text, idx * 0.5, (idx + 1) * 0.5)
+            for idx, text in enumerate(token_texts)
+        ]
+
+        result = merge_punctuation(words, full_text)
+
+        assert "".join(item["text"] for item in result) == full_text
+
+    def test_punctuation_only_aligner_items_do_not_duplicate_transcript(self):
+        """Token dấu câu riêng của aligner không được lặp phần text đã consume."""
+        words = [
+            _FakeWord("Hello", 0.0, 0.4),
+            _FakeWord(",", 0.4, 0.4),
+            _FakeWord("world", 0.5, 0.9),
+            _FakeWord("!", 0.9, 0.9),
+        ]
+
+        result = merge_punctuation(words, "Hello, world!")
+
+        assert [item["text"] for item in result] == ["Hello, ", "world!"]
+        assert "".join(item["text"] for item in result) == "Hello, world!"
+
+    def test_exact_match_preserves_source_casing(self):
+        """Text output lấy casing từ transcript, không lấy bản normalize của model."""
+        words = [_FakeWord("nato", 0.0, 0.5), _FakeWord("round", 0.5, 1.0)]
+
+        result = merge_punctuation(words, "NATO round")
+
+        assert "".join(item["text"] for item in result) == "NATO round"
+
     def test_sentence_terminating_period_not_treated_as_numeric_separator(self):
         """Dấu chấm cuối câu (số đứng trước, không có số sau) vẫn là dấu câu thường."""
         words = [_FakeWord("It", 0.0, 0.5), _FakeWord("costs", 0.5, 1.0), _FakeWord("500", 1.0, 1.5)]
