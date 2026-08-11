@@ -33,6 +33,7 @@ COMPOUND_DASH_CHARS = set("-\u2010\u2011\u2012\u2013\u2014")
 # số — vd transcript "500.000" → token "500000". Cần khôi phục text gốc để không sinh ra
 # "500000.000".
 NUMERIC_SEPARATOR_CHARS = set(".,\uff0c\uff0e")
+LEADING_DECIMAL_POINT_CHARS = set(".\uff0e")
 
 # Các ký hiệu định dạng có thể nằm bên trong một token nhưng thường bị forced aligner
 # loại bỏ khi normalize. Bộ này cố ý không chứa underscore: identifier/code-like text
@@ -70,6 +71,19 @@ def format_srt_time(seconds: float) -> str:
 def _normalize_compound_piece(text: str) -> str:
     """Normalize text để so khớp overlap token đã bị aligner bỏ ký hiệu."""
     return "".join(char.lower() for char in text if char.isalnum())
+
+
+def _is_leading_decimal_point_at(text: str, idx: int) -> bool:
+    """True nếu point tại idx mở đầu số như .22 sau một boundary.
+
+    Guard yêu cầu point dính trực tiếp với chữ số sau. Vì vậy period kết câu
+    trong ``"Version. 22"`` không bị nhận nhầm do có whitespace sau period.
+    """
+    if idx < 0 or idx + 1 >= len(text):
+        return False
+    if text[idx] not in LEADING_DECIMAL_POINT_CHARS or not text[idx + 1].isdigit():
+        return False
+    return idx == 0 or not text[idx - 1].isalnum()
 
 
 def _full_text_norm_startswith(full_text: str, start_idx: int, expected_norm: str) -> bool:
@@ -116,8 +130,11 @@ def _normalized_infix_end(text: str, idx: int) -> int | None:
     char = text[idx]
 
     if char in NUMERIC_GROUPING_SPACE_CHARS:
-        if idx + 1 < len(text) and text[idx - 1].isdigit() and text[idx + 1].isdigit():
-            return idx + 1
+        if idx + 1 < len(text) and text[idx - 1].isdigit():
+            # Numeric grouping (1 000) hoặc number + technical suffix mà model
+            # gộp thành một token (.22 LR -> token 22LR).
+            if text[idx + 1].isdigit() or text[idx + 1].isalpha():
+                return idx + 1
         return None
 
     if char in NUMERIC_SEPARATOR_CHARS:
@@ -308,6 +325,11 @@ def merge_punctuation(words, full_text: str) -> List[Dict]:
         while text_idx < full_len:
             char = full_text[text_idx]
             if char.isalnum() and char not in ALL_PUNCT_SET:
+                break
+            # Point mở đầu caliber/decimal thuộc token số kế tiếp. Nếu nuốt vào
+            # token hiện tại, split tại comma trong "abc, .22 LR" sẽ kéo riêng
+            # dấu "." sang block trước.
+            if _is_leading_decimal_point_at(full_text, text_idx):
                 break
             # Dấu mở ngoặc thuộc về token tiếp theo
             if char in OPENING_PUNCT:

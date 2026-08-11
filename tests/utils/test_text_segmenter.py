@@ -192,6 +192,15 @@ class TestLayer1_TextSegmenterGrammar:
 
         assert texts == ["Version 2. ", "44 examples remain."]
 
+    def test_word_period_followed_by_spaced_number_still_splits_sentence(self):
+        """Mở rộng guard notation không được nuốt period thật trong 'Version. 22'."""
+        tokens = make_tokens(["Version. ", "22 ", "examples ", "remain."])
+
+        blocks = _split_by_grammar(tokens, split_on_comma=False)
+        texts = ["".join(t["text"] for t in block) for block in blocks]
+
+        assert texts == ["Version. ", "22 examples remain."]
+
     def test_numeric_ratio_colon_is_not_sentence_boundary(self):
         """Colon trong twist rate 1:7 là notation số, không phải dấu ngắt câu."""
         tokens = make_tokens(["A ", "1:", "7 ", "twist ", "rate."])
@@ -346,6 +355,21 @@ class TestLayer1_TextSegmenterMinMax:
             "Chambered for the .44 Henry rimfire cartridge, with thirteen rounds."
         )
         assert all(not text.rstrip().endswith("the .") for text in texts)
+
+    def test_split_long_block_keeps_spaced_caliber_suffix_atomic(self):
+        """GĐ2 cho phép ngoại lệ vượt max để không tách ``.22`` khỏi ``LR``."""
+        tokens = make_tokens([".22 ", "LR"])
+
+        result = smart_segment(
+            tokens,
+            min_chars=1,
+            max_chars=5,
+            ideal_chars=5,
+            split_on_comma=True,
+        )
+        texts = ["".join(t["text"] for t in block) for block in result]
+
+        assert texts == [".22 LR"]
 
     def test_empty_input(self):
         """Input rỗng trả về list rỗng."""

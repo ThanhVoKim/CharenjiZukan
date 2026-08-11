@@ -1,5 +1,54 @@
 # Project Journal
 
+## 2026-08-11: Forced alignment — bảo toàn `.22 LR` sau dấu phẩy
+
+### Bối cảnh
+
+Forced alignment có thể biến `acb, .22 LR` thành các subtitle block sai như
+`acb, .` và `22 LR`, làm dấu chấm mở đầu caliber bị tách khỏi phần số.
+
+### Nguyên nhân
+
+1. `merge_punctuation()` thu thập tuần tự dấu phẩy, whitespace và dấu chấm sau
+   token `acb`; vì vậy point của `.22` bị gắn vào token đứng trước.
+2. Sau khi tái dựng text, bộ chia theo `max_chars` vẫn coi whitespace giữa `.22`
+   và `LR` là một điểm cắt bình thường.
+3. Một số output của aligner gộp `22 LR` thành token normalize `22LR`, nên cần
+   phục hồi cả whitespace kỹ thuật từ transcript nguồn.
+
+### Thay đổi
+
+**`utils/asr_subtitle_utils.py`**
+
+- Nhận diện point dính trực tiếp với chữ số như `.22` và chuyển quyền sở hữu nó
+  sang token số kế tiếp, thay vì để comma/token trước nuốt mất.
+- Phục hồi đúng `.22 LR` khi aligner trả `22` + `LR` hoặc một token `22LR`.
+
+**`utils/text_segmenter.py`**
+
+- Bảo vệ ranh giới `number + technical suffix` có whitespace cho một danh sách
+  hẹp như `LR`, `ACP`, `BMG`, `WMR`, `HMR`, `NATO` và các đơn vị phổ biến.
+- Không chọn ranh giới được bảo vệ làm điểm cắt cơ học; một technical construct
+  ngắn được phép vượt `max_chars` thay vì bị tách sai.
+- Vẫn coi period thật có whitespace trong `Version. 22` là điểm kết câu.
+
+### Regression tests
+
+- Kiểm tra trực tiếp hai dạng token `acb` + `22` + `LR` và `acb` + `22LR`.
+- Kiểm tra grammar split tạo đúng `acb,` + `.22 LR`.
+- Kiểm tra giới hạn chặt `max_chars=5` vẫn giữ `.22 LR` nguyên khối.
+- Kiểm tra per-clip forced-alignment flow của `sync-video` từ mock aligner tới
+  các subtitle segment cuối.
+
+### Verification
+
+- Targeted forced-alignment/parser suite: **155 passed**.
+- Toàn bộ suite bằng `.venv`: **766 passed, 30 skipped, 7 warnings**.
+- Warning chỉ là các pytest marker chưa đăng ký đã tồn tại từ trước; không có
+  test fail.
+
+---
+
 ## 2026-08-10: Forced alignment — giữ nguyên technical notation và fallback an toàn
 
 ### Bối cảnh

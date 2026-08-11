@@ -58,6 +58,15 @@ LEADING_DECIMAL_POINT_CHARS = set(".．")
 # Ký tự hậu tố đơn vị/tiền tệ/phần trăm thường dính trực tiếp sau số
 NUMERIC_UNIT_SUFFIX_CHARS = set("%％‰°℃℉¥$€£₩₫円元")
 
+# Hậu tố kỹ thuật thường được viết cách số bằng whitespace. Chỉ bảo vệ một
+# danh sách hẹp thay vì mọi từ bắt đầu bằng chữ cái để không biến các cụm như
+# "22 examples" thành một đơn vị không thể tách. Giá trị được so khớp casefold.
+SPACED_NUMERIC_TECHNICAL_SUFFIXES = {
+    "lr", "acp", "bmg", "wmr", "hmr", "nato",
+    "mm", "cm", "kg", "gr", "grain", "grains",
+    "cal", "caliber", "gauge", "ga", "magnum",
+}
+
 # Các abbreviation có dấu chấm nhưng không phải ranh giới câu.
 COMMON_NON_SENTENCE_ABBREVIATIONS = {
     "e.g.", "i.e.", "mr.", "mrs.", "dr.", "vs.",
@@ -113,14 +122,10 @@ def _is_numeric_notation_infix_at(
     if prev_char.isdigit() and next_char.isdigit():
         return True
 
-    # Leading decimal/caliber: dấu chấm phải dính trực tiếp với chữ số sau và
-    # đứng sau boundary, không phải sau một chữ/số khác. Điều này phân biệt
-    # ".44" với "Version. 44" (có space sau dấu chấm).
-    return (
-        char in LEADING_DECIMAL_POINT_CHARS
-        and next_char.isdigit()
-        and not prev_char.isalnum()
-    )
+    # Point dính trực tiếp với chữ số sau là một phần của caliber/decimal hoặc
+    # designation (vd .22, Mk.2). "Version. 22" vẫn là ranh giới câu vì ký tự
+    # ngay sau point là whitespace, không phải chữ số.
+    return char in LEADING_DECIMAL_POINT_CHARS and next_char.isdigit()
 
 
 def _joined_text_and_char_offset(
@@ -259,6 +264,22 @@ def _is_numeric_unit_suffix_start(char: str) -> bool:
     return bool(char) and (char.isalpha() or char in NUMERIC_UNIT_SUFFIX_CHARS)
 
 
+def _is_spaced_numeric_technical_suffix(right_text: str) -> bool:
+    """True nếu right_text mở đầu bằng hậu tố kỹ thuật được phép cách số."""
+    stripped = right_text.lstrip()
+    if not stripped:
+        return False
+    if stripped[0] in NUMERIC_UNIT_SUFFIX_CHARS:
+        return True
+
+    suffix_chars = []
+    for char in stripped:
+        if not char.isalnum():
+            break
+        suffix_chars.append(char)
+    return "".join(suffix_chars).casefold() in SPACED_NUMERIC_TECHNICAL_SUFFIXES
+
+
 def _is_numeric_split_boundary(block: List[Dict[str, Any]], idx: int) -> bool:
     """True nếu cắt sau token idx sẽ tách rời số, dấu phân cách số hoặc đơn vị."""
     if idx < 0 or idx + 1 >= len(block):
@@ -269,17 +290,23 @@ def _is_numeric_split_boundary(block: List[Dict[str, Any]], idx: int) -> bool:
     if not left_text or not right_text:
         return False
 
+    # Aligner/merge thường để whitespace ở cuối token số: ".22 " + "LR".
+    # Chỉ cho whitespace là một phần của boundary được bảo vệ khi bên phải là
+    # hậu tố kỹ thuật đã biết; không bảo vệ tùy tiện mọi "number + word".
+    if left_text[-1].isspace() or right_text[0].isspace():
+        left_core = left_text.rstrip()
+        return bool(
+            left_core
+            and left_core[-1].isdigit()
+            and _is_spaced_numeric_technical_suffix(right_text)
+        )
+
     left_char = left_text[-1]
     right_char = right_text[0]
-    if left_char.isspace() or right_char.isspace():
-        return False
 
     if left_char in NUMERIC_NOTATION_INFIX_CHARS and right_char.isdigit():
         prev_char = _get_char_before(block, idx, len(left_text) - 1)
-        return prev_char.isdigit() or (
-            left_char in LEADING_DECIMAL_POINT_CHARS
-            and not prev_char.isalnum()
-        )
+        return prev_char.isdigit() or left_char in LEADING_DECIMAL_POINT_CHARS
 
     if left_char.isdigit() and right_char in NUMERIC_NOTATION_INFIX_CHARS:
         next_after_separator = _get_char_after(block, idx + 1, 0)
@@ -402,7 +429,9 @@ def _split_long_block(
     """Giai đoạn 2 — Trường hợp 3: Block quá dài (> max).
 
     Tính N = ceil(len / ideal), target = len / N.
-    Chia thành N khúc, ưu tiên cắt gần target_len nhất.
+    Chia thành N khúc, ưu tiên cắt gần target_len nhất. Một technical construct
+    không thể tách (vd ``.22 LR``) được phép tạo block hơi vượt max thay vì làm
+    sai nội dung hiển thị.
     """
     total_len = _block_text_len(block)
     if total_len == 0:
@@ -433,14 +462,29 @@ def _split_long_block(
             if current_len < min_chars:
                 continue
 
+            has_next = idx + 1 < len(remaining)
+            protected_boundary = has_next and (
+                _is_numeric_split_boundary(remaining, idx)
+                or _is_non_sentence_period_split_boundary(remaining, idx)
+            )
+
             # Nếu đã vượt max và vẫn chưa có candidate nào,
-            # buộc phải cắt ở đây (fallback)
+            # cắt ở boundary an toàn đầu tiên. Nếu boundary hiện tại nằm trong
+            # một notation/designation thì tiếp tục đi tới hết cụm, chấp nhận
+            # ngoại lệ vượt max giống như một token đơn quá dài.
             if current_len > max_chars and best_idx == -1:
+                if protected_boundary:
+                    continue
                 best_idx = idx
                 break
 
             if current_len > max_chars:
                 break
+
+            # Không chỉ trừ điểm: tuyệt đối không chọn ranh giới làm tách đôi
+            # caliber/đơn vị/designation khi vẫn còn token phía sau.
+            if protected_boundary:
+                continue
 
             score = _score_split_point(remaining, idx, target_len, current_len)
             if score > best_score:

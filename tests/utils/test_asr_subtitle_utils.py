@@ -290,6 +290,29 @@ class TestLayer1_MergePunctuation:
 
         assert "".join(item["text"] for item in result) == "NATO round"
 
+    @pytest.mark.parametrize(
+        ("token_texts", "expected_token_texts"),
+        [
+            (["acb", "22", "LR"], ["acb, ", ".22 ", "LR"]),
+            (["acb", "22LR"], ["acb, ", ".22 LR"]),
+        ],
+    )
+    def test_leading_caliber_after_comma_belongs_to_numeric_token(
+        self,
+        token_texts,
+        expected_token_texts,
+    ):
+        """Regression: comma không được nuốt point mở đầu của ``.22 LR``."""
+        words = [
+            _FakeWord(text, idx * 0.5, (idx + 1) * 0.5)
+            for idx, text in enumerate(token_texts)
+        ]
+
+        result = merge_punctuation(words, "acb, .22 LR")
+
+        assert [item["text"] for item in result] == expected_token_texts
+        assert "".join(item["text"] for item in result) == "acb, .22 LR"
+
     def test_sentence_terminating_period_not_treated_as_numeric_separator(self):
         """Dấu chấm cuối câu (số đứng trước, không có số sau) vẫn là dấu câu thường."""
         words = [_FakeWord("It", 0.0, 0.5), _FakeWord("costs", 0.5, 1.0), _FakeWord("500", 1.0, 1.5)]
@@ -322,6 +345,20 @@ class TestLayer1_SegmentWordsToSubtitles:
             words.append({"text": text, "start_time": t, "end_time": t + 0.5})
             t += 0.5
         return words
+
+    def test_comma_split_keeps_leading_caliber_with_number(self):
+        """Grammar split phải tạo ``acb,`` + ``.22 LR``, không tạo ``, .``."""
+        words = self._make_words(["acb, ", ".22 ", "LR"])
+
+        blocks = segment_words_to_subtitles(
+            words,
+            min_chars=0,
+            max_chars=0,
+            split_on_comma=True,
+        )
+        texts = ["".join(word["text"] for word in block) for block in blocks]
+
+        assert texts == ["acb, ", ".22 LR"]
 
     def test_empty_input(self):
         assert segment_words_to_subtitles([]) == []

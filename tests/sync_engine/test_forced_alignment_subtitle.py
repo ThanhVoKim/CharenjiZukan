@@ -1025,6 +1025,38 @@ class TestLayer2_PerClipAlignMerge:
         assert "71+1" not in output_text
         assert "76251mm" not in output_text
 
+    def test_comma_before_22_lr_survives_per_clip_flow(self, tmp_path):
+        """Regression sync-video: không tách ``, .`` khỏi caliber ``.22 LR``."""
+        from utils.forced_aligner import execute_forced_alignment_clips
+
+        clips = [{
+            "audio_path": str(tmp_path / "clip.wav"),
+            "text": "acb, .22 LR",
+            "offset_ms": 0.0,
+            "audio_speed": 1.0,
+            "line": 0,
+        }]
+        mock_aligner = MagicMock()
+        mock_aligner.align.return_value = [[
+            self._make_word("acb", 0.0, 0.3),
+            self._make_word("22", 0.3, 0.5),
+            self._make_word("LR", 0.5, 0.7),
+        ]]
+
+        with patch("utils.forced_aligner.load_forced_aligner", return_value=mock_aligner), \
+             patch("utils.media_utils.clear_vram"):
+            aligned, failed = execute_forced_alignment_clips(
+                clips=clips,
+                align_cfg={"language": "English", "max_chars": 5, "min_chars": 0,
+                           "split_on_comma": True, "offset_seconds": 0.0,
+                           "batch_size": 16},
+            )
+
+        texts = [segment["text"] for segment in aligned]
+        assert failed == []
+        assert texts == ["acb,", ".22 LR"]
+        assert " ".join(texts) == "acb, .22 LR"
+
     def test_fallback_to_mixed_audio_when_no_timeline(self, tmp_path):
         """Không có timeline → dùng nhánh cũ (execute_forced_alignment)."""
         from sync_engine.forced_alignment_subtitle import run_forced_alignment_subtitle
