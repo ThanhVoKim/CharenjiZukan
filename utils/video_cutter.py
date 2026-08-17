@@ -10,6 +10,7 @@ Independent from sync_engine — operates on source video timeline only.
 import bisect
 import json
 import logging
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -42,6 +43,9 @@ class KeepRange:
     clean_start_ms: float = 0.0
     clean_end_ms: float = 0.0
     part_file: str = ""
+    line: int = 0
+    text: str = ""
+    clip_path: str = ""
 
 
 @dataclass
@@ -157,6 +161,126 @@ def parse_remove_srt(srt_path: str) -> List[RemoveRange]:
             text=seg.get("text", ""),
         ))
     return ranges
+
+
+def parse_keep_srt(srt_path: str) -> List[KeepRange]:
+    """Parse an SRT whose blocks are the source ranges to keep as clips."""
+    with open(srt_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    segments = parse_srt(content, skip_empty_text=False)
+    ranges = []
+    for seg in segments:
+        ranges.append(KeepRange(
+            start_ms=seg["start_time"],
+            end_ms=seg["end_time"],
+            line=seg["line"],
+            text=seg.get("text", ""),
+        ))
+    return ranges
+
+
+def normalize_keep_ranges(
+    ranges: List[KeepRange],
+    source_duration_ms: float,
+    min_keep_ms: float = MIN_KEEP_MS,
+) -> List[KeepRange]:
+    """Clamp and order keep ranges without merging overlapping SRT blocks."""
+    normalized: List[KeepRange] = []
+    for r in sorted(ranges, key=lambda item: (item.start_ms, item.end_ms, item.line)):
+        start_ms = max(0, r.start_ms)
+        end_ms = min(source_duration_ms, r.end_ms)
+        if end_ms <= start_ms:
+            logger.warning(
+                "Skipping invalid keep range line=%d: start=%.0f >= end=%.0f",
+                r.line,
+                start_ms,
+                end_ms,
+            )
+            continue
+        if end_ms - start_ms < min_keep_ms:
+            logger.warning(
+                "Skipping short keep range line=%d: duration=%.0fms < %.0fms",
+                r.line,
+                end_ms - start_ms,
+                min_keep_ms,
+            )
+            continue
+        normalized.append(KeepRange(
+            start_ms=start_ms,
+            end_ms=end_ms,
+            line=r.line,
+            text=r.text,
+        ))
+    return normalized
+
+
+def expand_keep_ranges(
+    ranges: List[KeepRange],
+    margin_ms: float,
+    source_duration_ms: float,
+) -> List[KeepRange]:
+    """Add context around keep ranges while retaining block text and order."""
+    if margin_ms <= 0:
+        return [KeepRange(**r.__dict__) for r in ranges]
+
+    expanded = []
+    for r in ranges:
+        expanded.append(KeepRange(
+            start_ms=max(0, r.start_ms - margin_ms),
+            end_ms=min(source_duration_ms, r.end_ms + margin_ms),
+            line=r.line,
+            text=r.text,
+        ))
+    return expanded
+
+
+def snap_keep_ranges_to_frame_grid(
+    ranges: List[KeepRange],
+    fps: float,
+    source_duration_ms: float,
+) -> List[KeepRange]:
+    """Snap keep ranges to frame boundaries for re-encoded clip output."""
+    if fps <= 0:
+        return [KeepRange(**r.__dict__) for r in ranges]
+
+    def _snap(ms: float) -> float:
+        frame_idx = round((ms / 1000.0) * fps)
+        return (frame_idx / fps) * 1000.0
+
+    snapped = []
+    for r in ranges:
+        snapped.append(KeepRange(
+            start_ms=max(0, _snap(r.start_ms)),
+            end_ms=min(source_duration_ms, _snap(r.end_ms)),
+            line=r.line,
+            text=r.text,
+        ))
+    return normalize_keep_ranges(snapped, source_duration_ms)
+
+
+_WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def sanitize_clip_stem(text: str, fallback: str = "clip", max_length: int = 120) -> str:
+    """Turn subtitle text into a safe, readable cross-platform filename stem."""
+    stem = re.sub(r"\s+", " ", str(text or "").replace("\n", " ").replace("\r", " ")).strip()
+    stem = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]', "_", stem)
+    stem = stem.rstrip(" .")
+    if not stem:
+        stem = fallback
+    if stem.split(".", 1)[0].upper() in _WINDOWS_RESERVED_NAMES:
+        stem = f"_{stem}"
+    stem = stem[:max_length].rstrip(" .")
+    return stem or fallback
+
+
+def clip_filename(index: int, text: str) -> str:
+    """Build an ordered clip filename from an SRT block's text."""
+    return f"{index:04d}_{sanitize_clip_stem(text)}.mp4"
 
 
 def apply_safe_margin(
@@ -427,6 +551,238 @@ def concat_parts(part_paths: List[str], output_path: str) -> None:
     finally:
         if list_file.exists():
             list_file.unlink(missing_ok=True)
+
+
+def _build_keep_manifest(
+    input_path: str,
+    output_dir: str,
+    keep_srt_path: str,
+    method: str,
+    safe_margin_ms: float,
+    audio_fade_ms: float,
+    audio_fade_enabled: bool,
+    info: VideoInfo,
+    keep_ranges: List[KeepRange],
+    total_clip_duration_ms: float,
+    hevc_cq: int,
+    hevc_preset: str,
+    maxrate: Optional[int],
+    bufsize: Optional[int],
+    audio_bitrate: str,
+    warnings: List[str],
+) -> dict:
+    """Build manifest for keep-SRT mode, including every named clip."""
+    encoder: Dict = {
+        "video": "copy" if method == "hybrid-copy" else "hevc_nvenc",
+        "audio": "aac",
+        "audio_bitrate": audio_bitrate,
+    }
+    if method == "reencode-smooth":
+        encoder.update({
+            "hevc_nvenc_available": True,
+            "input_video_bitrate": info.video_bitrate,
+            "maxrate": maxrate,
+            "bufsize": bufsize,
+            "cq": hevc_cq,
+            "preset": hevc_preset,
+            "tune": "hq",
+            "maxrate_used": maxrate is not None,
+        })
+    else:
+        encoder.update({
+            "hevc_nvenc_available": None,
+            "input_video_bitrate": None,
+            "maxrate_used": False,
+        })
+
+    clips = []
+    for r in keep_ranges:
+        clips.append({
+            "line": r.line,
+            "text": r.text,
+            "start_ms": r.start_ms,
+            "end_ms": r.end_ms,
+            "duration_ms": r.end_ms - r.start_ms,
+            "clip_path": r.clip_path,
+        })
+
+    return {
+        "version": 1,
+        "mode": "keep-srt",
+        "input_video": input_path,
+        "output_dir": output_dir,
+        "keep_srt": keep_srt_path,
+        "method": method,
+        "safe_margin_ms": safe_margin_ms,
+        "audio_fade_ms": audio_fade_ms,
+        "audio_fade_enabled": audio_fade_enabled,
+        "source_duration_ms": info.duration_ms,
+        "total_clip_duration_ms": total_clip_duration_ms,
+        "clip_count": len(clips),
+        "fps": info.fps,
+        "keep_ranges": clips,
+        "clips": clips,
+        "encoder": encoder,
+        "warnings": warnings,
+    }
+
+
+def run_keep_srt(
+    input_path: str,
+    output_dir: str,
+    keep_srt_path: str,
+    manifest_path: Optional[str] = None,
+    method: str = "hybrid-copy",
+    hevc_cq: int = 28,
+    maxrate_ratio: float = 1.15,
+    hevc_preset: str = "p4",
+    audio_bitrate: str = "256k",
+    audio_fade_ms: float = 10,
+    safe_margin_ms: float = 100,
+    audio_fade_enabled: bool = True,
+) -> CutResult:
+    """Create one named clip per block in a keep/highlight SRT.
+
+    Each individual clip is written to ``output_dir``. Subtitle text is used as
+    a sanitized filename stem, prefixed with the SRT block order to keep
+    filenames unique and ordered. No combined video is created.
+    """
+    logger.info("Probing input video: %s", input_path)
+    info = probe_video_info(input_path)
+
+    if not info.has_audio:
+        raise RuntimeError("Input video has no audio stream. Keep-SRT requires video with audio.")
+
+    if method == "reencode-smooth":
+        if not detect_hevc_nvenc():
+            reason = get_hevc_nvenc_unavailable_reason()
+            detail = f" Probe detail: {reason}" if reason else ""
+            raise RuntimeError(
+                "hevc_nvenc not available. Method 'reencode-smooth' requires NVIDIA GPU encoder. "
+                "Use --method hybrid-copy or install NVIDIA drivers with NVENC support."
+                f"{detail}"
+            )
+
+    logger.info("Parsing keep SRT: %s", keep_srt_path)
+    source_ranges = parse_keep_srt(keep_srt_path)
+    if not source_ranges:
+        raise RuntimeError("Keep SRT is empty — no clips to create.")
+
+    normalized = normalize_keep_ranges(source_ranges, info.duration_ms)
+    margined = expand_keep_ranges(normalized, safe_margin_ms, info.duration_ms)
+    margined = normalize_keep_ranges(margined, info.duration_ms)
+    if method == "reencode-smooth":
+        final_ranges = snap_keep_ranges_to_frame_grid(margined, info.fps, info.duration_ms)
+    else:
+        final_ranges = margined
+
+    if not final_ranges:
+        raise RuntimeError("No valid keep ranges remain after normalization.")
+
+    clip_dir = Path(output_dir)
+    if clip_dir.exists() and not clip_dir.is_dir():
+        raise RuntimeError(f"Keep output path exists but is not a directory: {clip_dir}")
+    clip_dir.mkdir(parents=True, exist_ok=True)
+
+    maxrate = None
+    bufsize = None
+    if method == "reencode-smooth" and info.video_bitrate:
+        maxrate = int(info.video_bitrate * maxrate_ratio)
+        bufsize = int(maxrate * 2.0)
+        logger.info("Bitrate probe OK: maxrate=%d, bufsize=%d", maxrate, bufsize)
+    elif method == "reencode-smooth":
+        logger.info("Could not probe video bitrate — skipping maxrate/bufsize")
+
+    warnings: List[str] = []
+
+    for index, keep in enumerate(final_ranges, start=1):
+        clip_path = clip_dir / clip_filename(index, keep.text)
+        keep.clip_path = str(clip_path)
+        keep.part_file = str(clip_path)
+
+        if method == "hybrid-copy":
+            cmd = build_hybrid_copy_part_cmd(
+                input_path,
+                str(clip_path),
+                keep,
+                audio_bitrate=audio_bitrate,
+                audio_fade_ms=audio_fade_ms,
+                audio_fade_enabled=audio_fade_enabled,
+                is_first_part=False,
+                is_last_part=False,
+            )
+        else:
+            cmd = build_reencode_part_cmd(
+                input_path,
+                str(clip_path),
+                keep,
+                cq=hevc_cq,
+                preset=hevc_preset,
+                maxrate=maxrate,
+                bufsize=bufsize,
+                audio_bitrate=audio_bitrate,
+                audio_fade_ms=audio_fade_ms,
+                audio_fade_enabled=audio_fade_enabled,
+                is_first_part=False,
+                is_last_part=False,
+            )
+
+        logger.info(
+            "Clip %d/%d [%s]: %.0fms-%.0fms -> %s",
+            index,
+            len(final_ranges),
+            keep.text or "(untitled)",
+            keep.start_ms,
+            keep.end_ms,
+            clip_path,
+        )
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=1200)
+        except subprocess.CalledProcessError as e:
+            err = e.stderr[-2000:] if e.stderr else str(e)
+            raise RuntimeError(f"FFmpeg failed on keep clip {index}: {err}") from e
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(f"FFmpeg timeout on keep clip {index} (1200s)") from e
+
+        if not clip_path.exists() or clip_path.stat().st_size == 0:
+            raise RuntimeError(f"Keep clip empty or missing: {clip_path}")
+
+    total_clip_duration_ms = sum(r.end_ms - r.start_ms for r in final_ranges)
+    logger.info("Created %d individual keep clips in %s", len(final_ranges), clip_dir)
+
+    if not manifest_path:
+        manifest_path = str(clip_dir / "keep_manifest.json")
+    else:
+        Path(manifest_path).parent.mkdir(parents=True, exist_ok=True)
+
+    manifest = _build_keep_manifest(
+        input_path=input_path,
+        output_dir=str(clip_dir),
+        keep_srt_path=keep_srt_path,
+        method=method,
+        safe_margin_ms=safe_margin_ms,
+        audio_fade_ms=audio_fade_ms,
+        audio_fade_enabled=audio_fade_enabled,
+        info=info,
+        keep_ranges=final_ranges,
+        total_clip_duration_ms=total_clip_duration_ms,
+        hevc_cq=hevc_cq,
+        hevc_preset=hevc_preset,
+        maxrate=maxrate,
+        bufsize=bufsize,
+        audio_bitrate=audio_bitrate,
+        warnings=warnings,
+    )
+
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
+    logger.info("Keep manifest written: %s", manifest_path)
+
+    return CutResult(
+        output_path=str(clip_dir),
+        manifest_path=str(manifest_path),
+        manifest=manifest,
+    )
 
 
 # ── Main orchestration ────────────────────────────────────────────────

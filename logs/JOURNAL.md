@@ -1,5 +1,60 @@
 # Project Journal
 
+## 2026-08-17: `pre-cut-video --keep-srt` xuất clip highlight có tên từ subtitle
+
+### Bối cảnh
+
+`pre-cut-video` trước đây chỉ nhận `--remove-srt`: các range trong SRT bị xóa,
+các phần còn lại được nối thành một video clean. Workflow highlight cần chiều
+ngược lại: mỗi block SRT là một đoạn cần giữ và phải xuất thành clip riêng,
+không tạo video nối tổng.
+
+### Thay đổi
+
+**`utils/video_cutter.py`**
+
+- Thêm parser và normalization cho keep ranges từ SRT, giữ lại `line` và text
+  của từng block.
+- Thêm `run_keep_srt()`: mỗi block tạo một clip độc lập từ video nguồn trong
+  thư mục output; không gọi concat.
+- Tên clip có dạng `0001_<subtitle-text>.mp4`. Text được collapse whitespace,
+  thay ký tự không hợp lệ/reserved name của Windows, có fallback cho block rỗng
+  và giới hạn độ dài để tránh path quá dài.
+- Ghi `keep_manifest.json` với timestamp nguồn, text, đường dẫn clip, encoder và
+  tổng số clip.
+- `--safe-margin-ms` trong keep mode mở rộng mỗi range ở hai đầu; reencode mode
+  snap range theo frame grid.
+
+**`cli/pre_cut_video.py`**
+
+- Thêm `--keep-srt` / `-k`; `--remove-srt` và `--keep-srt` là mutually exclusive.
+- Trong keep mode, `--output` là thư mục clip; `--keep-tmp` được bỏ qua vì clip
+  đã xuất luôn được giữ lại.
+- Giữ nguyên remove mode và manifest/timeline behavior cũ.
+
+**`docs/colab-guide.md`**
+
+- Bổ sung workflow, format SRT, ví dụ output và bảng tham số cho `--keep-srt`.
+
+### Regression tests
+
+- Parse/normalize keep SRT và giữ text/line.
+- Sanitize ký tự không hợp lệ, tên Windows reserved và text rỗng.
+- Mock keep flow xác nhận tạo clip riêng, tên trùng vẫn unique nhờ prefix và
+  không gọi concat.
+- Kiểm tra parser yêu cầu đúng một trong `--remove-srt` hoặc `--keep-srt`.
+
+### Verification
+
+- `pytest -q tests/utils/test_video_cutter.py tests/cli/test_pre_cut_video.py`:
+  **64 passed**.
+- Full `pytest -q` collection remains unavailable in the current base Python:
+  unrelated existing tests require missing `yaml` and `numpy` packages. The
+  broader CLI subset also has three pre-existing `punctuate_srt` failures caused
+  by missing PyYAML; no keep-SRT test failed.
+
+---
+
 ## 2026-08-11: Forced alignment — bảo toàn `.22 LR` sau dấu phẩy
 
 ### Bối cảnh

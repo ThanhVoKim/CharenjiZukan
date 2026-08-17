@@ -1441,7 +1441,9 @@ Các key chính: `enabled` (bật/tắt), `asset` (PNGTuber + chromakey), `chara
 
 ### 2.13. Pre-cut Video (pre-cut-video)
 
-Loại bỏ các đoạn thừa từ video gốc **trước khi** chạy transcript/translate/sync. CLI này tạo video clean và manifest JSON để trace timeline.
+Xử lý video theo các timestamp trong SRT. Chế độ `--remove-srt` loại bỏ các đoạn
+không mong muốn để tạo video clean; chế độ `--keep-srt` xuất **mỗi block SRT
+thành một clip riêng**, dùng text của block làm tên file.
 
 #### Re-encode smooth (HEVC NVENC)
 
@@ -1483,26 +1485,72 @@ CUT intro mistake
 CUT sponsor
 ```
 
+#### Cắt các clip highlight bằng `--keep-srt`
+
+Trong chế độ này, mỗi block là một đoạn **cần giữ**. `--output` là thư mục
+chứa các clip riêng; không tạo video nối các clip. Tên file có dạng
+`0001_<subtitle-text>.mp4`, trong đó text được làm sạch các ký tự không hợp lệ
+cho tên file. Nếu hai block có cùng text, tiền tố số thứ tự vẫn giữ tên file
+không trùng nhau.
+
+```colab
+!uv run pre-cut-video \
+    --input /content/livestream.mp4 \
+    --output /content/highlight_clips \
+    --keep-srt /content/highlights.srt \
+    --method reencode-smooth \
+    --safe-margin-ms 0 \
+    --manifest /content/highlight_clips/keep_manifest.json \
+    --verbose
+```
+
+Ví dụ `highlights.srt`:
+
+```srt
+1
+00:12:30,000 --> 00:13:05,500
+Pha xử lý tình huống bất ngờ
+
+2
+01:04:10,200 --> 01:05:22,000
+Giải thích chiến thuật quan trọng
+```
+
+Output:
+
+```text
+/content/highlight_clips/0001_Pha xử lý tình huống bất ngờ.mp4
+/content/highlight_clips/0002_Giải thích chiến thuật quan trọng.mp4
+/content/highlight_clips/keep_manifest.json
+```
+
+`--safe-margin-ms` mở rộng mỗi đoạn giữ ở cả hai đầu; đặt `0` nếu muốn bám
+đúng timestamp trong SRT. `--keep-tmp` không cần dùng với `--keep-srt` vì các
+clip đã xuất luôn được giữ lại.
+
 #### Tham số
 
 | Tham số                | Mô tả                                                | Mặc định                     |
 | ---------------------- | ---------------------------------------------------- | ---------------------------- |
 | `--input`, `-i`        | File video gốc cần cắt                               | (bắt buộc)                   |
-| `--output`, `-o`       | File video clean sau khi cắt                         | (bắt buộc)                   |
-| `--remove-srt`, `-r`   | File SRT chứa các đoạn cần xóa (timestamp video gốc) | (bắt buộc)                   |
-| `--manifest`           | Path manifest JSON                                   | `<output>_cut_manifest.json` |
+| `--output`, `-o`       | File video clean; với `--keep-srt` là thư mục chứa clip riêng | (bắt buộc)             |
+| `--remove-srt`, `-r`   | SRT chứa các đoạn cần xóa; dùng loại này **hoặc** `--keep-srt` | (một bắt buộc)        |
+| `--keep-srt`, `-k`     | SRT chứa các đoạn cần giữ, mỗi block tạo một clip có tên từ text | (một bắt buộc)   |
+| `--manifest`           | Path manifest JSON; keep mode mặc định `<output>/keep_manifest.json` | (tùy chọn)       |
 | `--method`             | Phương pháp: `hybrid-copy` hoặc `reencode-smooth`    | `hybrid-copy`                |
 | `--hevc-cq`            | CQ cho reencode-smooth                               | `28`                         |
 | `--maxrate-ratio`      | Nhân input bitrate để tính maxrate (reencode-smooth) | `1.15`                       |
 | `--hevc-preset`        | Preset cho hevc_nvenc                                | `p4`                         |
 | `--audio-bitrate`      | Bitrate AAC output                                   | `256k`                       |
 | `--audio-fade-ms`      | Fade audio ở rìa mỗi keep part (ms)                  | `10`                         |
-| `--safe-margin-ms`     | Mở rộng remove ranges trên source timeline (ms)      | `100`                        |
+| `--safe-margin-ms`     | Mở rộng remove/keep ranges trên source timeline (ms) | `100`                       |
 | `--disable-audio-fade` | Tắt audio fade                                       | (tắt)                        |
-| `--keep-tmp`           | Giữ part files tạm sau concat để debug               | (tắt)                        |
+| `--keep-tmp`           | Giữ part files tạm của remove mode; keep mode luôn giữ clip | (tắt)                  |
 | `--verbose`, `-v`      | Bật log chi tiết (DEBUG level)                       | (tắt)                        |
 
-> **Lưu ý:** Sau pre-cut, tất cả timestamp đều thuộc timeline của video clean. Không dùng lại timestamp của video gốc cho các bước sau.
+> **Lưu ý:** `--remove-srt` tạo một video clean nối các phần còn lại nên timestamp
+> của video mới không còn trùng timeline gốc. `--keep-srt` giữ từng clip độc lập;
+> manifest lưu timestamp nguồn và đường dẫn clip tương ứng.
 
 ---
 

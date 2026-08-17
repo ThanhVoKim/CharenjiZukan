@@ -36,6 +36,10 @@ from utils.video_cutter import (
     build_hybrid_copy_part_cmd,
     build_reencode_part_cmd,
     parse_remove_srt,
+    parse_keep_srt,
+    normalize_keep_ranges,
+    sanitize_clip_stem,
+    run_keep_srt,
     _build_manifest,
     MIN_KEEP_MS,
 )
@@ -115,6 +119,43 @@ class TestLayer1_ParseRemoveSrt:
         assert ranges[1].end_ms == 205200
         assert ranges[1].line == 2
         assert ranges[1].text == "CUT sponsor"
+
+
+class TestLayer1_KeepSrt:
+    """Keep-SRT parsing and safe clip-name generation."""
+
+    def test_parse_keep_srt_preserves_text_and_line(self, tmp_path):
+        srt_file = tmp_path / "highlights.srt"
+        srt_file.write_text(
+            "1\n00:00:01,000 --> 00:00:03,000\nA highlight\n\n"
+            "2\n00:00:05,000 --> 00:00:06,500\n\n",
+            encoding="utf-8",
+        )
+
+        ranges = parse_keep_srt(str(srt_file))
+
+        assert len(ranges) == 2
+        assert ranges[0].line == 1
+        assert ranges[0].text == "A highlight"
+        assert ranges[1].text == ""
+
+    def test_normalize_keep_ranges_sorts_and_drops_invalid(self):
+        ranges = [
+            KeepRange(start_ms=9000, end_ms=10000, line=2, text="late"),
+            KeepRange(start_ms=2000, end_ms=1000, line=3, text="invalid"),
+            KeepRange(start_ms=1000, end_ms=2500, line=1, text="early"),
+        ]
+
+        normalized = normalize_keep_ranges(ranges, source_duration_ms=12000)
+
+        assert [r.line for r in normalized] == [1, 2]
+        assert [r.start_ms for r in normalized] == [1000, 9000]
+
+    def test_sanitize_clip_stem_removes_invalid_and_reserved_names(self):
+        assert sanitize_clip_stem('A:/B? "C"') == "A__B_ _C_"
+        assert sanitize_clip_stem("CON") == "_CON"
+        assert sanitize_clip_stem("CON.txt").startswith("_CON.txt")
+        assert sanitize_clip_stem("\n\t") == "clip"
 
     def test_parse_srt_without_text(self, remove_srt_no_text):
         ranges = parse_remove_srt(str(remove_srt_no_text))
@@ -796,6 +837,60 @@ class TestLayer2_HybridCopyKeepTopology:
         assert keep_ranges[1]["start_ms"] == 10260
         assert keep_ranges[2]["start_ms"] == 18419
         assert keep_ranges[3]["start_ms"] == 36660
+
+
+class TestLayer2_KeepSrtClips:
+    """Keep-SRT exports named independent clips without concatenation."""
+
+    @patch("utils.video_cutter.concat_parts")
+    @patch("subprocess.run")
+    @patch("utils.video_cutter.probe_video_info")
+    def test_exports_named_clips_and_manifest(
+        self,
+        mock_probe,
+        mock_subproc,
+        mock_concat,
+        video_info_with_audio,
+        tmp_path,
+    ):
+        video_info_with_audio.duration_ms = 30000
+        mock_probe.return_value = video_info_with_audio
+
+        def create_fake_clip(cmd, *args, **kwargs):
+            Path(cmd[-1]).parent.mkdir(parents=True, exist_ok=True)
+            Path(cmd[-1]).write_bytes(b"fake_clip_data" * 100)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_subproc.side_effect = create_fake_clip
+
+        srt_file = tmp_path / "highlights.srt"
+        srt_file.write_text(
+            "1\n00:00:01,000 --> 00:00:03,000\nA: first highlight\n\n"
+            "2\n00:00:05,000 --> 00:00:07,000\nA: first highlight\n",
+            encoding="utf-8",
+        )
+        clips_dir = tmp_path / "clips"
+
+        result = run_keep_srt(
+            input_path="input.mp4",
+            output_dir=str(clips_dir),
+            keep_srt_path=str(srt_file),
+            safe_margin_ms=0,
+            method="hybrid-copy",
+        )
+
+        clip_files = sorted(clips_dir.glob("*.mp4"))
+        assert [p.name for p in clip_files] == [
+            "0001_A_ first highlight.mp4",
+            "0002_A_ first highlight.mp4",
+        ]
+        assert not mock_concat.called
+        assert result.output_path == str(clips_dir)
+        assert result.manifest["mode"] == "keep-srt"
+        assert result.manifest["clip_count"] == 2
+        assert result.manifest["clips"][0]["text"] == "A: first highlight"
+        assert result.manifest["clips"][0]["clip_path"] == str(clip_files[0])
+        assert (clips_dir / "keep_manifest.json").exists()
 
 
 class TestLayer2_TempCleanup:
